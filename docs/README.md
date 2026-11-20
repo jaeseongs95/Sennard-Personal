@@ -14,7 +14,7 @@ These documents are for people who install and use Sennard. Installation is desc
 | [Admin page and contexts](user/admin-page.md) | The local admin page, the global, role, and situational contexts, JEV, language, and reset |
 | [Session collaboration](user/collaboration.md) | The session board, PEER messages, and wake methods per host |
 | [State storage and cleanup](user/state.md) | Storage locations and settings, cleanup, backup, and recovery |
-| [Updates and migration](user/update.md) | New version notices, the update procedure, language, and upgrading from earlier versions |
+| [Updates and migration](user/update.md) | New version notices, the update procedure, and plugin hooks |
 | [Troubleshooting](user/troubleshooting.md) | What to check for each symptom |
 
 ## Contributor Documents
@@ -44,4 +44,4 @@ These documents are for people who change Sennard itself. Start with the [contri
 
 ## Release Notes
 
-- [Release notes](release-notes/): One `release-notes-v<version>.md` file per version. The personal edition starts with [1.0.0](release-notes/release-notes-v1.0.0.md); each personal release note contains the English text first, followed by the Korean text. The GitHub Release body is also created from this file. Notes for earlier AGS/Sennard versions are retained as historical records.
+- [Release notes](release-notes/): One `release-notes-v<version>.md` file per version. The personal edition starts with [1.0.0](release-notes/release-notes-v1.0.0.md); each personal release note contains the English text first, followed by the Korean text. The GitHub Release body is also created from this file.

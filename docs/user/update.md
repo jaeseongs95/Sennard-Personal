@@ -1,7 +1,7 @@
 [한국어](update.ko.md)
 # Updates and Migration
 
-For the initial installation, see the [Installation section of the README](../../README.md#installation). This document describes new version notifications, the update procedure, changing the language package, and what to check when upgrading from an earlier version.
+For the first public release of Sennard Personal, follow the [1.0.0 installation instructions](../../README.md#installation). This guide covers notifications, upgrades, and plugin hooks for later releases.
 
 ## New Version Notifications
 
@@ -15,9 +15,9 @@ The resident server checks only stable tags in the `vMAJOR.MINOR.PATCH` format i
 
 ## Update Procedure
 
-First, check the "Before Upgrading" section or breaking changes in the release notes of the new version.
+Before upgrading to a later release, read its “Before Upgrading” section for migration, compatibility, and recovery instructions.
 
-When upgrading to a version after 6.0.0, do the following.
+To upgrade a Personal installation, follow these steps.
 
 1. Close all host sessions.
 2. Download `sennard-<version>.jar` and its `.sha256` of the new version, check the jar, and run `java -jar sennard-<version>.jar upgrade` with your JDK 25. It extracts the new version beside the old one, creates the AOT caches, stops the server (and waits for its process to end), and starts the new version. After the server starts normally, it deletes the old version folder, writes the host definitions again, and prints the new command path. It refuses the same version with `SAME_VERSION` and a lower version with `DOWNGRADE_REFUSED`. `sennard.yaml` in the installed version folder ([location](state.md#storage-location)) is copied to the new version. The link of the business database is not in that file: it is in the settings database of the state folder, so an upgrade leaves it as it is.
@@ -46,9 +46,4 @@ If a problem occurs, investigate while preserving the state folder without delet
 
 ## Language
 
-Starting with 4.0.0, there is one package per host. Sennard text read by the model is fixed to a single, token-efficient form for each text regardless of the language of the installation environment (hook guidance, tool descriptions, results, CLI output, and skill descriptions are in English; the common intake criteria in the MCP instructions are in Korean). Skill bodies remain in their original language (mostly Korean). The display language setting and `SENNARD_LOCALE` no longer have any effect ([Admin Page and Context](admin-page.md#language)).
-
-## Upgrading from Earlier Versions
-
-- **6.0.0:** A server installation step was added. The release is one jar that you run with your JDK 25 (`java -jar`), and the server's port is chosen by the operating system at each start. Local settings use H2 and business state uses a separately configured database. For public contract changes, follow the [6.0.0 release notes](../release-notes/release-notes-v6.0.0.md).
-- **English-only packages:** English-only packages (`sennard-en`, agy `-en.zip`) are no longer distributed. If you installed one, remove it and install `sennard`.
+There is one package per host. Sennard text read by the model is fixed to a single, token-efficient form for each text regardless of the language of the installation environment (hook guidance, tool descriptions, results, CLI output, and skill descriptions are in English; the common intake criteria in the MCP instructions are in Korean). Skill bodies remain in their original language (mostly Korean). See [Admin Page and Context](admin-page.md#language) for the administration page language.

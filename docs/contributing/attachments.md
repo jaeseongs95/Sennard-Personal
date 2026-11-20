@@ -2,7 +2,7 @@
 
 # Attachments and Uploads
 
-This document describes how Sennard 6.0.0 stores and uploads attachments: the evidence files of a stage result. The design is shared with the ledger and SSH products (AGS3-D-0264), and the three products implement it in the same way. The code is in `io.github.jaeseongs95.sennard.app.attachment` (`sennard-app`), the tables are created by `V21__attachment.sql` (`sennard-store-pg`), and the tools are declared in `ArtifactTools` (`sennard-server`).
+This document describes how Sennard stores and uploads attachments: the evidence files of a stage result. The code is in `io.github.jaeseongs95.sennard.app.attachment` (`sennard-app`), the tables are created by `V21__attachment.sql` (`sennard-store-pg`), and the tools are declared in `ArtifactTools` (`sennard-server`).
 
 ## Purpose and Rationale
 
@@ -288,4 +288,4 @@ A stage result names every file by attachment id and file number (the contract i
 
 ## Compatibility
 
-6.0.0 is not compatible with 5.x, and no compatibility shim exists. A stage result names its files by `attachmentId` instead of `locator`; the new tools, the tables of V21 and the `sennard.attachments` settings are new. 6.0.0 does not read the state of an earlier version, so there is nothing of 5.x to migrate: see [Upgrading from an earlier major version](../release-notes/release-notes-v6.0.0.md) and [State storage and cleanup](../user/state.md).
+Stage results identify files by `attachmentId`. See [State storage and cleanup](../user/state.md) for storage configuration.

@@ -2,7 +2,7 @@
 
 # 호스트 훅 수신
 
-6.0.0의 결정이다. 호스트는 Sennard Java 클라이언트(`sennard-hook-client`, `java -cp`로 시작하는 jar)를 command 훅으로 실행하거나, Sennard stdio 중계(`McpRelayMain`, 같은 jar)로 MCP 서버를 호출한다. 둘 다 서버가 상태 폴더의 `server.properties`에 알린 주소로 Spring Boot 서버를 찾는다. 서버가 시작할 때마다 운영체제가 포트를 정하기 때문이다(2.3절). HTTP 훅은 없다. 호스트의 HTTP 훅은 고정된 URL을 받기 때문이다. curl·셸 따옴표·`sh -c`는 훅 정의에 없다. 플러그인 패키지는 정의를 비워서 싣고, `sennard install`·`sennard upgrade`·`sennard hooks`가 이 PC의 `java`와 jar의 절대 경로를 적은 정의를 호스트의 플러그인 사본에 쓴다(2절).
+호스트는 Sennard Java 클라이언트(`sennard-hook-client`, `java -cp`로 시작하는 jar)를 command 훅으로 실행하거나, Sennard stdio 중계(`McpRelayMain`, 같은 jar)로 MCP 서버를 호출한다. 둘 다 서버가 상태 폴더의 `server.properties`에 알린 주소로 Spring Boot 서버를 찾는다. 서버가 시작할 때마다 운영체제가 포트를 정하기 때문이다(2.3절). HTTP 훅은 없다. 호스트의 HTTP 훅은 고정된 URL을 받기 때문이다. curl·셸 따옴표·`sh -c`는 훅 정의에 없다. 플러그인 패키지는 정의를 비워서 싣고, `sennard install`·`sennard upgrade`·`sennard hooks`가 이 PC의 `java`와 jar의 절대 경로를 적은 정의를 호스트의 플러그인 사본에 쓴다(2절).
 
 ## 1. 호스트×이벤트 표
 
@@ -14,7 +14,7 @@
 |---|---|---|
 | SessionStart | Sennard 클라이언트(command, exec 형식) | 공식: SessionStart는 「Only `type: "command"` and `type: "mcp_tool"` hooks are supported」, mcp_tool은 실행 시점에 건너뜀. 클라이언트가 호스트 PID를 서버에 보낸다 |
 | SessionStart 깨우기, Stop 깨우기 | Sennard 클라이언트(command, `asyncRewake`) | 공식: `asyncRewake`는 command 훅의 필드 |
-| SubagentStart·SubagentStop·PreCompact·PostCompact·PostModelSwitch·UserPromptSubmit·PreToolUse(governance·continuity·native-peer)·PostToolUseFailure·PostToolUse·Stop·SessionEnd | Sennard 클라이언트(command, exec 형식) | 서버의 포트가 고정이던 때에는 `type: "http"` 훅이었다. 공식: HTTP 훅의 `url`은 환경 변수를 받지 않으므로(`headers`만 치환한다) 어떤 정의도 주소를 적을 수 없고, command는 `server.properties`에서 읽는다. 도구 실행 관문 세 곳은 `"onFailure": "block"`(Claude Code 2.1.295 이상)과 `--on-failure=block-stderr`를 사용한다. `mcp_tool` 훅(호스트의 다른 형식)은 택하지 않았다. `onFailure`가 없고 `input`에 적은 필드만 받으므로 게이트의 실패 동작을 확인하지 못한다(이후 6.x의 후보) |
+| SubagentStart·SubagentStop·PreCompact·PostCompact·PostModelSwitch·UserPromptSubmit·PreToolUse(governance·continuity·native-peer)·PostToolUseFailure·PostToolUse·Stop·SessionEnd | Sennard 클라이언트(command, exec 형식) | 서버의 포트가 고정이던 때에는 `type: "http"` 훅이었다. 공식: HTTP 훅의 `url`은 환경 변수를 받지 않으므로(`headers`만 치환한다) 어떤 정의도 주소를 적을 수 없고, command는 `server.properties`에서 읽는다. 도구 실행 관문 세 곳은 `"onFailure": "block"`(Claude Code 2.1.295 이상)과 `--on-failure=block-stderr`를 사용한다. `mcp_tool` 훅(호스트의 다른 형식)은 택하지 않았다. `onFailure`가 없고 `input`에 적은 필드만 받으므로 게이트의 실패 동작을 확인하지 못한다 |
 | StopFailure·UserPromptExpansion | 받지 않음 | 대응하는 Sennard 수집 사건이 없다 |
 | PermissionRequest·Notification·TaskCreated 등 나머지 | 받지 않음 | 대응하는 Sennard 수집 사건이 없다 |
 

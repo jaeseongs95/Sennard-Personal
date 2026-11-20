@@ -67,8 +67,6 @@ Each kind carries its own process (its phases, what each phase allows, and what 
 - Cancel the whole work with `release_convergence_root` (`rootId`, the root's `expectedRevision`, `reason`, `operationKey` and any required approval references). The root becomes ABANDONED, its unfinished run is BLOCKED and the scope is released. It cannot be resumed.
 - `abort_workflow` stops only the current attempt; it does not cancel the root or release an OPEN root's scope. A FAILED or BLOCKED attempt cannot resume. Read `get_convergence_status`; if the root remains OPEN and the retry requirements are met, claim and start a new attempt. NEEDS_REVIEW and NEEDS_USER require their review or user decision first.
 
-**V24 upgrade and recovery.** The forward migration adds PAUSED to the existing run-state constraint without rewriting old receipts or the V8 migration. Back up the database before upgrading. After V24, do not start an older server that cannot read PAUSED. There is no down migration; recovery requires a matching server version and the database backup taken before the upgrade.
-
 **JEV before the start.** For a kind that requires `skills` (a change, an operation), when JEV is on, the server first runs its classification for the request, or reuses the one the prompt hook already ran, and gives the advice with the start. A start that left the skills out is refused with the advice in the refusal, so the next call can declare them. The run records which advised skills were adopted, added or not adopted. The agent is not asked to call `classify_skills` first, and the server does not check whether a declared skill was used. When JEV is off, this step is skipped.
 
 ## Workflows and the Edit Gate
@@ -143,7 +141,7 @@ Choosing a model and reasoning level is a section of the delegation decision in 
 - The common selection contract is separated from vendors. A model or effort label is usable only if the current host lists it, so the agent first reads the support information and invocation fields the actual host provides. A model or label seen for the first time needs no change here.
 - The selected value, the value actually sent in the invocation, and the effective setting observed on the host are recorded separately. If an inherited setting cannot be observed, it is left as unconfirmed.
 - Delegation, result recording, and closure are not refused because of the model class or reasoning level. A model seen for the first time is recorded with an unknown class and is not refused.
-- Removed in 6.0.0: the `economy`, `balanced`, and `quality` preference, the risk-based floor on model class and reasoning level, the `support-guard` command and its `ModelEffortAdvice.v1` contract, and the `complex-reasoning` role. Use the `judgment` path (the delegating agent's own class and depth judgment) instead; there is no compatibility layer.
+- Use the `judgment` path for the delegating agent's model and reasoning-level decision.
 - Details are in [Model Routing and Per-Host Application](../../skills/coordinate-subagents/references/model-routing.md).
 
 ## Attaching a Local File

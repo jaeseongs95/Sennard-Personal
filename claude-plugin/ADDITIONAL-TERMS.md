@@ -6,6 +6,6 @@ Sennard is licensed under the GNU Affero General Public License, version 3 or (a
 
 2. Origin (section 7(c)). You must not misrepresent the origin of this material. A modified version you convey must carry prominent notices that state that you changed it and the date of the change, and you must not present it as the original Sennard or as a release of the copyright holder.
 
-3. Names and marks (section 7(e)). The AGPL grants no right to use "Sennard", "Agent Governance Suite", "AGS", or any logo of the copyright holder, as a trademark, trade name or service mark. Using those names to state the origin of the material, as item 1 and item 2 require, is permitted. A modified version you convey must be given a name that is different from these names.
+3. Names and marks (section 7(e)). The AGPL grants no right to use "Sennard" or any logo of the copyright holder, as a trademark, trade name or service mark. Using the Sennard name to state the origin of the material, as item 1 and item 2 require, is permitted. A modified version you convey must be given a name other than Sennard.
 
 These terms are additional terms under section 7 of the AGPL and are not further restrictions. A commercial license of Sennard is available from the copyright holder.

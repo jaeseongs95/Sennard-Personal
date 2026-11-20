@@ -6,9 +6,9 @@
 
 ## 관측과 실행 자격
 
-- `caller.execution`은 `{model, effort, turnId, provenance}` 또는 `{unavailable: 사유}`다. 관측을 기록하는 도구(`plan_workflow`, `record_stage_result`, `classify_skills`, `record_skill_selection`)만 소비한다. 6.0.0에는 실행 하한이 없다.
+- `caller.execution`은 `{model, effort, turnId, provenance}` 또는 `{unavailable: 사유}`다. 관측을 기록하는 도구(`plan_workflow`, `record_stage_result`, `classify_skills`, `record_skill_selection`)만 소비한다. 실행 하한은 없다.
 - `provenance`라는 이름의 필드가 둘 있으며 서로 다른 것을 답합니다. `caller.execution.provenance`는 모델과 추론 강도가 어디서 왔는지(호스트가 보고했는지)를 말합니다. stage 결과의 `recordedBy.provenance`(`ObservedCaller`, `WorkflowCall.of`)는 서버가 *누가* 기록했는지를 어떻게 알게 되었는지를 말합니다. `HOST_OBSERVED`는 호스트가 호출에 사슬 전체를 보여 준 하위 에이전트일 때만이고, 메인(root) 세션은 호스트가 보여 주지 않은 에이전트를 대신해 기록할 수 있으므로 설계상 `UNAVAILABLE`입니다. 그래서 모델과 강도가 관측된 메인 세션도 `recordedBy.provenance: UNAVAILABLE`로 기록하며, 관측된 실행은 결과의 `execution`에 있습니다.
-- 6.0.0의 `ExecutionAssurance.observe()`는 호스트가 보고한 모델과 추론 수준을 보고한 그대로 기록한다. 추론 수준은 비어 있지 않은 아무 문자열이며(보고가 없거나 공백이면 `null`과 참고 `HOST_EFFORT_UNREPORTED`), 모델 등급은 서버가 모르므로 `null`과 참고 `MODEL_NOT_IN_CATALOG`를 붙인다. 모델·추론 수준의 목록, 지원 effort, 최소 effort 판정은 없다.
+- `ExecutionAssurance.observe()`는 호스트가 보고한 모델과 추론 수준을 보고한 그대로 기록한다. 추론 수준은 비어 있지 않은 아무 문자열이며(보고가 없거나 공백이면 `null`과 참고 `HOST_EFFORT_UNREPORTED`), 모델 등급은 서버가 모르므로 `null`과 참고 `MODEL_NOT_IN_CATALOG`를 붙인다. 모델·추론 수준의 목록, 지원 effort, 최소 effort 판정은 없다.
 - `observationId`는 (host, sessionId, actor, callId)의 hash다. 같은 호스트 호출을 다시 보내도 두 번째 소비는 workflow 원장에서 거부된다. 호출에 ID를 주지 않는 호스트(agy)는 PreToolUse 훅이 남긴 행에서 호출 ID를 얻으므로(아래 표) 그 행을 찾았을 때만 관측이 생기며, `HOST_CALL_ID_UNAVAILABLE`은 ID도 그런 행도 없는 호출의 진단이다.
 
 ## 배포물의 연결
@@ -25,7 +25,7 @@
 
 ## 실패와 검증
 
-호출자를 관측하지 못하면 `BINDING_REQUIRED`(`CALLER_PROVENANCE_UNAVAILABLE`), 호스트 사실이 모순되거나 자격·재사용 오류면 `BINDING_INVALID`다. 실행만 관측하지 못한 호출은 신원을 유지한 채 그대로 받아들여진다. 6.0.0에는 실행 하한이 없기 때문이다(아래 참조). 같은 OS 사용자 권한으로 DB에 쓰거나 서버의 MCP 경로를 직접 호출하는 프로세스와의 격리는 보장하지 않는다.
+호출자를 관측하지 못하면 `BINDING_REQUIRED`(`CALLER_PROVENANCE_UNAVAILABLE`), 호스트 사실이 모순되거나 자격·재사용 오류면 `BINDING_INVALID`다. 실행만 관측하지 못한 호출은 신원을 유지한 채 그대로 받아들여진다. 실행 하한이 없기 때문이다(아래 참조). 같은 OS 사용자 권한으로 DB에 쓰거나 서버의 MCP 경로를 직접 호출하는 프로세스와의 격리는 보장하지 않는다.
 
 단위 fixture의 synthetic `_meta`와 실제 설치 호스트의 관측은 서로 다른 검증이다. 릴리즈·설치 담당자는 실호스트(설계 6.2)에서 관측과 guarded workflow 완료를 따로 확인해야 한다.
 

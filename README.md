@@ -31,15 +31,14 @@ Guidance being present does not mean the agent followed it or that the result wa
 
 Sennard has two parts: the server, installed once per user on this computer, and a plugin for each host. Install the server first, then the plugin in every host that should collaborate.
 
-You need the host's plugin feature, a separately configured business database, and a JDK 25 (`java -version` must report 25). You do not need a clone of this repository.
+You need the host's plugin feature, a [new, empty business database](docs/user/state.md#business-database), and a JDK 25 (`java -version` must report 25). You do not need a clone of this repository.
 
 The release is one jar that every operating system runs; there are no per-OS archives and no bundled runtime. The supported environment is any computer on which JDK 25 runs. See the release notes for the host environments covered by verification.
 
 <!-- release-version:start -->
-The current public release is `v1.0.0`, and the examples below install it. This is the first release of Sennard Personal in its [own repository](https://github.com/jaeseongs95/Sennard-Personal). Read the [1.0.0 release notes](docs/release-notes/release-notes-v1.0.0.md) before installing. The version starts at 1.0.0 for this edition; it does not make an existing AGS or Sennard 6.x installation an earlier personal release. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
+The current public release is `v1.0.0`, and the examples below install it. It is the first public release of Sennard Personal. Read the [1.0.0 release notes](docs/release-notes/release-notes-v1.0.0.md) before installing. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
 <!-- release-version:end -->
 
-If Sennard is already installed, follow [Updates and migration](docs/user/update.md).
 ### Server
 
 From the [releases page](https://github.com/jaeseongs95/Sennard-Personal/releases), download `sennard-<version>.jar` and its `sennard-<version>.jar.sha256` (the SHA-256 in the `sha256sum --check` format). Check the jar against the checksum, then run the installer with your JDK 25:
@@ -59,7 +58,7 @@ Next, install the plugin for each host. The plugin holds the skills and empty ho
 
 ### Package and language
 
-Each host has one package. Model-facing Sennard text has no language setting: each text is fixed in the form that costs the fewest tokens, so hook guidance, MCP tool descriptions and results, errors, skill check output and skill descriptions are English, and the common intake block in the MCP instructions is Korean; skill text stays in its source language (mostly Korean). If you installed the 3.x English-only package (`sennard-en`), follow [Updates and migration](docs/user/update.md).
+Each host has one package. Model-facing Sennard text has no language setting: each text is fixed in the form that costs the fewest tokens, so hook guidance, MCP tool descriptions and results, errors, skill check output and skill descriptions are English, and the common intake block in the MCP instructions is Korean; skill text stays in its source language (mostly Korean).
 
 | Host | Package |
 | --- | --- |

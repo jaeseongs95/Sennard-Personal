@@ -2,7 +2,7 @@
 
 # 첨부와 업로드
 
-이 문서는 Sennard 6.0.0이 첨부(단계 결과의 근거 파일)를 저장하고 업로드하는 방식을 설명합니다. 설계는 장부·SSH 제품과 공통이며(AGS3-D-0264), 세 제품이 같은 방식으로 구현합니다. 코드는 `io.github.jaeseongs95.sennard.app.attachment`(`sennard-app`)에 있습니다. 표는 `V21__attachment.sql`(`sennard-store-pg`)이 아래의 묶음 형태로 만듭니다. 도구 선언은 `ArtifactTools`(`sennard-server`)에 있습니다.
+이 문서는 Sennard가 첨부(단계 결과의 근거 파일)를 저장하고 업로드하는 방식을 설명합니다. 코드는 `io.github.jaeseongs95.sennard.app.attachment`(`sennard-app`)에 있습니다. 표는 `V21__attachment.sql`(`sennard-store-pg`)이 아래의 묶음 형태로 만듭니다. 도구 선언은 `ArtifactTools`(`sennard-server`)에 있습니다.
 
 ## 목적과 근거
 
@@ -288,4 +288,4 @@
 
 ## 하위 호환
 
-6.0.0은 5.x와 호환하지 않으며 호환 장치(shim)도 없습니다. 단계 결과는 `locator` 대신 `attachmentId`로 파일을 가리키고, 새 도구, V21의 표, `sennard.attachments` 설정이 새로 생깁니다. 6.0.0은 이전 판의 상태를 읽지 않으므로 5.x에서 옮길 것은 없습니다. [이전 주 판에서 올리는 순서](../release-notes/release-notes-v6.0.0.md)와 [상태 저장과 정리](../user/state.ko.md)를 참조하십시오.
+단계 결과는 `attachmentId`로 파일을 가리킵니다. V21의 표와 `sennard.attachments` 설정은 [상태 저장과 정리](../user/state.ko.md)를 참고하십시오.

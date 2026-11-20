@@ -31,15 +31,14 @@ Sennard(Sennard)는 Claude Code, Codex, Antigravity(`agy`)에 설치하는 로�
 
 Sennard는 이 컴퓨터의 사용자당 한 번 설치하는 서버와 호스트별 플러그인으로 나뉩니다. 서버를 먼저 설치하고, 협업할 호스트마다 플러그인을 설치합니다.
 
-호스트의 플러그인 기능, 별도로 연결할 업무 데이터베이스, JDK 25(`java -version`이 25를 보고해야 합니다)가 필요합니다. 이 저장소의 clone은 필요하지 않습니다.
+호스트의 플러그인 기능, [새 빈 업무 데이터베이스](docs/user/state.ko.md#업무-데이터베이스), JDK 25(`java -version`이 25를 보고해야 합니다)가 필요합니다. 이 저장소의 clone은 필요하지 않습니다.
 
 릴리스는 모든 운영체제가 실행하는 jar 하나이며 운영체제별 압축 파일과 동봉 런타임은 없습니다. 지원 환경은 JDK 25가 도는 컴퓨터입니다. 검증한 호스트 환경은 릴리스 노트에 정리했습니다.
 
 <!-- release-version:start -->
-현재 공개 릴리스는 `v1.0.0`이며 아래 설치 예시는 이 버전 기준입니다. Sennard Personal의 [독립 저장소](https://github.com/jaeseongs95/Sennard-Personal)에서 발행하는 첫 판입니다. 설치 전에 [1.0.0 릴리스 노트](docs/release-notes/release-notes-v1.0.0.md#sennard-100-릴리스-노트)를 읽습니다. 이 개인판의 버전은 1.0.0부터 시작하며, 기존 AGS나 Sennard 6.x 설치를 개인판의 이전 판으로 간주하지 않습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
+현재 공개 릴리스는 `v1.0.0`이며 아래 설치 예시는 이 버전 기준입니다. Sennard Personal의 첫 공개판입니다. 설치 전에 [1.0.0 릴리스 노트](docs/release-notes/release-notes-v1.0.0.md#sennard-100-릴리스-노트)를 읽습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
 <!-- release-version:end -->
 
-이미 설치했다면 [업데이트와 이전](docs/user/update.ko.md)을 따릅니다.
 ### 서버
 
 [릴리스 페이지](https://github.com/jaeseongs95/Sennard-Personal/releases)에서 `sennard-<판>.jar`와 `sennard-<판>.jar.sha256`(`sha256sum --check` 형식의 SHA-256)을 받습니다. jar를 체크섬과 대조한 뒤 JDK 25로 설치 명령을 실행합니다.
@@ -59,7 +58,7 @@ Windows에서는 체크섬 파일의 값을 `Get-FileHash -Algorithm SHA256 senn
 
 ### 패키지와 언어
 
-패키지는 호스트마다 하나입니다. 모델이 읽는 Sennard 문구는 언어 설정 없이 문구마다 토큰이 적은 형태 하나로 고정됩니다. 그래서 hook 안내, MCP 도구 설명·결과, 오류, 스킬 검사 출력, 스킬 description은 영어이고 MCP instructions의 공통 접수 기준은 한국어이며, 스킬 본문은 원문(대부분 한국어) 그대로입니다. 3.x의 영어 전용 패키지(`sennard-en`)를 설치했다면 [업데이트와 이전](docs/user/update.ko.md#이전-판에서-올릴-때)을 따릅니다.
+패키지는 호스트마다 하나입니다. 모델이 읽는 Sennard 문구는 언어 설정 없이 문구마다 토큰이 적은 형태 하나로 고정됩니다. 그래서 hook 안내, MCP 도구 설명·결과, 오류, 스킬 검사 출력, 스킬 description은 영어이고 MCP instructions의 공통 접수 기준은 한국어이며, 스킬 본문은 원문(대부분 한국어) 그대로입니다.
 
 | 호스트 | 패키지 |
 | --- | --- |

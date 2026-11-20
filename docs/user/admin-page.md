@@ -29,7 +29,7 @@ Before signing, the page shows what will change. If you press the passkey withou
 
 ## Skill Statistics
 
-The skill statistics screen shows, by period, how many times each host called each Sennard skill. Skills with no calls are also listed with 0. The skills are listed in two groups, agent correction and specialist fields, each with its title row and its skills in order of calls; the group is the `category` in the skill's `classification.json`. Calls are recorded from the installation of 5.0.0 onward and are retained in the server's store for 90 days. Only the skill name, time, host, and session ID are stored; conversation content is not stored.
+The skill statistics screen shows, by period, how many times each host called each Sennard skill. Skills with no calls are also listed with 0. The skills are listed in two groups, agent correction and specialist fields, each with its title row and its skills in order of calls; the group is the `category` in the skill's `classification.json`. The server retains skill call records for 90 days. Only the skill name, time, host, and session ID are stored; conversation content is not stored.
 
 Each host counts by a different criterion, and the criterion is written under the host name in the table.
 

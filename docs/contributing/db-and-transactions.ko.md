@@ -2,7 +2,7 @@
 
 # DB와 트랜잭션
 
-이 문서는 6.0.0에서 영역을 Spring Data JDBC로 옮길 때 지키는 저장 규약입니다. 기준 구현은 현황판(board)과 세션 메시징(messaging)이며, 아래 `파일:행`은 이 두 영역의 실제 코드입니다. 다른 영역은 이 문서의 표와 순서대로 옮기면 됩니다. 사용자 원문 보관소(프롬프트 표, V15)는 처음부터 이 규약으로 만든 세 번째 영역입니다. 한 가지가 다릅니다. 원문 표는 서비스 역할에 SELECT·INSERT만 주어(`GRANT`) 원문이 바뀌거나 지워지지 않는 것을 데이터베이스가 강제합니다. 그래서 원문 엔티티에는 `@Version`이 없고 쓰기는 `UserPromptWrites`의 INSERT 한 문장입니다.
+이 문서는 영역을 Spring Data JDBC로 옮길 때 지키는 저장 규약입니다. 기준 구현은 현황판(board)과 세션 메시징(messaging)이며, 아래 `파일:행`은 이 두 영역의 실제 코드입니다. 다른 영역은 이 문서의 표와 순서대로 옮기면 됩니다. 사용자 원문 보관소(프롬프트 표, V15)는 처음부터 이 규약으로 만든 세 번째 영역입니다. 한 가지가 다릅니다. 원문 표는 서비스 역할에 SELECT·INSERT만 주어(`GRANT`) 원문이 바뀌거나 지워지지 않는 것을 데이터베이스가 강제합니다. 그래서 원문 엔티티에는 `@Version`이 없고 쓰기는 `UserPromptWrites`의 INSERT 한 문장입니다.
 
 ## 출발점
 
@@ -140,14 +140,13 @@ Flyway를 쓰지 않는 이유: Flyway는 아는 DB 목록을 갖고 DB마다 �
 - 시도 한 번은 트랜잭션 하나입니다. 첫 문장은 자기 행을 `FAILED`로 넣는 것으로, 번호를 차지합니다. 마지막 문장은 그 행 하나만 `SUCCEEDED`로 바꿉니다. 행은 지우지 않습니다. 스크립트가 실패하면 `FAILED` 행이 남고, 다음 시작은 `attempt + 1`로 새 행을 넣습니다.
 - 두 적용기가 같은 번호를 동시에 적용하면 같은 키를 넣게 되므로, 둘째는 DB 안에서 첫째의 트랜잭션을 기다린 뒤 중복 키를 받습니다. 그러면 이력을 한 번 다시 읽습니다. 그 번호가 같은 digest로 `SUCCEEDED`이면 건너뛰고, 아니면 상대가 실패한 것이므로 `MIGRATION_FAILED`로 멈춥니다. 적용기에는 sleep·폴링·재시도가 없습니다. DDL이 트랜잭션이 아닌 DB에서는 스크립트 전체가 끝나기 전까지 차지한 행이 `FAILED`로 보이므로, 반쯤 적용된 스크립트가 `SUCCEEDED`로 보이지 않습니다.
 - 번호는 1부터 연속이어야 합니다(아니면 `MIGRATION_GAP`). 적용된 스크립트는 다시 읽지 않습니다. 바뀐 파일(`MIGRATION_CHANGED`), 적용된 번호의 스크립트가 없는 경우(`MIGRATION_MISSING`), 가장 높게 적용된 번호보다 낮은데 적용되지 않은 스크립트(`MIGRATION_OUT_OF_ORDER`)는 아무것도 적용하기 전에 실행을 멈춥니다. 바뀐 파일은 시도가 아니므로 행을 더하지 않습니다.
-- 이전 판의 이력 표와는 호환하지 않습니다. 6.0.0이 표를 새로 만들고, 5.x에서의 이전은 별도 마이그레이션 툴이 맡습니다.
 
 행이 이미 있는 표를 바꾸는 규칙입니다.
 
 - **적용된 스크립트는 고치지 않습니다.** 적용기가 digest를 확인해 바뀐 스크립트를 거절합니다(`MIGRATION_CHANGED`). 변경은 새 스크립트에 넣습니다. 적용된 스크립트의 주석도 고칠 수 없으므로, 규칙은 이 문서에 적습니다.
 - **표를 바꾸려고 DB를 다시 만들지 않습니다.** 방법은 `ALTER TABLE`이며 행은 그대로 보존합니다. `ALTER TABLE t ADD c <type>`(키워드 `COLUMN` 없음)은 PostgreSQL, Oracle, SQL Server, MySQL, MariaDB, Db2, H2가 모두 받으므로 스크립트가 이미 있는 표에 열을 더할 수 있습니다. 행이 있는 표에 `NOT NULL` 열을 더할 때는 `ADD c <type> DEFAULT <상수> NOT NULL`로 쓰며, Oracle이 받는 순서인 `DEFAULT`가 `NOT NULL` 앞입니다. `DROP COLUMN`, `DROP CONSTRAINT`, `ADD CONSTRAINT`도 이식할 수 있습니다. `V12__session_kind.sql`의 주석에는 앞선 문장이 있습니다. 곧 표준 `ALTER TABLE`에는 Oracle과 SQL Server가 받는 `ADD COLUMN` 철자가 없어서 기존 표에 열을 더하는 스크립트는 없다는 말인데, 틀렸습니다. 그 스크립트는 이미 적용되었으므로 고치지 않습니다.
 - **제품마다 다른 문장은 쓰지 않습니다.** `SET NOT NULL`, `MODIFY`, `ALTER COLUMN`, `RENAME`입니다. 이 가운데 하나가 필요한 변경은 새 표를 만들고, `INSERT ... SELECT`로 행을 옮기고, 옛 표를 `DROP`합니다.
-- **배포된 마이그레이션은 바꾸지 않습니다. 업무 변경은 새 `V` 스크립트로 앞으로만 갑니다(`ALTER TABLE` 위주, 추가 우선).** 배포 전 스크립트만 고칠 수 있습니다. 6.0.0은 아직 배포 전이므로 `V21__attachment.sql`이 최종 첨부 묶음 구조를 처음부터 만듭니다([첨부와 업로드](attachments.ko.md) 참조). `V22`(`workflow_runs.kind`를 `ALTER TABLE ... ADD kind VARCHAR(32) DEFAULT 'CHANGE' NOT NULL`로 더함)는 배포 뒤 변경이 취하는 형태의 예이며, 이미 있는 표를 바꾸고 행을 보존합니다.
+- **배포된 마이그레이션은 바꾸지 않습니다. 업무 변경은 새 `V` 스크립트로 앞으로만 갑니다(`ALTER TABLE` 위주, 추가 우선).** 배포 전 스크립트만 고칠 수 있습니다. `V21__attachment.sql`이 최종 첨부 묶음 구조를 처음부터 만듭니다([첨부와 업로드](attachments.ko.md) 참조). `V22`(`workflow_runs.kind`를 `ALTER TABLE ... ADD kind VARCHAR(32) DEFAULT 'CHANGE' NOT NULL`로 더함)는 배포 뒤 변경이 취하는 형태의 예이며, 이미 있는 표를 바꾸고 행을 보존합니다.
 
 ### 쓰기 도구의 operationKey와 영수증
 

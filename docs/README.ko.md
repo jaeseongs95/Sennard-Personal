@@ -14,7 +14,7 @@ Sennard를 설치해 쓰는 사람을 위한 문서입니다. 설치는 [README]
 | [관리자 페이지와 컨텍스트](user/admin-page.ko.md) | 로컬 관리자 페이지, 전역·담당·상황 컨텍스트, JEV, 언어, 재설정 |
 | [세션 협업](user/collaboration.ko.md) | 현황판, PEER 메시지, 호스트별 깨우기 |
 | [상태 저장과 정리](user/state.ko.md) | 저장소 위치와 설정, 정리·백업·복구 |
-| [업데이트와 이전](user/update.ko.md) | 새 판 알림, 업데이트 절차, 언어, 이전 판에서 올리기 |
+| [업데이트와 이전](user/update.ko.md) | 새 판 알림, 업데이트 절차, 플러그인 훅 |
 | [문제 해결](user/troubleshooting.ko.md) | 증상별 확인할 것 |
 
 ## 기여자 문서
@@ -44,4 +44,4 @@ Sennard 자체를 고치는 사람을 위한 문서입니다. 시작은 [기여 
 
 ## 릴리스 노트
 
-- [릴리스 노트](release-notes/): 판마다 `release-notes-v<버전>.md` 하나입니다. 개인판은 [1.0.0](release-notes/release-notes-v1.0.0.md)부터 시작하며, 개인판 노트는 한 파일에 영문을 먼저, 한글을 이어서 적습니다. GitHub Release 본문도 이 파일로 만듭니다. 이전 AGS/Sennard 판의 노트는 역사 기록으로 보존합니다.
+- [릴리스 노트](release-notes/): 판마다 `release-notes-v<버전>.md` 하나입니다. 개인판은 [1.0.0](release-notes/release-notes-v1.0.0.md)부터 시작하며, 개인판 노트는 한 파일에 영문을 먼저, 한글을 이어서 적습니다. GitHub Release 본문도 이 파일로 만듭니다.

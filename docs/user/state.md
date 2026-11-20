@@ -5,7 +5,7 @@ This document describes where Sennard keeps its state on this computer, the sett
 
 ## Storage Location
 
-Starting with 6.0.0, Sennard stores its settings in a local H2 database and business state in a separately configured database. All hosts on the same PC use the same server and its configured stores.
+Sennard stores its settings in a local H2 database and business state in a separately configured database. All hosts on the same PC use the same server and its configured stores.
 
 The default state folder is `~/.sennard`, where `~` is the `user.home` of the JVM (the same question on every operating system; there is no per-OS location). To change it, set the environment variable `SENNARD_STATE_DIR`, install with `sennard install --state-dir <path>`, or set `sennard.state-dir` in UTF-8 in the installed `sennard.yaml` (location below). A relative installation path is recorded as an absolute path from the command's working folder. A path that cannot be written in the file name encoding of the system (`native.encoding`) is refused with `STATE_DIR_NOT_REPRESENTABLE`; set `SENNARD_STATE_DIR` or `sennard.state-dir` in `sennard.yaml` to a folder that can be written in it. The server announces its address in `server.properties` in this folder (see [Troubleshooting](troubleshooting.md#resident-server)); only one server runs on a state folder.
 
@@ -18,7 +18,7 @@ The business database is separate from the state folder. The installation folder
 
 ## Business Database
 
-Sennard does not ship a database driver and does not prescribe a database product. You provide the business database and its JDBC driver, and Sennard connects with them. You link the database on the admin page (the **Business database** screen; see [Admin page and context](admin-page.md#business-database)), not in `sennard.yaml`. The screen asks for:
+Sennard does not ship a database driver and does not prescribe a database product. For a first installation, prepare a new, empty business database for Sennard and obtain its JDBC driver. You link the database on the admin page (the **Business database** screen; see [Admin page and context](admin-page.md#business-database)), not in `sennard.yaml`. The screen asks for:
 
 - **JDBC driver**: the driver you obtained from the database vendor, as the absolute path of one jar or of a folder of jars. Sennard reads the driver from that path only; it does not look for it elsewhere.
 - **JDBC URL**: the URL of the database, in the form `jdbc:<subprotocol>://host[:port]/database[?options]`, for example `jdbc:mariadb://127.0.0.1:3306/sennard`. It does not contain a password; a URL that carries one is refused.
@@ -26,7 +26,7 @@ Sennard does not ship a database driver and does not prescribe a database produc
 - **Password file**: the absolute path of a file whose first line is the account's password. Only the path is saved, never the password. Sennard reads the file only if it is a regular file with at least one byte (a link to such a file is followed). Keep it readable by you only: Sennard does not check who else can read it (see "Private Storage" below).
 - **Protection**: plain text (loopback address only) or server verification (TLS), as the TLS rule below requires.
 
-Saving the link needs your passkey. The link is kept in the local settings database of the state folder (`settings/sennard-settings`), which is the one place the business database is named: the server, `sennard admin-reset` and `sennard attachments` all read it there. Because it is in the state folder and not in the installation folder, it stays after `sennard uninstall` and is found again by a later install or `sennard upgrade`. A `sennard.store.database.*` key in `sennard.yaml` is not read; if an earlier installation had one, link the database again on the admin page.
+Saving the link needs your passkey. The link is kept in the local settings database of the state folder (`settings/sennard-settings`), which is the one place the business database is named: the server, `sennard admin-reset` and `sennard attachments` all read it there. Because it is in the state folder and not in the installation folder, it stays after `sennard uninstall` and is found again by a later install or `sennard upgrade`.
 
 You can change the link at any time on the same screen, also while the database is ready. Before the new link is saved, Sennard connects to the database it names and prepares its tables there; a database that cannot be reached or does not pass those checks is not saved, and the old link stays. A link saved while the store is ready is used after the Sennard server is restarted (`sennard stop`, then `sennard start`): the screen says so until then. The records of the previous database are not copied to the new one.
 
@@ -48,7 +48,7 @@ Notes:
 - MariaDB and MySQL: create the database with `CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`. Sennard compares identifiers and states by exact text, which a case-insensitive collation does not. The account needs the right to create the schema (database) `sennard` and full rights on it.
 - Each version applies its own schema scripts at start. Back up the database before an upgrade.
 
-`sennard.yaml` is not in the root of the installation folder. It is in the folder of the installed version, `versions/<version>` under the installation folder, beside the application jar, on every operating system: `<installation folder>/versions/<version>/sennard.yaml`. For example, with the default installation folder and version 6.0.0 it is `~/.sennard/install/versions/6.0.0/sennard.yaml`. `sennard upgrade` copies `sennard.yaml` from the old version folder to the new one.
+`sennard.yaml` is not in the root of the installation folder. It is in the folder of the installed version, `versions/<version>` under the installation folder, beside the application jar, on every operating system: `<installation folder>/versions/<version>/sennard.yaml`. For example, with the default installation folder and version 1.0.0 it is `~/.sennard/install/versions/1.0.0/sennard.yaml`. `sennard upgrade` copies `sennard.yaml` from the old version folder to the new one.
 
 Sennard makes the state folder private to its owner when it makes it: the installer, a session start and the server each create it through the same place, before anything is written in it (see Private Storage below). A state folder that already exists is used as it is, and the personal edition trusts the whole PC.
 
@@ -100,7 +100,7 @@ Copies of the deleted rows are kept, together with the plan ID, in the per-modul
 
 ### Recovery
 
-6.0.0 has no command that automatically restores rows from the backup tables. Rows that become necessary after deletion are investigated based on the copies remaining in the table.
+Sennard has no command that automatically restores rows from the backup tables. Rows that become necessary after deletion are investigated based on the copies remaining in the table.
 
 The business database is not in the state folder. Back up both the local state folder and the configured business database using the database administrator's backup procedure; a state-folder copy alone is not a database backup.
 

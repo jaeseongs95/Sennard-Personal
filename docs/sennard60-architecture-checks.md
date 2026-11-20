@@ -1,7 +1,7 @@
-# Sennard 6.0 architecture checks
+# Sennard architecture checks
 
-The 6.0.0 redesign rules are kept by the build, not by people. Each rule counts its violations in the current code and holds that number as a ceiling;
-a count above the ceiling fails the build, so a new violation cannot enter, and the 6.0.0 rewrite lowers every ceiling to 0 (Korean: `sennard60-architecture-checks.ko.md`).
+The build enforces the architecture rules. Each rule counts violations in the current code and uses that number as its ceiling.
+A count above the ceiling fails the build (Korean: `sennard60-architecture-checks.ko.md`).
 
 ## Where they run
 

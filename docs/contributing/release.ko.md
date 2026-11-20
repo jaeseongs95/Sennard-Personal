@@ -12,11 +12,11 @@
 
 플러그인 현재 버전의 단일 소스는 `release/version.json`입니다. `:sennard-repo-tools:syncReleaseMetadata`가 현재 버전 표면(manifest·marketplace·README 두 개의 `release-version`·`release-install`·`release-agy` 표식·[로드맵](roadmap.ko.md)의 `release-version` 표식)을 생성하고, `:sennard-repo-tools:checkReleaseMetadata`는 누락·중복 표식과 drift를 실패시킵니다. 이 명령들은 tag, GitHub Release, marketplace 설치나 배포를 만들지 않습니다.
 
-개인판은 [Sennard-Personal](https://github.com/jaeseongs95/Sennard-Personal)에서 `1.0.0`부터 시작합니다. 개인판의 태그, 릴리스 노트와 산출물은 이 저장소에서 발행합니다. 아카이빙할 AGS 저장소와 이전 AGS/Sennard 판의 역사는 그대로 두며, 개인판 버전 번호를 근거로 그 저장소를 수정하거나 기존 설치를 downgrade하지 않습니다. `syncReleaseMetadata`는 저장소 URL을 생성하지 않으므로 marketplace, 소스 링크, 업데이트 태그 목록 API, annotated tag URL prefix와 업데이트 알림 링크를 개인판 저장소에 맞춥니다.
+개인판은 [Sennard-Personal](https://github.com/jaeseongs95/Sennard-Personal)에서 `1.0.0`부터 시작합니다. 개인판의 태그, 릴리스 노트와 산출물은 이 저장소에서 발행합니다. 개인판 첫 릴리스는 신규 설치와 빈 업무 데이터베이스로 검증합니다. `syncReleaseMetadata`는 저장소 URL을 생성하지 않으므로 marketplace, 소스 링크, 업데이트 태그 목록 API, annotated tag URL prefix와 업데이트 알림 링크를 개인판 저장소에 맞춥니다.
 
 ## 릴리스 노트
 
-- 위치: `docs/release-notes/release-notes-v<버전>.md`. 개인판 첫 발행은 `docs/release-notes/release-notes-v1.0.0.md`입니다. 한 파일에 영문을 먼저, 한글을 이어서 적습니다. 이전 AGS/Sennard 판의 노트는 역사 기록으로 보존합니다.
+- 위치: `docs/release-notes/release-notes-v<버전>.md`. 개인판 첫 발행은 `docs/release-notes/release-notes-v1.0.0.md`입니다. 한 파일에 영문을 먼저, 한글을 이어서 적습니다. 이전 릴리스 노트는 역사 기록으로 보존합니다.
 - GitHub Release 본문은 이 파일로 만듭니다.
 
   ```bash

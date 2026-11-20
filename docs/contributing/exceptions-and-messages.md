@@ -2,7 +2,7 @@
 
 # Exceptions and Messages
 
-This document defines the error conventions of 6.0.0. Business code throws only a code and arguments, and a boundary produces the sentence in one place from the message catalog. The reference implementations are the status board and session messaging.
+This document defines the error conventions for Sennard. Business code throws only a code and arguments, and a boundary produces the sentence in one place from the message catalog. The reference implementations are the status board and session messaging.
 
 ## Starting Points
 

@@ -2,13 +2,13 @@
 
 # Sennard 1.0.0 Release Notes
 
-Sennard Personal 1.0.0 is the first release in the [Sennard-Personal repository](https://github.com/jaeseongs95/Sennard-Personal). It includes the local Java server, specialist skills, workflows, work records and session collaboration for Claude Code, Codex and Antigravity.
+Sennard Personal 1.0.0 is the first public release of Sennard Personal. It includes the local Java server, specialist skills, workflows, work records and session collaboration for Claude Code, Codex and Antigravity.
 
-## Before Upgrading
+## Before Installing
 
-- Install with JDK 25 and configure a separate business database. Download `sennard-1.0.0.jar` and `sennard-1.0.0.jar.sha256` from the release and verify the checksum before running the JAR. Use `sennard-antigravity-v1.0.0.zip` for Antigravity.
-- Migration from AGS 5.1 or Sennard 6.x has not been verified. Preserve the existing installation, state folder and database. For a separate installation, use distinct `SENNARD_INSTALL_ROOT` and `SENNARD_STATE_DIR` locations and a separate business database. The installer refuses a numerical downgrade. Follow the [installation guide](../../README.md#installation) and [updates and migration](../user/update.md).
-- A personal installation trusts programs on the same computer. When retaining an earlier installation for recovery, save its hook and MCP definitions before installing or reconfiguring the host plugin. See the [security policy](../../SECURITY.md).
+- Install with JDK 25. Download `sennard-1.0.0.jar` and `sennard-1.0.0.jar.sha256` from the release and verify the checksum before running the JAR. Use `sennard-antigravity-v1.0.0.zip` for Antigravity.
+- Follow the [installation guide](../../README.md#installation) to set up a new, empty business database for Sennard Personal.
+- Sennard Personal trusts programs on the same computer. See the [security policy](../../SECURITY.md).
 
 ## Changes
 
@@ -33,19 +33,19 @@ Managed conversations and idle wake distinguish failed requests, host handoff an
 
 ## Verification
 
-The local Gradle suite passed 3,367 tests with 11 skipped. The release metadata and generated Claude plugin passed their checks. The built JAR returned version `1.0.0`, and the JAR checksum matched when rebuilt from the public source snapshot. The Antigravity ZIP passed archive integrity and manifest version checks. See Known Limitations for the outstanding host checks.
+For the original release build, the local Gradle suite passed 3,367 tests with 11 skipped. The release metadata and generated Claude plugin passed their checks. The built JAR returned version `1.0.0`, and the JAR checksum matched when rebuilt from the public source snapshot. The Antigravity ZIP passed archive integrity and manifest version checks. See Known Limitations for the outstanding host checks.
 
 ---
 
 # Sennard 1.0.0 릴리스 노트
 
-Sennard Personal 1.0.0은 [Sennard-Personal 저장소](https://github.com/jaeseongs95/Sennard-Personal)에서 발행하는 첫 판입니다. 로컬 Java 서버, 전문 스킬, 워크플로, 작업 기록과 Claude Code·Codex·Antigravity의 세션 협업 기능을 제공합니다.
+Sennard Personal 1.0.0은 첫 공개판입니다. 로컬 Java 서버, 전문 스킬, 워크플로, 작업 기록과 Claude Code·Codex·Antigravity의 세션 협업 기능을 제공합니다.
 
-## 업그레이드 전 확인
+## 설치 전 확인
 
-- JDK 25로 설치하고 업무 데이터베이스를 별도로 구성합니다. 릴리스에서 `sennard-1.0.0.jar`와 `sennard-1.0.0.jar.sha256`을 받아 실행 전에 체크섬을 대조합니다. Antigravity는 `sennard-antigravity-v1.0.0.zip`으로 설치합니다.
-- AGS 5.1이나 Sennard 6.x에서의 이관은 검증하지 않았습니다. 기존 설치, 상태 폴더와 데이터베이스를 보존합니다. 개인판을 별도로 설치할 때는 설치 경로(`SENNARD_INSTALL_ROOT`), 상태 경로(`SENNARD_STATE_DIR`), 업무 데이터베이스를 각각 분리합니다. 설치기는 숫자상 버전이 낮아지는 설치를 거부합니다. [설치 안내](../../README.ko.md#설치)와 [업데이트와 이전](../user/update.ko.md)을 따릅니다.
-- 개인판은 같은 컴퓨터의 프로그램을 신뢰합니다. 복구용으로 이전 설치를 보관할 때는 호스트 플러그인을 설치하거나 다시 설정하기 전에 기존 훅과 MCP 정의를 저장합니다. [보안 정책](../../SECURITY.ko.md)을 참고합니다.
+- JDK 25로 설치합니다. 릴리스에서 `sennard-1.0.0.jar`와 `sennard-1.0.0.jar.sha256`을 받아 실행 전에 체크섬을 대조합니다. Antigravity는 `sennard-antigravity-v1.0.0.zip`으로 설치합니다.
+- [설치 안내](../../README.ko.md#설치)에 따라 Sennard Personal 전용 빈 업무 데이터베이스를 준비합니다.
+- Sennard Personal은 같은 컴퓨터의 프로그램을 신뢰합니다. [보안 정책](../../SECURITY.ko.md)을 참고합니다.
 
 ## 바뀐 점
 
@@ -70,4 +70,4 @@ Sennard Personal 1.0.0은 [Sennard-Personal 저장소](https://github.com/jaeseo
 
 ## 검증
 
-로컬 Gradle 시험은 3,367건이 통과했고 11건을 건너뛰었습니다. 릴리스 메타데이터와 Claude 플러그인 생성물을 검증했습니다. 빌드한 JAR는 버전 `1.0.0`을 반환했고, 공개 소스 스냅샷에서 다시 빌드한 JAR와 체크섬이 일치했습니다. Antigravity ZIP은 압축 파일 무결성과 매니페스트 버전을 확인했습니다. 지정 호스트에서 남은 시험은 알려진 한계에 정리했습니다.
+최초 릴리스 빌드의 로컬 Gradle 시험은 3,367건이 통과했고 11건을 건너뛰었습니다. 릴리스 메타데이터와 Claude 플러그인 생성물을 검증했습니다. 빌드한 JAR는 버전 `1.0.0`을 반환했고, 공개 소스 스냅샷에서 다시 빌드한 JAR와 체크섬이 일치했습니다. Antigravity ZIP은 압축 파일 무결성과 매니페스트 버전을 확인했습니다. 지정 호스트에서 남은 시험은 알려진 한계에 정리했습니다.

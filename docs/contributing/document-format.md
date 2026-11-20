@@ -18,7 +18,7 @@ This document defines the language rules for the repository's documents and the 
 
 - One file per version: `docs/release-notes/release-notes-v<version>.md`.
 - The file contains the English part first, then a line with `---`, then the Korean part. The two parts are not split into separate files or linked to each other as separate documents.
-- The first line of the file links to the title of each part in the same file, for example `[English](#sennard-600-release-notes) | [한국어](#sennard-600-릴리스-노트)`.
+- The first line of the file links to the title of each part in the same file, for example `[English](#sennard-100-release-notes) | [한국어](#sennard-100-릴리스-노트)`.
 - The two parts have the same sections in the same order, and the same number of list items, tables, and code blocks.
 ### Sections
 
@@ -27,7 +27,7 @@ The sections appear in the following order. The Korean part uses the Korean titl
 | Order | English title | Korean title | Required | Contents |
 | --- | --- | --- | --- | --- |
 | 1 | `# Sennard <version> Release Notes` | `# Sennard <판> 릴리스 노트` | Required | The title, followed by a summary paragraph of the version. |
-| 2 | `## Before Upgrading` | `## 업그레이드 전 확인` | Required | Data migration, breaking changes, and how to revert. |
+| 2 | `## Before Installing` or `## Before Upgrading` | `## 설치 전 확인` or `## 업그레이드 전 확인` | Required | Installation requirements for the first release or migration, compatibility, and recovery details for an update. |
 | 3 | `## Upgrading from <previous version>` | `## <이전 판>에서 올리는 순서` | When there is a migration or a manual step | The upgrade steps in order. |
 | 4 | `## Changes` | `## 바뀐 점` | Required | Feature changes. Fixed defects are written in the `### Fixed Defects` / `### 고친 결함` subsection of this section; if no defect was fixed, the subsection states that there are none. |
 | 5 | `## Public Contract Changes` | `## 공개 계약 변경` | Required | Changes to MCP tools, hooks, settings, and other public contracts. If there are none, the section states that there are none. |

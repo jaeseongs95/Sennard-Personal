@@ -84,7 +84,7 @@ ACK 전 lease 재전달은 정상이며 같은 ID·본문을 유지한다. 중�
 
 hook이 없는 호스트는 MCP 도구로 보낸다. `prepare_session_message`로 준비하고, 응답의 `messageId`를 보관해 `send_session_message`에 그대로 넘긴다. send에 body/target/TTL이나 임의 ID를 넣으면 오류로 거부되며 전달 효과가 없다. 본문과 비밀은 프로세스 인수에 넣지 않는다.
 
-훅 없이 서버가 발급한 세션 참조를 명시하면 루트 주소를 사용한다. 자식 주소로 호출하려면 호스트 관측이 필요하다. 격리 시험에서 Codex, Claude Code, Antigravity의 지원 훅 경계를 통한 자식 전달을 확인했다. 호스트 내부의 에이전트 입력까지 통제하려면 호스트의 지원이 필요하다. 예를 들어 Codex의 입력 분배기는 `UserInput`에 `UserPromptSubmit`을 적용하며 `InterAgentCommunication`은 별도 경로로 처리한다. Claude Code는 백그라운드 알림도 프롬프트 제출로 보고할 수 있으므로 해당 이벤트만으로 사람이 직접 입력했는지 판별할 수 없다. [Codex 입력 분배기 소스](https://github.com/openai/codex/blob/main/codex-rs/core/src/hook_runtime.rs)와 [Sennard 6.0.0 릴리스 노트](../release-notes/release-notes-v6.0.0.md)를 참고한다.
+훅 없이 서버가 발급한 세션 참조를 명시하면 루트 주소를 사용한다. 자식 주소로 호출하려면 호스트 관측이 필요하다. 격리 시험에서 Codex, Claude Code, Antigravity의 지원 훅 경계를 통한 자식 전달을 확인했다. 호스트 내부의 에이전트 입력까지 통제하려면 호스트의 지원이 필요하다. 예를 들어 Codex의 입력 분배기는 `UserInput`에 `UserPromptSubmit`을 적용하며 `InterAgentCommunication`은 별도 경로로 처리한다. Claude Code는 백그라운드 알림도 프롬프트 제출로 보고할 수 있으므로 해당 이벤트만으로 사람이 직접 입력했는지 판별할 수 없다. [Codex 입력 분배기 소스](https://github.com/openai/codex/blob/main/codex-rs/core/src/hook_runtime.rs)를 참고한다.
 
 ## 쉬는 세션 깨우기
 

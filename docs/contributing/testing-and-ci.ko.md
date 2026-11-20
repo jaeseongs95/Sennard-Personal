@@ -10,7 +10,7 @@ CI가 실패하면 코드 결함이어야 한다. 러너가 바빠서 떨어지�
 
 모든 자동 시험은 Gradle과 JUnit으로 돈다.
 
-- `./gradlew test`: 모듈별 단위·통합 시험. 저장소 계약 검사, 메시지 카탈로그 검사, 도메인 중립 문구 검사, 스킬 검사와 업무 데이터베이스가 필요 없는 저장소 시험이 여기에 있다. `business-db` 태그가 붙은 시험은 `test`에서 빠지며, 사용자가 지정한 데이터베이스에 대해 `businessDbTest`로 따로 돈다([기여 안내](../../CONTRIBUTING.ko.md)의 시험 실행 절 참조). `sennard-personal`의 `test`는 실제 Tomcat·JVM으로 도는 서버 시험과, 빌드가 만든 릴리스 jar(`releaseJar`와 그 풀린 형태)를 설치하고 실행하는 프로세스 시험을 포함한다. `./gradlew :sennard-personal:jarRun`은 그 jar를 사용자가 실행하듯 ASCII 밖의 이름을 가진 폴더에서 실행하며 `test`에 포함되지 않는다. 릴리스는 Windows PC 한 대에서만 검증되었다(시험이 도는 곳 참조).
+- `./gradlew test`: 모듈별 단위·통합 시험. 저장소 계약 검사, 메시지 카탈로그 검사, 도메인 중립 문구 검사, 스킬 검사와 업무 데이터베이스가 필요 없는 저장소 시험이 여기에 있다. `business-db` 태그가 붙은 시험은 `test`에서 빠지며, 사용자가 지정한 데이터베이스에 대해 `businessDbTest`로 따로 돈다([기여 안내](../../CONTRIBUTING.ko.md)의 시험 실행 절 참조). `sennard-personal`의 `test`는 실제 Tomcat·JVM으로 도는 서버 시험과, 빌드가 만든 릴리스 jar(`releaseJar`와 그 풀린 형태)를 설치하고 실행하는 프로세스 시험을 포함한다. `./gradlew :sennard-personal:jarRun`은 그 jar를 사용자가 실행하듯 ASCII 밖의 이름을 가진 폴더에서 실행하며 `test`에 포함되지 않는다.
 
 시험 JVM은 Gradle을 실행한 세션의 호스트 변수 없이, 모듈의 `build/isolated/<작업>/` 아래 홈·임시 폴더로 시작한다(루트 `java/build.gradle.kts`의 `isolateFromHost`). 그래서 개발 PC에서 셸 래퍼 없이 `./gradlew`만 쓰고, 서로 다른 작업 사본의 시험을 동시에 돌릴 수 있다. 시험 서버는 모델 실측에만 쓴다. 시작 조건과 JDK 25 선택은 [기여 안내](../../CONTRIBUTING.ko.md)의 「시험 실행」 절에 있다.
 
@@ -25,4 +25,4 @@ CI가 실패하면 코드 결함이어야 한다. 러너가 바빠서 떨어지�
 
 발행 후보는 CI 전체 시험과 Claude·Codex·agy 실호스트 시험을 모두 통과해야 한다. 실측 시험은 CI에 넣지 않는다.
 
-6.0.0의 검증 범위: 릴리스 jar, 그 설치, 호스트 연결 확인은 Windows PC 한 대에서 했다. JVM이 차이를 흡수하고 운영체제의 이름으로 갈라지는 코드가 없으므로 코드는 모든 운영체제에서 같다. 다만 파일 시스템 권한 모델(POSIX 권한)에 따라 갈라지는 분기는 Linux와 macOS에서 실행하지 않았다. 이는 릴리스가 밝히는 한계이며 그 시스템을 시험했다는 주장이 아니다.
+개인판 1.0.0은 GitHub Actions의 Ubuntu·Windows 자동 시험을 통과했습니다. 실제 호스트에서 남은 검증은 [1.0.0 릴리스 노트](../release-notes/release-notes-v1.0.0.md#알려진-한계)를 참고합니다.
