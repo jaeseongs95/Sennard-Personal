@@ -449,9 +449,9 @@ class AdminRootReleaseServerTest {
                 assertNotEquals(defaults.path(key).asString(), inKorean.path(key).asString(), "a Korean sentence for " + key);
             }
         }
-        assertEquals(48, sentences, "the screen's sentences");
-        assertEquals("Open workflows", defaults.path("admin.page.rootRelease.tab").asString());
-        assertEquals("열린 workflow", inKorean.path("admin.page.rootRelease.tab").asString());
+        assertEquals(50, sentences, "the screen's sentences");
+        assertEquals("Workflow management", defaults.path("admin.page.rootRelease.tab").asString());
+        assertEquals("Workflow 관리", inKorean.path("admin.page.rootRelease.tab").asString());
         assertTrue(defaults.path("admin.page.rootRelease.done").asString().contains("{rootId}"), "the page fills in the placeholder");
         for (String code : List.of("ADMIN_ROOT_NOT_FOUND", "ADMIN_ROOT_NOT_ACTIVE", "ADMIN_ROOT_STALE")) {
             assertFalse(defaults.path("admin.page.error." + code).asString().isBlank(), "the page has a sentence for " + code);

@@ -181,19 +181,41 @@ main>section{width:100%;max-width:1080px}
 .panel-body{display:flex;flex-direction:column;gap:12px}
 .panel-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}
 .panel-owner{display:flex;flex-direction:column;gap:2px}
-.work-summary{display:flex;flex-wrap:wrap;gap:10px}
-.work-summary>div{flex:1 1 150px;padding:12px 16px;border:1px solid var(--line);border-radius:8px;background:#fff;display:flex;flex-direction:column;gap:2px}
-.work-summary strong{font-size:22px;font-variant-numeric:tabular-nums}
+.root-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,128px),1fr));gap:8px}
+.root-summary .btn{display:flex;flex-direction:column;gap:2px;align-items:start;white-space:normal;text-align:start}
+.root-summary .btn[aria-pressed="true"]{border-color:var(--pri);background:var(--pri-l);color:var(--pri-d)}
+.root-summary strong,.work-total strong{font-size:22px;font-variant-numeric:tabular-nums}
+.root-list .panel-head{justify-content:space-between;align-items:baseline}
+.root-list .panel-head h2{flex:1 1 280px}
+.root-list .panel-body{gap:10px}
+.root-list .panel-owner{overflow-wrap:anywhere}
+.root-release-confirm{padding:14px;border:1px solid var(--warn-bd);border-radius:6px;background:var(--warn-bg);gap:10px}
+.root-release-confirm textarea{width:100%;padding:8px;border:1px solid var(--input);border-radius:6px;resize:vertical}
 .work-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;min-width:0;margin:0;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--soft)}
 .work-filters>.field{flex:1 1 150px}
 .work-filters>.field.search{flex:3 1 280px}
+.work-filters select{width:100%}
 .work-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;color:var(--muted);font-size:13px}
+.work-meta>span{min-width:0;overflow-wrap:anywhere}
 .work-detail>summary{font-size:13px}
 .work-detail[open]>summary{margin-bottom:12px}
-.work-goal{font-weight:700;overflow-wrap:anywhere}
-.work-skills{overflow-wrap:anywhere}
-.work-recent td:first-child{min-width:260px}
-.work-recent td:nth-child(4){min-width:0}
+.work-recent .panel-head{align-items:baseline;justify-content:space-between}
+.work-recent h3{min-width:0;flex:1 1 280px;overflow-wrap:anywhere}
+.work-recent .panel{gap:10px}
+.work-skills{display:flex;flex-wrap:wrap;gap:4px 10px;overflow-wrap:anywhere}
+.work-skills code{min-width:0}
+.work-stats-table th{white-space:normal}
+.work-stats-table td,.work-stats-table th{overflow-wrap:anywhere}
+.work-skill-table th:last-child{width:7rem;overflow-wrap:normal}
+.work-stats-table tbody tr:last-child td{border-bottom:0}
+.work-stats-toolbar{padding:12px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.work-stats-toolbar .btn{margin-inline-start:auto}
+.work-total{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0}
+@media(max-width:480px){
+  .work-stats-table td,.work-stats-table th{padding:8px}
+  .work-detail dl{grid-template-columns:minmax(0,1fr);gap:4px}
+  .work-detail dd+dt{margin-top:4px}
+}
 .savebar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:14px 24px;background:#fff;border-top:1px solid var(--line);z-index:5}
 .savebar .txt{flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:2px}
 dialog.dlg{width:min(560px,calc(100vw - 32px));padding:24px;border:0;border-radius:10px;background:#fff;color:var(--fg)}
@@ -887,6 +909,7 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
   // The codes that say the root changed or is gone since the list was loaded: the list is loaded again (their sentences are admin.page.error.<CODE>).
   const ROOT_CODES = new Set(['ADMIN_ROOT_NOT_FOUND', 'ADMIN_ROOT_NOT_ACTIVE', 'ADMIN_ROOT_STALE']);
   const ROOT_STATE_TEXT = { OPEN: 'stateOpen', NEEDS_REVIEW: 'stateNeedsReview', NEEDS_USER: 'stateNeedsUser' };
+  const rootListState = (r) => r.state === 'OPEN' && r.run?.state === 'PAUSED' ? 'PAUSED' : r.state;
   function fmtDateTime(iso) {
     const d = iso ? new Date(iso) : null;
     return d && !isNaN(d.getTime()) ? d.toLocaleString() : '';
@@ -913,10 +936,11 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     const key = idSafe(r.rootId);
     const sign = signBtn({ slot, id: 'rr-sign-' + key, label: rt('sign'), busyLabel: rt('busy'), off: S.rr.reason.trim() === '', onclick: () => releaseRoot(r, slot) });
     const input = h('textarea', { id: 'rr-reason-' + key, class: 'rr-reason', rows: '3', maxlength: '2000', value: S.rr.reason, placeholder: rt('defaultReason'), 'aria-label': rt('reason') });
-    input.addEventListener('input', () => { S.rr.reason = input.value; sign.disabled = !!S.busy || !hasKeys() || input.value.trim() === ''; });
-    return h('div', { class: 'col' },
+    input.addEventListener('input', () => { S.rr.reason = input.value; sign.disabled = !!S.busy || !hasKeys() || slotBlocked(slot) || input.value.trim() === ''; });
+    return h('div', { class: 'col root-release-confirm' },
       h('h3', null, rt('confirmTitle')),
       h('p', null, rt('confirmEffect')),
+      r.ownerPresence === 'online' ? h('div', { class: 'note-warn' }, rt('ownerWarning')) : null,
       h('label', { class: 'small muted', for: 'rr-reason-' + key }, rt('reason')),
       input,
       h('div', { class: 'panel-acts' },
@@ -929,17 +953,17 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     const owners = r.owners.map((o) => h('span', { class: 'mono small' }, o.ref + (o.host ? ' · ' + o.host : '')));
     return panel({
       id: 'root-card-' + idSafe(r.rootId), title: h('span', { title: rt('objective') }, r.objective),
-      badge: h('span', { class: 'st ' + (r.state === 'OPEN' ? 'on' : 'warn'), title: rt('state') }, ROOT_STATE_TEXT[r.state] ? rt(ROOT_STATE_TEXT[r.state]) : r.state),
+      badge: h('span', { class: 'st ' + (r.state === 'OPEN' ? 'off' : 'warn'), title: rt('state') }, ROOT_STATE_TEXT[r.state] ? rt(ROOT_STATE_TEXT[r.state]) : r.state),
       body: [h('div', { class: 'work-meta' },
-        h('span', { title: rt('lastActivity') }, rt('activityLine', { time: fmtDateTime(r.lastActivityAt) })),
+        h('span', null, tn('admin.page.rootRelease.runLine', { state: r.run ? workflowStateBadge(r.run.state) : rt('noRun') })),
         h('span', null, ownerLine(r)),
-        h('span', null, tn('admin.page.rootRelease.runLine', { state: r.run ? h('span', { class: 'st off' }, workflowStateLabel(r.run.state)) : rt('noRun') }))),
+        h('span', null, tn('admin.page.rootRelease.activityLine', { time: h('time', { datetime: r.lastActivityAt }, fmtDateTime(r.lastActivityAt) || '—') }))),
         workDetails('root-details-' + idSafe(r.rootId), rt('details'),
           kv([[rt('identifier'), r.rootId, 'mono'], [rt('created'), fmtDateTime(r.createdAt)],
             [rt('run'), r.run ? r.run.runId : rt('noRun'), r.run ? 'mono' : null],
             [rt('owner'), h('div', { class: 'panel-owner' }, owners.length ? owners : ownerLine(r))]]))],
-      notice: [r.ownerPresence === 'online' ? h('div', { class: 'note-warn', role: 'alert' }, rt('ownerWarning')) : null, confirming ? confirmBlock(r, slot) : null],
-      acts: confirming ? null : [h('button', { type: 'button', class: 'btn', id: 'root-release-' + idSafe(r.rootId), disabled: !!S.busy, onclick: () => askRelease(r) }, rt('release'))],
+      notice: confirming ? confirmBlock(r, slot) : null,
+      acts: confirming ? null : [h('button', { type: 'button', class: 'btn sm warn-o', id: 'root-release-' + idSafe(r.rootId), disabled: !!S.busy || !!S.rr.confirm, onclick: () => askRelease(r) }, rt('release'))],
       status: statusEl(slot) });
   }
   function viewRoots() {
@@ -948,7 +972,14 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     const update = (name, value) => { rr[name] = value; rr.limit = 20; render(); };
     const ownerKind = (r) => !r.ownerBound ? 'unbound' : r.ownerPresence === 'online' ? 'online' : 'unknown';
     const query = norm(rr.query);
-    const matching = list.filter((r) => (!rr.state || r.state === rr.state) && (!rr.owner || ownerKind(r) === rr.owner) &&
+    const states = [['', rt('allStates')], ['NEEDS_REVIEW', rt('stateNeedsReview')], ['NEEDS_USER', rt('stateNeedsUser')],
+      ['PAUSED', workflowStateLabel('PAUSED')], ['OPEN', rt('stateOtherOpen')]];
+    const counts = new Map();
+    for (const root of list) {
+      const state = rootListState(root);
+      counts.set(state, (counts.get(state) || 0) + 1);
+    }
+    const matching = list.filter((r) => (!rr.state || rootListState(r) === rr.state) && (!rr.owner || ownerKind(r) === rr.owner) &&
       (!query || norm([r.objective, r.rootId, r.run && r.run.runId, ...r.owners.flatMap((o) => [o.ref, o.host])].join(' ')).includes(query)))
       .slice().sort((a, b) => {
         const order = String(a.lastActivityAt).localeCompare(String(b.lastActivityAt)) || a.rootId.localeCompare(b.rootId);
@@ -959,20 +990,23 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     const reload = h('button', { type: 'button', class: 'btn sm', id: 'roots-reload', disabled: !!S.busy, onclick: () => loadState() }, rt('reload'));
     return h('section', { class: 'col', 'aria-labelledby': 'roots-title' }, screenHead('roots-title', rt('title'), rt('intro'), reload),
       statusEl('roots-screen'),
-      h('div', { class: 'work-summary', 'aria-label': rt('summary') },
-        [[rt('total'), list.length], [rt('stateNeedsReview'), list.filter((r) => r.state === 'NEEDS_REVIEW').length], [rt('stateNeedsUser'), list.filter((r) => r.state === 'NEEDS_USER').length]]
-          .map(([label, count]) => h('div', null, h('span', { class: 'small muted' }, label), h('strong', null, num(count))))),
+      h('div', { class: 'root-summary', role: 'group', 'aria-label': rt('summary') },
+        states.map(([state, label]) => h('button', {
+          class: 'btn', type: 'button', id: 'roots-summary-' + (state ? state.toLowerCase() : 'all'),
+          'aria-pressed': String(rr.state === state), disabled: !!S.busy || !!rr.confirm,
+          onclick: () => update('state', state),
+        }, h('strong', null, num(state ? counts.get(state) : list.length)), h('span', null, state ? label : rt('total'))))),
       h('fieldset', { class: 'work-filters', disabled: !!S.busy || !!rr.confirm, 'aria-label': rt('filters') },
         workSearch('roots-query', rt('search'), rr.query, (value) => update('query', value)),
-        workSelect('roots-state', rt('state'), rr.state, [['', rt('allStates')], ...Object.entries(ROOT_STATE_TEXT).map(([value, key]) => [value, rt(key)])], (value) => update('state', value)),
+        workSelect('roots-state', rt('listState'), rr.state, states, (value) => update('state', value)),
         workSelect('roots-owner', rt('owner'), rr.owner, [['', rt('allOwners')], ['online', rt('ownerOnline')], ['unknown', rt('ownerNotOnline')], ['unbound', rt('ownerNotBound')]], (value) => update('owner', value)),
         workSelect('roots-sort', rt('sort'), rr.sort, [['recent', rt('sortRecent')], ['oldest', rt('sortOldest')]], (value) => update('sort', value)),
         h('button', { type: 'button', class: 'btn', id: 'roots-reset', onclick: () => { Object.assign(rr, { query: '', state: '', owner: '', sort: 'recent', limit: 20 }); render(); $('roots-query').focus(); } }, rt('reset'))),
       pinned ? h('section', { class: 'col', 'aria-labelledby': 'roots-confirming-title' },
         h('h3', { id: 'roots-confirming-title' }, rt('confirmingWorkflow')),
-        h('ul', { class: 'stack', 'aria-labelledby': 'roots-confirming-title' }, rootCard(pinned))) : null,
+        h('ul', { class: 'stack root-list', 'aria-labelledby': 'roots-confirming-title' }, rootCard(pinned))) : null,
       h('p', { class: 'small muted', id: 'roots-count', role: 'status' }, rt('count', { shown: shown.length, matching: matching.length, total: list.length })),
-      !list.length ? h('p', { class: 'empty' }, rt('empty')) : !matching.length ? h('p', { class: 'empty' }, rt('noMatches')) : h('ul', { class: 'stack', 'aria-label': rt('title') }, shown.map(rootCard)),
+      !list.length ? h('p', { class: 'empty' }, rt('empty')) : !matching.length ? h('p', { class: 'empty' }, rt('noMatches')) : h('ul', { class: 'stack root-list', 'aria-label': rt('title') }, shown.map(rootCard)),
       matching.length > shown.length ? h('button', { type: 'button', class: 'btn', id: 'roots-more', disabled: !!S.busy || !!rr.confirm, onclick: () => { rr.limit += 20; render(); const next = $('root-card-' + idSafe(matching[shown.length].rootId)); if (next) { next.setAttribute('tabindex', '-1'); next.focus(); } } }, rt('more')) : null);
   }
 
@@ -1933,9 +1967,11 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
   const wt = (name, vars) => t('admin.page.workflows.' + name, vars);
   const kindLabel = (kind) => (has('admin.page.workflows.kind.' + kind) ? wt('kind.' + kind) : kind);
   const workflowStateLabel = (state) => (has('admin.page.workflows.state.' + state) ? wt('state.' + state) : state);
+  const WORKFLOW_STATE_STYLE = { RUNNING: 'on', PASSED: 'on', PAUSED: 'warn', NEEDS_APPROVAL: 'warn', NEEDS_INPUT: 'warn', NEEDS_REDESIGN: 'warn', BLOCKED: 'err', FAILED: 'err' };
+  const workflowStateBadge = (state) => h('span', { class: 'st ' + (WORKFLOW_STATE_STYLE[state] || 'off') }, workflowStateLabel(state));
   async function loadWorkflows() {
     const w = S.w, seq = ++w.seq; pollText = null;
-    w.loading = true; render();
+    w.loading = true; w.error = null; render();
     let r = null, error = null;
     try {
       r = await api('GET', '/api/workflow-stats?days=' + w.days);
@@ -1950,9 +1986,9 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     const head0 = h('thead', null, h('tr', null, h('th', { scope: 'col' }, wt('colKind')), h('th', { scope: 'col' }, wt('colStarted')), h('th', { scope: 'col' }, wt('colNoSkills'))));
     const body = h('tbody', null, d.kinds.map((k) => h('tr', null,
       h('td', null, kindLabel(k.kind)),
-      h('td', { class: 'num' }, h('b', null, String(k.started))),
-      h('td', { class: 'num' }, String(k.withoutSkills)))));
-    return h('div', { class: 'tbl-wrap narrow' }, h('table', null, h('caption', null, wt('kindsCaption')), head0, body));
+      h('td', { class: 'num' }, h('b', null, num(k.started))),
+      h('td', { class: 'num' }, num(k.withoutSkills)))));
+    return h('div', { class: 'tbl-wrap narrow work-stats-table' }, h('table', { 'aria-labelledby': 'w-kinds-title' }, head0, body));
   }
   /** The skills of each kind in a table of its own: a kind whose skills are optional is never added to the others. */
   function viewKindSkills(d) {
@@ -1960,12 +1996,12 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
       const id = 'w-skills-' + k.kind;
       const rows = d.skills.filter((s) => s.kind === k.kind);
       return h('div', { class: 'col', role: 'group', 'aria-labelledby': id },
-        h('h3', { id }, wt('kindHeading', { kind: kindLabel(k.kind), count: k.started }), k.skillsRequired ? null : h('span', { class: 'tag' }, wt('skillsOptional'))),
+        h('h3', { id }, wt('kindHeading', { kind: kindLabel(k.kind), count: k.started }), k.skillsRequired ? null : [' ', h('span', { class: 'tag' }, wt('skillsOptional'))]),
         !k.skillsRequired && k.withoutSkills ? h('p', { class: 'small muted' }, wt('withoutSkills', { count: k.withoutSkills })) : null,
         rows.length
-          ? h('div', { class: 'tbl-wrap narrow' }, h('table', null,
+          ? h('div', { class: 'tbl-wrap narrow work-stats-table work-skill-table' }, h('table', { 'aria-labelledby': id },
             h('thead', null, h('tr', null, h('th', { scope: 'col' }, wt('colSkill')), h('th', { scope: 'col' }, wt('colWorkflows')))),
-            h('tbody', null, rows.map((s) => h('tr', null, h('td', null, h('code', null, s.skillId)), h('td', { class: 'num' }, String(s.workflows)))))))
+            h('tbody', null, rows.map((s) => h('tr', null, h('td', null, h('code', null, s.skillId)), h('td', { class: 'num' }, num(s.workflows)))))))
           : h('p', { class: 'small muted' }, wt('noSkillsInKind')));
     });
   }
@@ -1983,37 +2019,37 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
       workSelect('workflow-state', wt('colState'), w.state, [['', wt('allStates')], ...states.map((x) => [x, workflowStateLabel(x)])], (value) => update('state', value)),
       workSelect('workflow-host', wt('colHost'), w.host, [['', wt('allHosts')], ...hosts.map((x) => [x, JSON.parse(x) || wt('noHost')])], (value) => update('host', value)),
       h('button', { type: 'button', class: 'btn', id: 'workflow-reset', onclick: () => { Object.assign(w, { query: '', kind: '', state: '', host: '' }); render(); $('workflow-query').focus(); } }, wt('reset')));
-    const col = (name) => h('th', { scope: 'col' }, wt(name));
-    const row = (x) => h('tr', null,
-      h('td', { class: 'goal work-goal' }, x.goal),
-      h('td', null, h('span', { class: 'st off' }, workflowStateLabel(x.state))),
-      h('td', null, kindLabel(x.kind)),
-      h('td', { class: 'nowrap', title: fmtDateTime(x.startedAt) }, x.startedAt ? fmtTime(x.startedAt) : '—'),
-      h('td', null, x.host ? x.host : h('span', { class: 'muted' }, wt('noHost'))),
-      h('td', null, workDetails('workflow-details-' + idSafe(x.runId), wt('details'),
-        kv([[wt('colRunId'), x.runId, 'mono'], [wt('colSkills'), x.skills.length ? h('div', { class: 'work-skills' }, x.skills.map((s, i) => [i ? ' ' : null, h('code', null, s)])) : wt('noSkills')]]))));
+    const row = (x) => h('li', { class: 'panel' },
+      h('div', { class: 'panel-head' }, h('h3', null, x.goal), workflowStateBadge(x.state)),
+      h('div', { class: 'work-meta' },
+        h('span', null, kindLabel(x.kind)),
+        h('span', null, tn('admin.page.workflows.hostLine', { host: x.host || wt('noHost') })),
+        h('span', null, tn('admin.page.workflows.startedLine', { time: h('time', { datetime: x.startedAt }, fmtDateTime(x.startedAt) || '—') }))),
+      workDetails('workflow-details-' + idSafe(x.runId), wt('details'),
+        kv([[wt('colRunId'), x.runId, 'mono'], [wt('colSkills'), x.skills.length ? h('div', { class: 'work-skills' }, x.skills.map((s) => h('code', null, s))) : wt('noSkills')]])));
     return h('div', { class: 'col' }, filters,
       h('p', { id: 'workflow-count', class: 'small muted', role: 'status' }, wt('count', { shown: recent.length, loaded: d.recent.length })),
-      recent.length ? h('div', { class: 'tbl-wrap work-recent', role: 'region', tabindex: '0', 'aria-labelledby': 'w-recent-title' }, h('table', null,
-        h('thead', null, h('tr', null, col('colGoal'), col('colState'), col('colKind'), col('colAt'), col('colHost'), col('details'))),
-        h('tbody', null, recent.map(row)))) : h('p', { class: 'empty' }, wt('noMatches')));
+      recent.length ? h('ul', { class: 'stack work-recent', 'aria-labelledby': 'w-recent-title' }, recent.map(row))
+        : h('p', { class: 'empty' }, d.recent.length ? wt('noMatches') : wt('noRecent')));
   }
   function viewWorkflows() {
     const w = S.w, d = w.data;
     const sec = h('section', { class: 'col', 'aria-labelledby': 'w-title' }, head('w-title', wt('title'), wt('desc')));
     const select = h('select', { id: 'workflow-days', class: 'txt-in' }, USAGE_PERIODS.map((days) => h('option', { value: String(days), selected: days === w.days }, t('admin.page.stats.period.' + days))));
     select.addEventListener('change', () => { w.days = Number(select.value); loadWorkflows(); });
-    sec.append(h('div', { class: 'row center' }, h('label', { for: 'workflow-days' }, t('admin.page.stats.periodLabel')), select,
+    sec.append(h('div', { class: 'row center work-stats-toolbar' }, h('label', { for: 'workflow-days' }, t('admin.page.stats.periodLabel')), select,
       h('button', { type: 'button', class: 'btn sm', id: 'workflow-reload', disabled: w.loading, onclick: () => loadWorkflows() }, w.loading ? t('admin.page.stats.loading') : t('admin.page.stats.reload'))));
     if (w.error) {
       sec.append(h('div', { class: 'note-err', role: 'alert' }, tn('admin.page.workflows.loadFailed', { reason: describe(w.error.code, w.error.details), code: h('code', null, codeText(w.error.code, w.error.details)) })));
     }
-    if (!d) { if (!w.error) sec.append(h('p', { class: 'muted', role: 'status' }, t('admin.page.stats.loading'))); return sec; }
+    if (w.loading) sec.append(h('p', { class: 'small muted', role: 'status' }, t('admin.page.stats.loading')));
+    if (!d) return sec;
     if (d.days !== w.days) sec.append(h('p', { class: 'hint', role: 'status' }, wt('previousPeriod', { days: d.days })));
     if (!d.total) { sec.append(h('p', { class: 'empty' }, wt('empty'))); return sec; }
     // Start with the period totals, then the runs a person can inspect; the skill breakdown is available on demand.
-    sec.append(h('p', { role: 'status' }, wt('summary', { total: d.total })),
-      h('section', { class: 'col', 'aria-labelledby': 'w-kinds-title' }, h('h2', { id: 'w-kinds-title' }, wt('kindsTitle')), viewKindsTable(d)),
+    sec.append(h('p', { class: 'box work-total', role: 'status' }, tn('admin.page.workflows.summary', { total: h('strong', null, num(d.total)) })),
+      h('section', { class: 'col', 'aria-labelledby': 'w-kinds-title' }, h('h2', { id: 'w-kinds-title' }, wt('kindsTitle')),
+        viewKindsTable(d), h('p', { class: 'small muted' }, wt('kindsNote'))),
       h('section', { class: 'col', 'aria-labelledby': 'w-recent-title' }, h('h2', { id: 'w-recent-title' }, wt('recentTitle')), h('p', { class: 'small muted' }, wt('recentNote', { limit: d.recentLimit })), viewRecentWorkflows(d)),
       h('section', { class: 'col', 'aria-labelledby': 'w-skills-title' }, h('h2', { id: 'w-skills-title' }, wt('skillsTitle')), workDetails('workflow-skills-details', wt('skillsToggle'), h('p', { class: 'small muted' }, wt('skillsDesc')), viewKindSkills(d))));
     return sec;

@@ -11,9 +11,9 @@
       "source": "./claude-plugin",
       "description": "Governance specialists, a local MCP workflow guard, and opt-in task continuity for Claude Code.",
       "category": "development",
-      "version": "1.0.0",
-      "ref": "v1.0.0"
+      "version": "1.1.0",
+      "ref": "v1.1.0"
     }
   ],
-  "version": "1.0.0"
+  "version": "1.1.0"
 }

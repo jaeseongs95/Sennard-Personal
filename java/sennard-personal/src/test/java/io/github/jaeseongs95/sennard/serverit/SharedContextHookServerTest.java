@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -27,7 +28,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import io.github.jaeseongs95.sennard.server.continuity.ContinuityService;
+import io.github.jaeseongs95.sennard.server.continuity.ContinuityTools;
 import io.github.jaeseongs95.sennard.server.workflow.WorkflowCall;
+import io.github.jaeseongs95.sennard.service.store.MemoryStatus;
 import io.github.jaeseongs95.sennard.service.store.modules.ContextLayerStore;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -39,16 +43,17 @@ import tools.jackson.databind.node.ObjectNode;
 @Tag("business-db")
 class SharedContextHookServerTest {
     /** A host's boundaries: where a session starts, where its own turn starts and where a step ends. */
-    record Host(String label, String sessionHost, String turnEvent, String stepEvent, boolean repeatsAtTurnStart) {
+    record Host(String label, String sessionHost, String turnEvent, String stepEvent) {
         @Override
         public String toString() {
             return label;
         }
     }
 
-    private static final Host CLAUDE = new Host("claude", "claude-code", "UserPromptSubmit", "PostToolUse", false);
-    private static final Host CODEX = new Host("codex", "codex", "UserPromptSubmit", "PostToolUse", false);
-    private static final Host AGY = new Host("agy", "antigravity", "PreInvocation", "PostInvocation", true);
+    private static final Host CLAUDE = new Host("claude", "claude-code", "UserPromptSubmit", "PostToolUse");
+    private static final Host CODEX = new Host("codex", "codex", "UserPromptSubmit", "PostToolUse");
+    private static final Host AGY = new Host("agy", "antigravity", "PreInvocation", "PostInvocation");
+    private static final Host GEMINI = new Host("gemini", "gemini", "BeforeAgent", "AfterTool");
     private static final String ROLE_HEADER = "[Sennard role context role=";
     private static final String GLOBAL_HEADER = "[Sennard global context stateToken=";
     private static final String VERIFY_FAILED = "[Sennard verification failed";
@@ -70,30 +75,47 @@ class SharedContextHookServerTest {
     }
 
     static Stream<Host> hosts() {
-        return Stream.of(CLAUDE, CODEX, AGY);
+        return Stream.of(CLAUDE, CODEX, AGY, GEMINI);
+    }
+
+    static Stream<Host> compactionHosts() {
+        return Stream.of(CLAUDE, CODEX);
     }
 
     private static String post(String host, String event, String session, Consumer<ObjectNode> edit) throws IOException {
-        RawHttp.Response response = DomainServerSupport.hook(sennard.server.port, "windows", host, event, null, session, edit);
+        RawHttp.Response response;
+        if (host.equals(GEMINI.label())) {
+            ObjectNode body = ToolServerSupport.MAPPER.createObjectNode().put("session_id", session).put("transcript_path", "").put("cwd", "/work")
+                    .put("hook_event_name", event).put("timestamp", "2026-11-11T00:00:00.000Z");
+            edit.accept(body);
+            response = SessionServerSupport.post(sennard.server.port, "/hooks/v1/gemini/" + event, ToolServerSupport.MAPPER.writeValueAsBytes(body));
+        } else {
+            response = DomainServerSupport.hook(sennard.server.port, "windows", host, event, null, session, edit);
+        }
         assertEquals(200, response.status(), DomainServerSupport.text(response));
         return DomainServerSupport.text(response);
     }
 
     private static String sessionStart(Host host, String session) throws IOException {
-        return post(host.label(), "SessionStart", session, body -> {
-        });
+        return post(host.label(), "SessionStart", session, body -> body.put("source", "startup"));
     }
 
     private static String turnStart(Host host, String session) throws IOException {
         return post(host.label(), host.turnEvent(), session, body -> {
             if (host == AGY) {
                 body.put("invocationNum", 0);
+            } else if (host == GEMINI) {
+                body.put("prompt", "continue");
             }
         });
     }
 
     private static String step(Host host, String session) throws IOException {
         return post(host.label(), host.stepEvent(), session, body -> {
+            if (host == GEMINI) {
+                body.put("tool_name", "read_file").putObject("tool_input").put("file_path", "/work/example.txt");
+                body.putObject("tool_response").put("output", "example");
+            }
         });
     }
 
@@ -140,24 +162,36 @@ class SharedContextHookServerTest {
 
     @ParameterizedTest
     @MethodSource("hosts")
-    void aContextStartGivesTheGlobalAndRoleBodyOnEveryHost(Host host) throws Exception {
+    void allThreeSavedBodiesTravelAtContextStartAndStayOutOfOrdinaryHooks(Host host) throws Exception {
         String global = setGlobal("전역 지시 " + UUID.randomUUID() + " {not-a-placeholder}");
         String roleId = role();
         String roleBody = "역할 판단 기준 " + UUID.randomUUID();
         setRoleBody(roleId, roleBody, null);
 
-        String answer = sessionStart(host, boundSession(host, roleId));
+        String session = boundSession(host, roleId);
+        sessionStart(host, session);
+        String objective = "saved-session-" + UUID.randomUUID();
+        ContinuityService continuity = sennard.bean(ContinuityService.class);
+        var caller = new ContinuityService.Caller(session, WorkflowCall.actorId(host.sessionHost(), session, null));
+        var initial = (ContinuityService.SnapshotView) continuity.load(caller, null);
+        var core = new ContinuityTools.Core(objective, List.of("checked"), List.of(), List.of(), List.of(), List.of(), List.of());
+        continuity.checkpoint(caller, new ContinuityService.Checkpoint(UUID.randomUUID().toString(), initial.stateToken(), MemoryStatus.ACTIVE, core, List.of()));
+        String answer = sessionStart(host, session);
 
         assertTrue(answer.contains(GLOBAL_HEADER), answer);
         assertTrue(answer.contains(global), answer);
         assertTrue(answer.contains(ROLE_HEADER + roleName(roleId)), answer);
         assertTrue(answer.contains(roleBody), answer);
+        assertTrue(answer.contains(objective), answer);
         assertFalse(answer.contains(CHANGED), answer);
+        for (String ordinary : List.of(turnStart(host, session), step(host, session))) {
+            assertFalse(ordinary.contains(global) || ordinary.contains(roleBody) || ordinary.contains(objective), ordinary);
+        }
     }
 
     @ParameterizedTest
     @MethodSource("hosts")
-    void aTurnStartGivesTheBodyOnlyOnAHostThatLosesItAndAlwaysCuesTheRoleSave(Host host) throws Exception {
+    void aTurnStartOmitsBodiesAndStillCuesTheRoleSave(Host host) throws Exception {
         String global = setGlobal("턴 시작 대조 " + UUID.randomUUID());
         String roleId = role();
         String session = boundSession(host, roleId);
@@ -165,14 +199,14 @@ class SharedContextHookServerTest {
 
         String answer = turnStart(host, session);
 
-        assertEquals(host.repeatsAtTurnStart(), answer.contains(global), answer);
+        assertFalse(answer.contains(global), answer);
         assertTrue(answer.contains("[Sennard role save role=" + roleName(roleId)), answer);
         assertTrue(answer.contains("still empty"), "a role with no body asks for its first save: " + answer);
     }
 
     @ParameterizedTest
     @MethodSource("hosts")
-    void theNextTurnMarksAnApprovedGlobalChangeOnlyOnce(Host host) throws Exception {
+    void aGlobalChangeWaitsForTheNextContextStart(Host host) throws Exception {
         setGlobal("변경 전 " + UUID.randomUUID());
         String session = SessionServerSupport.uniqueSession();
         assertFalse(sessionStart(host, session).contains(CHANGED));
@@ -180,12 +214,15 @@ class SharedContextHookServerTest {
         String changed = setGlobal("변경 후 " + UUID.randomUUID());
         String answer = turnStart(host, session);
 
-        assertTrue(answer.contains(changed), answer);
-        assertEquals(1, count(answer, CHANGED), answer);
+        assertFalse(answer.contains(changed), answer);
+        assertFalse(answer.contains(CHANGED), answer);
         String repeated = turnStart(host, session);
-        assertEquals(host.repeatsAtTurnStart(), repeated.contains(changed), repeated);
+        assertFalse(repeated.contains(changed), repeated);
         assertFalse(repeated.contains(CHANGED), repeated);
         assertFalse(step(host, session).contains(CHANGED));
+        String started = sessionStart(host, session);
+        assertTrue(started.contains(changed), started);
+        assertEquals(1, count(started, CHANGED), started);
     }
 
     @ParameterizedTest
@@ -205,7 +242,7 @@ class SharedContextHookServerTest {
 
     @ParameterizedTest
     @MethodSource("hosts")
-    void aStepGivesWhatChangedOnceAndNoCue(Host host) throws Exception {
+    void aStepOmitsChangedBodiesAndTheRoleSaveCue(Host host) throws Exception {
         setGlobal("변경 전 " + UUID.randomUUID());
         String session = SessionServerSupport.uniqueSession();
         sessionStart(host, session);
@@ -214,17 +251,17 @@ class SharedContextHookServerTest {
         String changed = setGlobal("변경 후 " + UUID.randomUUID());
         String answer = step(host, session);
 
-        assertTrue(answer.contains(changed), answer);
-        assertTrue(answer.contains(CHANGED), answer);
+        assertFalse(answer.contains(changed), answer);
+        assertFalse(answer.contains(CHANGED), answer);
         assertFalse(answer.contains("[Sennard role save"), answer);
         assertFalse(step(host, session).contains(changed), "once per change");
     }
 
 
-    /** A Codex model-request hook has no context channel; the next tool boundary must still receive both changed layers. */
+    /** Neither a Codex model request nor a tool result should consume bodies meant for the next context start. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void aModelBoundaryWithoutContextLeavesBothLayersForTheNextSupportedBoundary(boolean child) throws Exception {
+    void neitherModelCallsNorToolResultsConsumeNewBodies(boolean child) throws Exception {
         setGlobal("before-model-global " + UUID.randomUUID());
         String roleId = role();
         setRoleBody(roleId, "before-model-role " + UUID.randomUUID(), null);
@@ -253,8 +290,9 @@ class SharedContextHookServerTest {
         RawHttp.Response second = modelWithoutContext(session, actor);
         Map<String, Object> afterSecond = SessionServerSupport.row(sennard.server,
                 "SELECT global_token, role, role_token, delivered_at FROM sennard.context_deliveries WHERE actor_id = ?", actorId);
-        String delivered = post("codex", "PostToolUse", session, actor);
-        String repeated = post("codex", "PostToolUse", session, actor);
+        String step = post("codex", "PostToolUse", session, actor);
+        Map<String, Object> afterStep = SessionServerSupport.row(sennard.server,
+                "SELECT global_token, role, role_token, delivered_at FROM sennard.context_deliveries WHERE actor_id = ?", actorId);
 
         assertAll("unsupported boundary preserves the pending layers for " + (child ? "observed child" : "root"),
                 () -> assertEquals(200, first.status(), DomainServerSupport.text(first)),
@@ -263,9 +301,8 @@ class SharedContextHookServerTest {
                 () -> assertEquals(200, second.status(), DomainServerSupport.text(second)),
                 () -> assertEquals("{}", DomainServerSupport.text(second).strip()),
                 () -> assertEquals(before, afterSecond, "a repeated unsupported boundary still consumes nothing"),
-                () -> assertTrue(delivered.contains(changedGlobal) && delivered.contains(GLOBAL_HEADER), delivered),
-                () -> assertTrue(delivered.contains(changedRole) && delivered.contains(ROLE_HEADER), delivered),
-                () -> assertFalse(repeated.contains(changedGlobal) || repeated.contains(changedRole), repeated));
+                () -> assertEquals(before, afterStep),
+                () -> assertFalse(step.contains(changedGlobal) || step.contains(changedRole), step));
     }
 
     @ParameterizedTest
@@ -295,25 +332,28 @@ class SharedContextHookServerTest {
                 () -> assertNotNull(layers.delivered(actorId), "the supported boundary may establish delivery"));
     }
 
-    @Test
-    void aModelBoundaryWithContextStillDeliversBothChangedLayersOnce() throws Exception {
+    @ParameterizedTest
+    @MethodSource("compactionHosts")
+    void compactedContextReceivesBothCurrentSharedBodies(Host host) throws Exception {
         setGlobal("before-supported-model " + UUID.randomUUID());
         String roleId = role();
         setRoleBody(roleId, "before-supported-role " + UUID.randomUUID(), null);
-        String session = boundSession(AGY, roleId);
-        step(AGY, session);
+        String session = boundSession(host, roleId);
+        sessionStart(host, session);
         String changedGlobal = setGlobal("supported-model-global " + UUID.randomUUID());
         String changedRole = "supported-model-role " + UUID.randomUUID();
         ContextLayerStore layers = sennard.bean(ContextLayerStore.class);
         setRoleBody(roleId, changedRole, layers.readRole(roleId).stateToken());
 
-        String delivered = step(AGY, session);
-        String repeated = step(AGY, session);
+        String prompt = turnStart(host, session);
+        String step = step(host, session);
+        String delivered = post(host.label(), "SessionStart", session, body -> body.put("source", "compact"));
 
-        assertAll("ModelCallFinished(true) retains its delivery contract",
+        assertAll("both bodies wait for SessionStart(compact)",
                 () -> assertTrue(delivered.contains(changedGlobal) && delivered.contains(GLOBAL_HEADER), delivered),
                 () -> assertTrue(delivered.contains(changedRole) && delivered.contains(ROLE_HEADER), delivered),
-                () -> assertFalse(repeated.contains(changedGlobal) || repeated.contains(changedRole), repeated));
+                () -> assertFalse(prompt.contains(changedGlobal) || prompt.contains(changedRole), prompt),
+                () -> assertFalse(step.contains(changedGlobal) || step.contains(changedRole), step));
     }
 
     /** No PostModelRequest was recorded: as existing domain tests do, use the recorded prompt body for this event. */
@@ -428,7 +468,7 @@ class SharedContextHookServerTest {
     }
 
     @Test
-    void aSubagentGetsTheLayersAtItsStartAndOnlyChangesAtItsSteps() throws Exception {
+    void aSubagentGetsTheLayersAtItsStartAndNoBodiesAtItsSteps() throws Exception {
         String global = setGlobal("서브에이전트 전달 " + UUID.randomUUID());
         String roleId = role();
         String roleBody = "서브에이전트 역할 " + UUID.randomUUID();
@@ -447,7 +487,7 @@ class SharedContextHookServerTest {
         assertTrue(answer.contains(roleBody), answer);
         assertFalse(post("claude", "PostToolUse", session, child).contains(global), "the child already holds it");
         String changed = setGlobal("서브에이전트 변경 " + UUID.randomUUID());
-        assertTrue(post("claude", "PostToolUse", session, child).contains(changed));
+        assertFalse(post("claude", "PostToolUse", session, child).contains(changed));
     }
 
     private static String ofSize(String lead, int characters) {

@@ -179,7 +179,7 @@ public class ContinuityHookHandler implements HookDomain {
                 continuity.recordPostCompact(session, finished.turnId(), finished.successful());
                 yield PROCEED;
             }
-            case HostEvent ignored when event.startsTurn() -> context(promptLines(host, session, event, continuity.onPromptSubmitted(session, host.checksTurnWork(), host.restoresAtTurnStart(), rootActor)), true);
+            case HostEvent ignored when event.startsTurn() -> context(promptLines(host, session, event, continuity.onPromptSubmitted(session, host.checksTurnWork(), rootActor)), true);
             case HostEvent.ToolFinished finished when hasNoToolBoundary(host) -> PROCEED;
             case HostEvent.ToolFinished finished when finished.tool().sennardTool() != null && PROGRESS_TOOLS.contains(finished.tool().sennardTool()) ->
                 context(continuity.checkpointCueAfterProgress(session, finished.tool().callId()), false);
@@ -230,10 +230,9 @@ public class ContinuityHookHandler implements HookDomain {
 
     private HookVerdict started(HostEvent.SessionStarted started, String session) {
         switch (started.kind()) {
-            case STARTUP -> continuity.startSession(session); // A new session has nothing saved to restore; its start makes its task, so a refused tool call has none to roll back.
             case FORK -> continuity.startFork(session);
             case CLEAR -> continuity.clear(session);
-            case RESUME -> {
+            case STARTUP, RESUME -> {
                 return context(continuity.resumeContext(session), false);
             }
             case COMPACT -> {

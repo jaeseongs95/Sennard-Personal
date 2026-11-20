@@ -42,11 +42,11 @@ Skills opened in a way the host does not expose to hooks (for example, when the 
 
 ## Workflow Statistics
 
-The workflow statistics screen shows, by period, which kind of workflow the agents chose. It reads what each run already records and adds nothing to it. It shows three things, in this order:
+Under **Analytics → Workflow statistics**, you can see which kinds of workflow agents chose in a given period. The screen reads existing run records and shows these sections in order.
 
 1. **Started by kind.** How many workflows of each kind started (answer or investigation, change, execution or operation), and how many of them started without skills. The kinds come from the kinds Sennard defines, so a kind added later appears here by itself.
-2. **Declared skills by kind.** For each kind, the skills its workflows declared and in how many workflows. The kinds are counted apart: the skills of an answer or an investigation are optional, so mixing them with the others would distort the numbers.
-3. **Recent workflows.** The newest 50 of the period, each with its kind, goal, state, declared skills, start time, and host.
+2. **Recent workflows.** The list shows up to 50 of the most recent runs in the period. Search the list or filter it by kind, state or host. Expand a run for its ID and declared skills.
+3. **Declared skills by kind.** Expand this section to see the skills declared for each kind and how many workflows declared them. The screen counts each kind separately because skills are optional for answers and investigations.
 
 A workflow with no recorded kind (one started by the multi-step tools, or one whose record was cleaned up) is counted as a change; the screen says how many were counted that way. The screen is view-only, so no passkey is needed. The periods are the same as in the skill statistics.
 
@@ -61,7 +61,7 @@ Sennard has three kinds of context. There is no project-level context.
 | Situational | That session and its subagents | 2000 byte | That session (`checkpoint_context`) |
 
 - All three contexts are kept in the server's store. If nothing has been saved, nothing is injected.
-- **Injection timing:** Non-empty global and role contexts are injected at session start, resume, and compaction, and at subagent start. At subagent start, the parent session's situational context is also injected. If a context changes during a session, it is injected once, at the next boundary, into each actor that has not yet received that revision. On hosts without a compaction event, if the adapter marks turn start as context start, all contexts are injected on every turn.
+- **Injection timing.** Sennard sends the saved contexts when the host opens a session context, including a resume or a new context after successful compaction. Codex and Claude Code report the new context after compaction. On Antigravity and Gemini CLI, use `load_shared_context` and `load_context` to read the current contexts after compaction. Ordinary prompts and tool results can carry short notices. At subagent start, Sennard can also send the parent session's situational context. Antigravity subagents receive their initial role context once the parent link is verified.
 - **Roles and binding:** Who can access a role context is determined only by signed bindings. A binding can be requested only for a role in the role registry (otherwise `ROLE_NOT_REGISTERED`). Bindings are per root session, and subagents inherit the root session's binding. A binding is kept when the same session is resumed and is removed 30 days after its last use.
 - The session status board (`list_session_status`) shows the role of a signed binding if one exists (`roleSource: "signed"`), and otherwise shows the role the session wrote for itself (`roleSource: "self"`). A role written by the session itself is for display only and is not an access key.
 - The **Undetermined** group on the session binding screen shows Antigravity conversations whose relationship to a main session is still unknown and that have neither a summary nor a role. This can include an Antigravity subagent before its first matched Sennard tool call. Sennard identifies its own managed children from their launch IDs. Assign a role once you know a conversation is a main session. A conversation moves to **Ended** when the session ends. The page keeps nothing in the browser because its address changes at every start. See [Session collaboration](collaboration.md).
@@ -87,7 +87,7 @@ When user approval is required to replace an existing root with `open_convergenc
 
 ## Open Workflows: Release by the User
 
-An open workflow keeps other workflows out of the files it covers until it is released. When the session that opened it ends suddenly, no other session may release it without the user, so the **Open workflows** screen lets you do it yourself. It lists every workflow that is open, needs review, or needs the user. Each entry shows the workflow (by its root ID), its state, the task, when it was opened and last active (converted to the time zone of your browser), the newest run attached to it, the owner session, and whether an owner session is online now. The owner is shown as a short opaque reference (never a session ID), with the host when its session is online.
+An open workflow keeps other workflows out of the files it covers until it is released. If the session that opened it ends suddenly, you can release it from **Work → Workflow management**. The screen lists open workflows, including paused workflows and those waiting for review or user input. Search the list, filter by state or owner, or sort by last activity. Each entry shows the workflow state, objective, owner presence and last activity. Expand the details for the root ID, most recent run ID and creation time. The screen uses your browser’s time zone. The owner appears as a short opaque reference, with the host when its session is online.
 
 - **Releasing needs your passkey.** The signature covers the workflow, the revision the page showed, and your reason. A workflow that is gone, already closed, or changed since the page was loaded is refused before the passkey is asked, and again if it changed before the signature arrived; in that case nothing is recorded.
 - **What a release does.** The workflow is closed and cannot be continued, and a run still in progress in it is closed as blocked. A new workflow can then cover the same files.
