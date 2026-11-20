@@ -1,0 +1,2488 @@
+<!doctype html>
+<html lang="__PAGE_LANGUAGE__">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__PAGE_TITLE__</title>
+<link rel="icon" href="data:,">
+<style nonce="__CSP_NONCE__">
+:root{
+  --bg:#F6F6F3;--fg:#1C1C1A;--muted:#55544F;--line:#DEDDD7;--line2:#ECEBE6;--input:#C9C8C1;--soft:#FBFBF9;
+  --pri:#1F4FB8;--pri-d:#163C8C;--pri-l:#E3EAF8;
+  --ok-bg:#EEF6EC;--ok-bd:#B9D3B4;--ok-fg:#2B5A24;
+  --warn-bg:#FFF4E2;--warn-bd:#E8C48A;--warn-fg:#5C3300;--warn-d:#7A4300;
+  --info-bg:#EEF3FC;--info-bd:#B8C8EC;--info-fg:#163C8C;
+  --err-bg:#FDECEA;--err-bd:#F0B8B0;--err-fg:#8A1C12;--err-d:#B42318;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,"Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;font-size:14px;line-height:1.5}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--pri);outline-offset:2px}
+code,.mono,pre{font-family:ui-monospace,Consolas,"D2Coding",monospace;font-size:13px}
+[hidden]{display:none!important}
+.app{min-height:100vh;display:flex;flex-direction:column}
+footer.source{padding:12px 24px;border-top:1px solid var(--line);background:#fff;font-size:13px;text-align:end}
+header.top{display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;padding:14px 24px;background:#fff;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand b{font-size:18px}
+.brand span{font-size:13px;color:var(--muted)}
+.grow{flex-grow:1}
+.pill{font-size:13px;padding:6px 10px;border-radius:6px;border:1px solid}
+.pill.ok{border-color:var(--ok-bd);background:var(--ok-bg);color:var(--ok-fg)}
+.pill.warn{border-color:var(--warn-bd);background:var(--warn-bg);color:var(--warn-d)}
+.boot{font-size:12px;color:var(--muted)}
+.band{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 24px;border-bottom:1px solid;font-size:14px}
+.band>.txt{flex:1 1 320px;min-width:0;overflow-wrap:anywhere}
+.band.warn{background:var(--warn-bg);border-color:var(--warn-bd);color:var(--warn-fg)}
+.band.info{background:var(--info-bg);border-color:var(--info-bd);color:var(--info-fg)}
+.band.fail,.band.err{background:var(--err-bg);border-color:var(--err-bd);color:var(--err-fg)}
+.band .acts{display:flex;flex-wrap:wrap;gap:6px}
+.layout{display:flex;flex-wrap:wrap;flex-grow:1;align-content:flex-start}
+.row>.al{margin-top:22px}
+nav.side{flex:1 1 200px;max-width:240px;padding:20px 12px;display:flex;flex-direction:column;gap:4px;border-right:1px solid var(--line);background:var(--soft)}
+.nav-group{font-size:12px;color:var(--muted);padding:12px 10px 4px}
+.nav-btn{text-align:left;padding:10px 12px;border-radius:6px;border:0;background:transparent;font-size:14px;cursor:pointer}
+.nav-btn:hover{background:#EFEFEA}
+.nav-btn[aria-current="page"]{background:var(--pri-l);color:var(--pri-d);font-weight:700}
+main{flex:999 1 560px;min-width:0;padding:28px 32px 120px;display:flex;flex-direction:column;gap:24px}
+main:focus{outline:none}
+.split{display:flex;flex-wrap:wrap;gap:28px}
+.split>.col.main-col{flex:999 1 520px}
+.split>aside{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.col{min-width:0;display:flex;flex-direction:column;gap:18px}
+.head{display:flex;flex-direction:column;gap:6px}
+h1{margin:0;font-size:24px}
+h2{margin:0;font-size:16px}
+h1:focus,h2:focus{outline:none}
+.desc{margin:0;font-size:14px;color:var(--muted);line-height:1.6}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.err-t{color:var(--err-fg)}
+.box{padding:16px;background:#fff;border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;gap:10px}
+.btn{padding:8px 14px;border-radius:6px;border:1px solid var(--input);background:#fff;cursor:pointer;white-space:nowrap}
+.btn.sm{padding:6px 12px}
+.btn.pri{border-color:var(--pri);background:var(--pri);color:#fff}
+.btn.pri-o{border-color:var(--pri);color:var(--pri)}
+.btn.dashed{border:1px dashed #8C8B85;background:transparent}
+.btn.danger{color:var(--err-fg)}
+.btn.link-danger{border:0;background:transparent;color:var(--err-fg);text-decoration:underline;padding:8px 12px}
+.btn.warn-o{border-color:var(--warn-d);color:var(--warn-fg)}
+.btn.warn-f{border-color:var(--warn-d);background:var(--warn-d);color:#fff}
+.btn:disabled{border-color:#B9B8B1;background:#E6E5E0;color:var(--muted);cursor:not-allowed;text-decoration:none}
+.lang{display:flex;align-items:center;gap:6px}
+.lang .btn[aria-pressed="true"]{border-color:var(--pri);background:var(--pri-l);color:var(--pri-d);font-weight:700;cursor:default}
+.txt-in{padding:8px 10px;border:1px solid var(--input);border-radius:6px;background:#fff;min-width:0}
+.txt-in.invalid{border:2px solid var(--err-d)}
+.hint{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.hint.err{color:var(--err-fg)}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.row>.field{flex:1 1 280px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+.row.center{align-items:center}
+.status{font-size:14px}
+.status:empty{display:none}
+.status.st-busy,.status.st-checking{color:var(--info-fg)}
+.status.st-error{color:var(--err-fg)}
+.status.st-unknown{color:var(--warn-fg)}
+.status.st-ok{color:var(--ok-fg)}
+.status.st-info{color:var(--info-fg)}
+.status code{margin-left:4px}
+.status .btn{margin-left:8px}
+.note-ok{padding:12px 16px;border:1px solid var(--ok-bd);background:var(--ok-bg);border-radius:8px;color:var(--ok-fg);display:flex;flex-direction:column;gap:4px}
+.note-warn{padding:14px 16px;border:1px solid var(--warn-bd);background:var(--warn-bg);border-radius:8px;color:var(--warn-fg);display:flex;flex-direction:column;gap:10px}
+.note-info{padding:12px 16px;border:1px solid var(--info-bd);background:var(--info-bg);border-radius:8px;color:var(--info-fg);display:flex;flex-direction:column;gap:10px}
+.note-err{padding:12px 16px;border:1px solid var(--err-bd);background:var(--err-bg);border-radius:8px;color:var(--err-fg);display:flex;flex-direction:column;gap:8px}
+.meter-row{display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.meter{height:8px;background:#E6E5E0;border-radius:4px;overflow:hidden}
+.meter>div{height:100%;width:0;background:var(--pri)}
+.meter.over>div{background:var(--err-d)}
+.over-t{color:var(--err-fg);font-weight:700}
+ol.rules{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px}
+ol.rules li{padding:14px 16px;background:#fff;border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;gap:8px}
+ol.rules label{font-size:13px;color:var(--muted)}
+.rr-reason,ol.rules textarea,.dlg textarea{width:100%;padding:8px 10px;border:1px solid var(--input);border-radius:6px;resize:vertical;line-height:1.6}
+.rule-foot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 16px;font-size:12px;color:var(--muted)}
+ul.hist{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+.hist-btn{width:100%;text-align:left;padding:10px 12px;border:1px solid transparent;border-radius:6px;background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.hist-btn[aria-pressed="true"]{border-color:var(--pri);background:var(--pri-l)}
+.hist-btn .t{font-size:14px;font-weight:500}
+.tag{display:inline-block;font-size:12px;padding:0 6px;margin-left:6px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-weight:400}
+.tag.new{border-color:var(--ok-bd);background:var(--ok-bg);color:var(--ok-fg);font-weight:700}
+.diff{margin:0;padding:8px 0;background:#fff;border:1px solid var(--line2);border-radius:6px;max-height:360px;overflow:auto}
+.diff div{padding:0 10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.diff .add{background:#E9F5E6;color:var(--ok-fg)}
+.diff .del{background:#FBE9E7;color:var(--err-fg)}
+.cmp{display:flex;flex-wrap:wrap;gap:12px}
+.cmp>div{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:4px}
+.cmp pre,pre.body{margin:0;padding:12px;background:var(--bg);border:1px solid var(--line2);border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;max-height:320px;overflow:auto;color:var(--fg)}
+.tbl-wrap{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%}
+.tbl-wrap table{min-width:760px}
+.tbl-wrap td:first-child{min-width:180px}
+.tbl-wrap td:nth-child(4){min-width:150px}
+caption{text-align:left;padding:12px;font-size:14px;font-weight:700}
+.skill-group th{background:var(--bg);color:var(--fg);font-weight:700}
+th{text-align:left;font-weight:500;font-size:13px;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:12px;border-bottom:1px solid var(--line2);font-size:14px;vertical-align:top}
+td.nowrap{white-space:nowrap}
+td.num{white-space:nowrap;font-variant-numeric:tabular-nums}
+#usage-days,#workflow-days{width:auto;max-width:100%}
+.tbl-wrap.narrow table{min-width:0}
+.tbl-wrap.narrow td:first-child{min-width:0}
+td.goal{min-width:220px;overflow-wrap:anywhere}
+h3{margin:0;font-size:14px}
+td .acts{display:flex;flex-wrap:nowrap;gap:6px;align-items:center}
+td .acts .small{white-space:normal;min-width:160px}
+.empty{margin:0;padding:24px;text-align:center;background:#fff;border:1px dashed var(--input);border-radius:8px;color:var(--muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip-r{padding:6px 12px;border-radius:999px;border:1px solid var(--input);background:#fff;font-size:13px;cursor:pointer}
+.chip-r[aria-checked="true"]{border-color:var(--pri);background:var(--pri-l);color:var(--pri-d);font-weight:700}
+ul.cards{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+.card{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:16px 18px;background:#fff;border-radius:8px;border:1px solid var(--line)}
+.card.req{border-color:#8FA9E0;box-shadow:inset 4px 0 0 var(--pri)}
+.card .ttl{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.card .doing{font-size:16px;font-weight:700;overflow-wrap:anywhere}
+.card.sess{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:8px}
+.sess .doing.none{font-weight:400;color:var(--muted)}
+.sess .s-basis{font-size:13px;color:var(--muted)}
+.sess .s-basis.thin{color:var(--warn-fg)}
+.sess .s-role{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 12px;border-radius:6px;background:var(--soft);border:1px solid var(--line2)}
+.sess .s-role.none{background:var(--warn-bg);border-color:var(--warn-bd)}
+.sess .s-who{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.sess .s-acts{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin-left:auto}
+.sess .s-thin{flex:1 1 100%;font-size:13px;color:var(--warn-fg)}
+.sess .s-meta{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.role-t{font-size:15px;overflow-wrap:anywhere}
+.role-t.bound{font-weight:700}
+.role-t.req{font-weight:700;color:var(--info-fg)}
+.role-t.none{color:var(--muted)}
+.st{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid}
+.st.on{background:var(--ok-bg);color:var(--ok-fg);border-color:var(--ok-bd)}
+.st.off{background:#EFEFEC;color:var(--muted);border-color:var(--input)}
+.st.warn{background:var(--warn-bg);color:var(--warn-fg);border-color:var(--warn-bd)}
+details.guide{font-size:13px;color:var(--muted)}
+details summary{cursor:pointer;color:var(--pri);width:fit-content}
+details.guide ul{margin:8px 0 0;padding-left:18px;line-height:1.7}
+/* Every definition list is made by kv(): a muted label of a fixed width and its value, with the browser's indent of dd taken off (one column on a narrow window). */
+dl{margin:0;display:grid;grid-template-columns:10rem minmax(0,1fr);gap:8px 16px;font-size:14px;line-height:1.5}
+dt{color:var(--muted)}
+dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.st.err{background:var(--err-bg);color:var(--err-fg);border-color:var(--err-bd)}
+main>section{width:100%;max-width:1080px}
+.head-row{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:8px 16px}
+.head-row>.head{flex:1 1 360px;min-width:0}
+.head-row>.head-acts{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:6px}
+.stack{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px}
+/* A panel is one thing to act on: head (title, id, state), body (what it is), notice (the whole width), actions (right-aligned, the main action last). */
+.panel{display:flex;flex-direction:column;gap:14px;padding:16px 18px;background:#fff;border:1px solid var(--line);border-radius:8px}
+.panel p,.panel h2,.panel h3{margin:0}
+.panel-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.panel-head h2{font-size:16px;overflow-wrap:anywhere;min-width:0}
+.panel-body{display:flex;flex-direction:column;gap:12px}
+.panel-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}
+.panel-owner{display:flex;flex-direction:column;gap:2px}
+.work-summary{display:flex;flex-wrap:wrap;gap:10px}
+.work-summary>div{flex:1 1 150px;padding:12px 16px;border:1px solid var(--line);border-radius:8px;background:#fff;display:flex;flex-direction:column;gap:2px}
+.work-summary strong{font-size:22px;font-variant-numeric:tabular-nums}
+.work-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;min-width:0;margin:0;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--soft)}
+.work-filters>.field{flex:1 1 150px}
+.work-filters>.field.search{flex:3 1 280px}
+.work-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;color:var(--muted);font-size:13px}
+.work-detail>summary{font-size:13px}
+.work-detail[open]>summary{margin-bottom:12px}
+.work-goal{font-weight:700;overflow-wrap:anywhere}
+.work-skills{overflow-wrap:anywhere}
+.work-recent td:first-child{min-width:260px}
+.work-recent td:nth-child(4){min-width:0}
+.savebar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:14px 24px;background:#fff;border-top:1px solid var(--line);z-index:5}
+.savebar .txt{flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:2px}
+dialog.dlg{width:min(560px,calc(100vw - 32px));padding:24px;border:0;border-radius:10px;background:#fff;color:var(--fg)}
+dialog.dlg.narrow{width:min(480px,calc(100vw - 32px))}
+dialog.dlg.combo-host{overflow:visible}
+dialog::backdrop{background:rgba(20,20,18,.45)}
+.dlg-in{display:flex;flex-direction:column;gap:14px}
+.dlg-in h2{font-size:18px}
+.dlg-acts{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;align-items:center}
+.dlg-acts .why{flex:1 1 100%;text-align:right}
+.dlg-acts .why:empty{display:none}
+.del-list{margin:8px 0 0;padding:8px 12px;list-style:none;max-height:160px;overflow-y:auto;border:1px solid var(--line2);border-radius:6px;background:var(--soft);display:flex;flex-direction:column;gap:4px}
+.del-list li{overflow-wrap:anywhere}
+.combo{position:relative}
+.combo input{width:100%;padding:10px 36px 10px 12px;border:1px solid #8C8B85;border-radius:6px;font-size:15px;background:#fff;cursor:pointer}
+.combo .chev{position:absolute;right:12px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted);font-size:12px}
+.combo-pop{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:10;border:1px solid var(--input);border-radius:6px;background:#fff;box-shadow:0 8px 20px rgba(20,20,18,.14);overflow:hidden}
+.combo-pop ul{margin:0;padding:4px;list-style:none;max-height:220px;overflow-y:auto}
+.combo-pop li[role="option"]{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:4px;cursor:pointer}
+.combo-pop li[role="option"][aria-selected="true"]{background:var(--pri-l)}
+.combo-pop li.active{outline:2px solid var(--pri);outline-offset:-2px}
+.combo-pop li .n{font-size:14px;font-weight:500;overflow-wrap:anywhere}
+.combo-pop li.nomatch{padding:10px;font-size:13px;color:var(--muted)}
+.combo-foot{padding:6px 12px;border-top:1px solid var(--line2);font-size:12px;color:var(--muted);background:var(--soft)}
+.picked{padding:10px 12px;border:1px solid var(--info-bd);background:#F3F6FD;border-radius:6px;display:flex;flex-direction:column;gap:2px}
+.picked b{font-size:15px;overflow-wrap:anywhere}
+select:disabled{background:#EFEFEC}
+ul.paths{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+ul.paths li{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 10px;border:1px solid var(--line2);border-radius:6px}
+ul.paths code{flex:1 1 240px;min-width:0;overflow-wrap:anywhere}
+input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
+@media (max-width:640px){
+  dl{grid-template-columns:minmax(0,1fr);gap:0}
+  dt{margin-top:8px}
+  dt:first-child{margin-top:0}
+}
+@media (max-width:760px){
+  header.top{padding:12px 16px}
+  .band{padding:10px 16px}
+  nav.side{max-width:none;flex:1 1 100%;flex-direction:row;flex-wrap:wrap;align-items:center;padding:8px 12px;border-right:0;border-bottom:1px solid var(--line)}
+  .nav-group{display:none}
+  .nav-btn{padding:8px 10px}
+  main{padding:20px 16px 120px}
+  .savebar{padding:12px 16px}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top" id="top"></header>
+  <div id="bands"></div>
+  <div class="layout">
+    <nav class="side" id="nav" aria-label="__PAGE_NAV_LABEL__"></nav>
+    <main id="main" tabindex="-1"><p class="muted">__PAGE_LOADING__</p></main>
+  </div>
+  <div class="savebar" id="savebar" hidden></div>
+  <footer class="source"><a href="https://github.com/jaeseongs95/Sennard-Personal" rel="noopener noreferrer">__PAGE_SOURCE_CODE__</a></footer>
+</div>
+<noscript>__PAGE_NOSCRIPT__</noscript>
+<script type="application/json" id="texts" nonce="__CSP_NONCE__">__PAGE_TEXTS__</script>
+<script nonce="__CSP_NONCE__">
+'use strict';
+(function () {
+  const LIMIT = 50;
+
+  // ---------- state ----------
+  const S = {
+    data: null, loadError: null, storeError: null,
+    tab: 'global', busy: null, status: {},
+    g: { init: false, baseToken: null, baseRules: [], rules: [], conflict: false, compareOpen: false, saved: null, justRev: null, histSel: null },
+    r: { query: '', newName: '', renaming: null },
+    b: { filter: 'active', limit: LIMIT },
+    newKeyLabel: '',
+    db: { driverPath: '', jdbcUrl: '', accountName: '', passwordRef: '', tls: 'LOOPBACK_PLAINTEXT' },
+    rr: { confirm: null, revision: null, reason: '', query: '', state: '', owner: '', sort: 'recent', limit: 20 },
+    j: { base: null, cur: null }, ex: { base: [], cur: null, newPath: '' }, jv: { cur: null },
+    cv: { attempts: null, epochs: null },
+    rl: { draft: null, baseToken: null },
+    attachments: { draft: null, baseToken: null },
+    u: { days: 30, seq: 0, data: null, error: null, loading: false },
+    w: { days: 30, seq: 0, data: null, error: null, loading: false, query: '', kind: '', state: '', host: '' },
+    details: {},
+    dialog: null,
+  };
+  let ruleSeq = 0;
+  let loadSeq = 0;
+  let pollText = null; // what the automatic refresh last drew (null: drawn by something else since, so the next read is drawn)
+
+  // ---------- sentences ----------
+  // Every sentence of the page is a catalog message (locales/<language>/admin.json, keys admin.page.*): one key is one whole sentence, never a piece to be joined to
+  // another. The server sends the patterns of the request's language (English where the language has none) and this makes the sentence from a pattern and its
+  // arguments, by the rules of java.text.MessageFormat that the server's CatalogPattern reads: {name}, {name,number}, a doubled apostrophe for one, 'text' quoted. A choice
+  // between wordings is a key of its own, key#name=selector, with key#name=other for any other value (the pattern's {name} is then that wording).
+  //   t(key, args)   the sentence as a string
+  //   tn(key, args)  the sentence as text and DOM nodes, for a sentence that has an element inside (an argument that is a Node stands where {name} is)
+  // A key the catalog lacks is shown as the key, so a gap is seen and does not stop the page.
+  const TEXTS = JSON.parse(document.getElementById('texts').textContent);
+  const NUMBERS = new Intl.NumberFormat(document.documentElement.lang || 'en');
+  function pieces(key, pattern, args, choosable) {
+    const out = [];
+    let text = '';
+    let quoted = false;
+    for (let i = 0; i < pattern.length; i++) {
+      const c = pattern[i];
+      if (c === "'") {
+        if (pattern[i + 1] === "'") { text += "'"; i++; } else quoted = !quoted;
+      } else if (c === '{' && !quoted) {
+        const end = pattern.indexOf('}', i);
+        const [name, form] = pattern.slice(i + 1, end).split(',').map((part) => part.trim());
+        i = end;
+        const value = args[name];
+        const other = TEXTS[key + '#' + name + '=other'];
+        if (choosable && other !== undefined) {
+          const chosen = TEXTS[key + '#' + name + '=' + (value == null ? 'other' : String(value))];
+          if (text) { out.push(text); text = ''; }
+          out.push(...pieces(key, chosen === undefined ? other : chosen, args, false));
+        } else if (value instanceof Node) {
+          if (text) { out.push(text); text = ''; }
+          out.push(value);
+        } else if (value === undefined || value === null) {
+          text += '{' + name + '}';
+        } else {
+          text += typeof value === 'number' || form === 'number' ? NUMBERS.format(Number(value)) : String(value);
+        }
+      } else {
+        text += c;
+      }
+    }
+    if (text) out.push(text);
+    return out;
+  }
+  const tn = (key, args) => (TEXTS[key] === undefined ? [key] : pieces(key, TEXTS[key], args || {}, true));
+  const t = (key, args) => tn(key, args).map((piece) => (typeof piece === 'string' ? piece : piece.textContent)).join('');
+  const has = (key) => TEXTS[key] !== undefined;
+  // The sentence for a code the server or the page names (admin.page.error.<CODE>), or undefined when the catalog has none for it.
+  const errorText = (code) => (has('admin.page.error.' + code) ? t('admin.page.error.' + code) : undefined);
+
+  // ---------- small helpers ----------
+  const $ = (id) => document.getElementById(id);
+  function h(tag, props, ...kids) {
+    const el = document.createElement(tag);
+    if (props) for (const k of Object.keys(props)) {
+      const v = props[k];
+      if (v == null || v === false) continue;
+      if (k === 'class') el.className = v;
+      else if (k === 'value') el.value = v;
+      else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? '' : String(v));
+    }
+    for (const c of kids.flat(Infinity)) {
+      if (c == null || c === false) continue;
+      el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    }
+    return el;
+  }
+  const idSafe = (s) => String(s).replace(/[^A-Za-z0-9_-]/g, (c) => '_' + c.charCodeAt(0).toString(16));
+  const num = (n) => NUMBERS.format(Number(n || 0));
+  const p2 = (n) => String(n).padStart(2, '0');
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    return p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  }
+  function fmtHM(iso) {
+    const d = iso ? new Date(iso) : new Date();
+    return isNaN(d.getTime()) ? '—' : p2(d.getHours()) + ':' + p2(d.getMinutes());
+  }
+  const short = (id) => String(id || '').slice(0, 8);
+  const norm = (v) => String(v).normalize('NFC').trim().toLowerCase();
+  const enc = new TextEncoder();
+  const utf8len = (s) => enc.encode(s).length;
+  const b64u = {
+    enc(buf) {
+      const b = new Uint8Array(buf); let s = '';
+      for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    },
+    dec(str) {
+      const s = String(str).replace(/-/g, '+').replace(/_/g, '/');
+      const bin = atob(s + '='.repeat((4 - (s.length % 4)) % 4));
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    },
+  };
+
+  // ---------- error sentences (every code of the contract) ----------
+  // The sentence of a code is the catalog message admin.page.error.<CODE> (errorText(code)); the sentence of a reason is admin.page.reason.<REASON>.
+  const SIGN_CODES = new Set(['ADMIN_SIGNATURE_INVALID', 'ADMIN_CHALLENGE_MISMATCH', 'ADMIN_RPID_MISMATCH', 'ADMIN_USER_VERIFICATION_MISSING',
+    'ADMIN_ALGORITHM_UNSUPPORTED', 'ADMIN_KEY_UNKNOWN', 'ADMIN_KEY_REVOKED', 'ADMIN_KEY_NOT_REGISTERED', 'ADMIN_INTENT_NONCANONICAL', 'ADMIN_INTENT_EXPIRED', 'ADMIN_INTENT_BEFORE_START', 'ADMIN_INTENT_NOT_ISSUED']);
+  function describe(code, details) {
+    const message = errorText(code) || t('admin.page.error.unknown');
+    const reason = details && details.reason;
+    if (!reason) return message;
+    const key = 'admin.page.reason.' + reason;
+    return t('admin.page.error.withReason', { message, reason: has(key) ? t(key) : t('admin.page.error.reasonCode', { reason }) });
+  }
+  const codeText = (code, details) => code + (details && details.reason ? ' / ' + details.reason : '');
+
+  // ---------- server calls ----------
+  async function api(method, path, body) {
+    let res;
+    try {
+      res = await fetch(path, {
+        method, cache: 'no-store', credentials: 'same-origin',
+        headers: Object.assign({ 'X-Sennard-Time-Zone': Intl.DateTimeFormat().resolvedOptions().timeZone }, body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (e) { throw { kind: 'NETWORK' }; }
+    let json;
+    try { json = await res.json(); } catch (e) { throw { kind: 'BAD_RESPONSE', status: res.status }; }
+    return { ok: res.ok, status: res.status, json };
+  }
+  function errOf(r) {
+    // An error body is RFC 9457 problem+json: the public code is code; the reason and the fields are in details.
+    const e = r.json;
+    // A store that cannot answer is the published MCP_UNAVAILABLE with the reason code STORE_UNAVAILABLE; the page has its own band and sentence for it under that name.
+    const code = e && e.code === 'MCP_UNAVAILABLE' && e.reasonCode === 'STORE_UNAVAILABLE' ? 'STORE_UNAVAILABLE' : (e && e.code) || 'HTTP_' + r.status;
+    return { code, details: (e && e.details) || {} };
+  }
+
+  async function loadState() {
+    const seq = ++loadSeq; pollText = null;
+    let r;
+    try { r = await api('GET', '/api/state'); }
+    catch (e) { if (seq === loadSeq) { S.loadError = { code: e.kind, details: {} }; render(); } return false; }
+    if (seq !== loadSeq) return false; // a late response to an earlier request is dropped
+    if (!r.ok) {
+      S.loadError = errOf(r);
+      if (S.loadError.code === 'STORE_UNAVAILABLE') S.storeError = S.loadError;
+      render(); return false;
+    }
+    S.loadError = null; S.storeError = null;
+    applyState(r.json);
+    render();
+    return true;
+  }
+
+  // ---------- global context edit model ----------
+  const splitRules = (body) => (body ? String(body).split('\n\n') : []);
+  const joinRules = (texts) => texts.filter((t) => t.trim() !== '').join('\n\n');
+  const mkRule = (text) => ({ id: 'rule-' + (++ruleSeq), text });
+  const editTexts = () => S.g.rules.map((r) => r.text);
+  const editBody = () => joinRules(editTexts());
+  const isGlobalDirty = () => S.g.init && editBody() !== joinRules(S.g.baseRules);
+  function resetGlobal(body, token) {
+    S.g.baseRules = splitRules(body);
+    S.g.rules = S.g.baseRules.map(mkRule);
+    S.g.baseToken = token; S.g.conflict = false; S.g.compareOpen = false; S.g.init = true;
+  }
+  function changeCount() {
+    const base = S.g.baseRules.filter((t) => t.trim() !== ''), mine = editTexts().filter((t) => t.trim() !== '');
+    const b = base.slice(); let added = 0;
+    for (const t of mine) { const i = b.indexOf(t); if (i >= 0) b.splice(i, 1); else added++; }
+    return Math.max(added, b.length);
+  }
+
+  function applyState(d) {
+    for (const k of ['keys', 'resets', 'globalHistory', 'roles', 'sessions', 'proposals', 'failures', 'rootApprovals']) if (!Array.isArray(d[k])) d[k] = [];
+    if (!d.openRoots || !Array.isArray(d.openRoots.roots)) d.openRoots = { roots: [] };
+    S.data = d;
+    if (S.rr.confirm) {
+      const selected = d.openRoots.roots.find((r) => r.rootId === S.rr.confirm);
+      if (!selected || selected.revision !== S.rr.revision) {
+        S.rr.confirm = null; S.rr.reason = '';
+        S.status['roots-screen'] = { kind: 'info', text: rt('confirmationChanged') };
+      }
+    }
+    // Before the link only the passkeys and the link are there: a tab that is not one of them is the business database's.
+    if (beforeLink() && !BEFORE_LINK_TABS.includes(S.tab)) S.tab = 'database';
+    const body = d.global ? d.global.body : '';
+    const token = d.global ? d.global.stateToken : null;
+    if (!S.g.init || !isGlobalDirty()) resetGlobal(body, token);
+    else if (token !== S.g.baseToken) {
+      // When my edit already equals the latest (I just saved it), it is not a conflict.
+      if (editBody() === joinRules(splitRules(body))) resetGlobal(body, token);
+      else S.g.conflict = true;
+    }
+    if (S.r.renaming && !d.roles.some((r) => r.roleId === S.r.renaming.roleId)) S.r.renaming = null;
+    syncSettings(d);
+  }
+  function reapplyMine() {
+    // ceiling: three-way merge of rules (one rule per blank-line block). A rule added through another path is appended at the end (order is not kept).
+    const base = S.g.baseRules, mine = editTexts();
+    const latestBody = S.data.global ? S.data.global.body : '';
+    const latest = splitRules(latestBody);
+    const out = [];
+    for (const t of mine) { if (base.includes(t)) { if (latest.includes(t)) out.push(t); } else out.push(t); }
+    for (const t of latest) if (!base.includes(t) && !out.includes(t)) out.push(t);
+    S.g.baseRules = latest; S.g.baseToken = S.data.global ? S.data.global.stateToken : null;
+    S.g.rules = out.map(mkRule); S.g.conflict = false; S.g.compareOpen = false;
+    setStatus('global', { kind: 'info', text: t('admin.page.save.reapplied', { revision: String(S.data.global ? S.data.global.revision : 0) }) });
+  }
+
+  // ---------- line diff ----------
+  function lineDiff(a, b) {
+    // ceiling: O(n·m) LCS. The body is at most 4,000 bytes, so this is enough.
+    const A = String(a).split('\n'), B = String(b).split('\n'), n = A.length, m = B.length;
+    const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    const out = []; let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (A[i] === B[j]) { out.push([' ', A[i]]); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(['-', A[i++]]);
+      else out.push(['+', B[j++]]);
+    }
+    while (i < n) out.push(['-', A[i++]]);
+    while (j < m) out.push(['+', B[j++]]);
+    return out;
+  }
+  function diffView(a, b, label) {
+    const rows = lineDiff(a, b);
+    return h('div', { class: 'diff', role: 'region', 'aria-label': label, tabindex: '0' },
+      rows.map(([t, s]) => h('div', { class: t === '+' ? 'add' : t === '-' ? 'del' : '' }, (t === '+' ? '+ ' : t === '-' ? '− ' : '  ') + s)));
+  }
+  function compareView(leftTitle, left, rightTitle, right) {
+    return h('div', { class: 'cmp' },
+      h('div', null, h('span', { class: 'small muted' }, leftTitle), h('pre', { tabindex: '0' }, left || t('admin.page.common.empty'))),
+      h('div', null, h('span', { class: 'small muted' }, rightTitle), h('pre', { tabindex: '0' }, right || t('admin.page.common.empty'))));
+  }
+
+  // ---------- save status display ----------
+  function setStatus(slot, st) { if (st) S.status[slot] = st; else delete S.status[slot]; render(); }
+  const slotBlocked = (slot) => { const st = S.status[slot]; return !!st && (st.kind === 'checking' || st.kind === 'unknown'); };
+  function statusEl(slot) {
+    const st = S.status[slot];
+    const box = h('div', { id: 'st-' + idSafe(slot), class: 'status' + (st ? ' st-' + st.kind : ''), role: 'status', 'aria-live': 'polite' });
+    if (st) {
+      box.append(h('span', null, st.text));
+      if (st.code) box.append(h('code', null, st.code));
+      if (st.retry) box.append(h('button', { type: 'button', class: 'btn sm', id: 'retry-' + idSafe(slot), onclick: st.retry, disabled: !!S.busy }, t('admin.page.save.recheck')));
+    }
+    return box;
+  }
+  const hasKeys = () => !!(S.data && S.data.keys.length);
+  // A button that needs a passkey signature
+  function signBtn(o) {
+    const off = !!S.busy || !hasKeys() || slotBlocked(o.slot) || !!o.off;
+    return h('button', { type: 'button', id: o.id, class: 'btn ' + (o.cls || 'pri'), disabled: off, onclick: o.onclick, 'aria-describedby': o.why || null },
+      S.busy === o.slot ? (o.busyLabel || t('admin.page.save.saving')) : o.label);
+  }
+
+  function webauthnFail(slot, e, cancelText) {
+    const name = (e && e.name) || 'Error';
+    let text;
+    if (name === 'NotAllowedError' || name === 'AbortError') text = cancelText || t('admin.page.save.webauthn.cancelled');
+    else if (name === 'InvalidStateError') text = t('admin.page.save.webauthn.invalidState');
+    else if (name === 'SecurityError') text = t('admin.page.save.webauthn.security');
+    else if (name === 'NotSupportedError') text = t('admin.page.save.webauthn.notSupported');
+    else text = t('admin.page.save.webauthn.failed');
+    setStatus(slot, { kind: 'error', text, code: name });
+  }
+  function httpFail(slot, r) {
+    const { code, details } = errOf(r);
+    if (code === 'STORE_UNAVAILABLE') S.storeError = { code, details };
+    const text = t(SIGN_CODES.has(code) ? 'admin.page.save.signFailed' : 'admin.page.save.saveFailed', { detail: describe(code, details) });
+    setStatus(slot, { kind: 'error', text, code: codeText(code, details) });
+    return code;
+  }
+
+  // Sign and save: intent, then the passkey get(), then commit. When the response is unknown, only the same requestId is queried.
+  async function runSigned(o) {
+    if (S.busy) return;
+    const slot = o.slot;
+    S.busy = slot;
+    setStatus(slot, { kind: 'busy', text: t('admin.page.save.preparing') });
+    try {
+      if (!window.PublicKeyCredential || !navigator.credentials) { setStatus(slot, { kind: 'error', text: errorText('WEBAUTHN_UNSUPPORTED'), code: 'WEBAUTHN_UNSUPPORTED' }); return; }
+      let r;
+      try { r = await api('POST', '/api/intent', { change: o.change, bootstrap: !!o.bootstrap, baseCheck: o.baseHash !== undefined, baseHash: o.baseHash === undefined ? null : o.baseHash }); }
+      catch (e) { setStatus(slot, { kind: 'error', text: t('admin.page.save.notSent', { detail: errorText(e.kind) }), code: e.kind }); return; }
+      if (!r.ok) { const code = httpFail(slot, r); if ((code === 'ADMIN_TARGET_STALE' || ROOT_CODES.has(code)) && o.onStale) await o.onStale(); return; }
+      const { intent, challenge, allowCredentials } = r.json;
+      setStatus(slot, { kind: 'busy', text: t('admin.page.save.verify') });
+      let cred;
+      try {
+        cred = await navigator.credentials.get({ publicKey: {
+          challenge: b64u.dec(challenge), rpId: S.data.rpId,
+          allowCredentials: (o.allow || allowCredentials || []).map((id) => ({ type: 'public-key', id: b64u.dec(id) })),
+          userVerification: 'required', timeout: 120000 } });
+      } catch (e) { webauthnFail(slot, e, o.cancelText); return; }
+      if (!cred) { webauthnFail(slot, { name: 'NotAllowedError' }, o.cancelText); return; }
+      const a = cred.response;
+      const assertion = { credentialId: b64u.enc(cred.rawId), authenticatorData: b64u.enc(a.authenticatorData), clientDataJSON: b64u.enc(a.clientDataJSON), signature: b64u.enc(a.signature) };
+      const requestId = crypto.randomUUID();
+      setStatus(slot, { kind: 'busy', text: t('admin.page.save.saving') });
+      let c;
+      // A key value is sent only once, together with the signed registration (the server keeps it encrypted and never sends it back). A passkey's public key travels the same way.
+      try { c = await api('POST', '/api/commit', { intent, assertion, requestId, proposalId: o.proposalId || null, ...(o.secret ? { secret: o.secret } : {}), ...(o.publicKey ? { publicKey: o.publicKey } : {}) }); }
+      catch (e) { S.busy = null; await checkUnknown(slot, requestId, o.onDone); return; }
+      if (!c.ok) { const code = httpFail(slot, c); if ((code === 'ADMIN_TARGET_STALE' || ROOT_CODES.has(code)) && o.onStale) await o.onStale(); return; }
+      if (!c.json || !c.json.record) { S.busy = null; await checkUnknown(slot, requestId, o.onDone); return; }
+      S.busy = null;
+      await finish(slot, c.json.record, o.onDone);
+    } finally {
+      if (S.busy === slot) { S.busy = null; render(); }
+    }
+  }
+  async function checkUnknown(slot, requestId, onDone) {
+    S.busy = slot;
+    setStatus(slot, { kind: 'checking', text: t('admin.page.save.checking') });
+    let r = null;
+    try { r = await api('GET', '/api/request/' + encodeURIComponent(requestId)); } catch (e) { r = null; }
+    S.busy = null;
+    if (!r || !r.ok) {
+      setStatus(slot, { kind: 'unknown', text: t('admin.page.save.unknown'), code: 'request ' + short(requestId), retry: () => checkUnknown(slot, requestId, onDone) });
+      return;
+    }
+    if (r.json && r.json.record) { await finish(slot, r.json.record, onDone); return; }
+    setStatus(slot, { kind: 'error', text: t('admin.page.save.notSaved') });
+  }
+  async function finish(slot, record, onDone) {
+    delete S.status[slot];
+    const loaded = await loadState();
+    if (onDone) onDone(record, loaded);
+    if (!loaded) setStatus(slot, { kind: 'ok', text: t('admin.page.save.savedNoReload', { seq: String(record.seq), time: fmtHM(record.createdAt) }) });
+    render();
+  }
+
+  // ---------- common screen ----------
+  const TABS = [
+    { key: 'global', label: t('admin.page.nav.global'), group: t('admin.page.nav.groupContext') },
+    { key: 'roles', label: t('admin.page.nav.roles') },
+    { key: 'bindings', label: t('admin.page.nav.bindings') },
+    { key: 'approvals', label: t('admin.page.nav.approvals'), group: t('admin.page.nav.groupWork') },
+    { key: 'roots', label: t('admin.page.nav.roots') },
+    { key: 'jev', label: t('admin.page.nav.jev'), group: t('admin.page.nav.groupTools') },
+    { key: 'general', label: t('admin.page.nav.general') },
+    { key: 'stats', label: t('admin.page.nav.stats'), group: t('admin.page.nav.groupAnalytics') },
+    { key: 'workflows', label: t('admin.page.nav.workflows') },
+    { key: 'passkey', label: t('admin.page.nav.passkey'), group: t('admin.page.nav.groupSecurity') },
+    { key: 'database', label: t('admin.page.nav.database') },
+  ];
+  /** Before the business database is ready for the first time the page is the settings database's: it keeps the passkeys and the link of the business database, and nothing else. */
+  const beforeLink = () => !!(S.data && S.data.link && S.data.link.beforeLink);
+  const BEFORE_LINK_TABS = ['passkey', 'database'];
+  function go(tab, focusId) {
+    S.tab = tab; S.b.limit = LIMIT;
+    render();
+    const f = focusId && $(focusId);
+    if (f) f.focus();
+    if (tab === 'stats') loadUsage();
+    if (tab === 'workflows') loadWorkflows();
+  }
+  function head(id, title, desc) {
+    return h('div', { class: 'head' }, h('h1', { id, tabindex: '-1' }, title), desc ? h('p', { class: 'desc' }, desc) : null);
+  }
+  /** The head of a screen with the actions that are about the whole screen (reload) at its right, before anything the screen lists. */
+  function screenHead(id, title, desc, ...actions) {
+    return h('div', { class: 'head-row' }, head(id, title, desc), actions.length ? h('div', { class: 'head-acts' }, actions) : null);
+  }
+  const isBlank = (v) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
+  /**
+   * The only place that makes a definition list: rows of [label, value, class of the value]. The look is the stylesheet's (a muted label of a fixed width, the browser's indent
+   * of dd taken off), and a value that is empty is the catalog's "None", never an empty cell.
+   */
+  function kv(rows) {
+    return h('dl', null, rows.map(([label, value, cls]) => [h('dt', null, label),
+      h('dd', { class: cls || null }, isBlank(value) ? h('span', { class: 'muted' }, t('admin.page.common.none')) : value)]));
+  }
+  /**
+   * A card of something to act on, in one order: head (title, state badge), body (what it is), notice (alerts, the whole width), actions (right-aligned, the main one last),
+   * then the status of the action. A part that is null is left out.
+   */
+  function panel(o) {
+    return h('li', { class: 'panel', id: o.id },
+      h('div', { class: 'panel-head' }, h('h2', { class: o.titleClass }, o.title), o.badge),
+      h('div', { class: 'panel-body' }, o.body),
+      o.notice,
+      o.acts ? h('div', { class: 'panel-acts' }, o.acts) : null,
+      o.status);
+  }
+  // Native controls keep the same ids across redraws. Composition finishes before a search redraws its input.
+  function workSearch(id, label, value, update) {
+    const input = h('input', { type: 'search', class: 'txt-in', id, value, autocomplete: 'off' });
+    let composing = false, last = value;
+    const commit = () => { if (input.value !== last) { last = input.value; update(last); } };
+    input.addEventListener('compositionstart', () => { composing = true; });
+    input.addEventListener('compositionend', () => { composing = false; commit(); });
+    input.addEventListener('input', (e) => { if (!composing && !e.isComposing) commit(); });
+    return h('div', { class: 'field search' }, h('label', { for: id }, label), input);
+  }
+  function workSelect(id, label, value, options, update) {
+    const select = h('select', { class: 'txt-in', id }, options.map(([v, text]) => h('option', { value: v, selected: v === value }, text)));
+    select.addEventListener('change', () => update(select.value));
+    return h('div', { class: 'field' }, h('label', { for: id }, label), select);
+  }
+  function workDetails(id, label, ...body) {
+    const details = h('details', { class: 'work-detail', id, open: !!S.details[id] }, h('summary', { id: id + '-summary' }, label), ...body);
+    details.addEventListener('toggle', () => { if (details.isConnected) S.details[id] = details.open; });
+    return details;
+  }
+  const globalProposals = () => S.data.proposals.filter((p) => p.target === 'global' || (p.change && p.change.op === 'GLOBAL_SET'));
+  const bindingProposals = () => S.data.proposals.filter((p) => p.change && p.change.op === 'BINDING_SET')
+    .slice().sort((x, y) => String(y.createdAt).localeCompare(String(x.createdAt)));
+  const roleById = (id) => S.data.roles.find((r) => r.roleId === id) || null;
+  const roleName = (id) => { const r = roleById(id); return r ? r.name : t('admin.page.common.unknownRole', { id: short(id) }); };
+
+  /** activeOnly: the automatic refresh draws what the data of the shown screen changes (not the top bar or the save bar). */
+  function render(activeOnly) {
+    const ae = document.activeElement;
+    const inDialog = !!(ae && ae.closest && ae.closest('dialog'));
+    const fid = !inDialog && ae && ae !== document.body ? ae.id : null;
+    let sel = null;
+    if (fid) { try { if (typeof ae.selectionStart === 'number') sel = [ae.selectionStart, ae.selectionEnd]; } catch (e) { sel = null; } }
+    for (const d of $('main').querySelectorAll('details.work-detail[id]')) S.details[d.id] = d.open;
+    // Keep only view state for the current snapshots, including filtered-out items; departed roots/runs leave no cache entry.
+    const detailIds = new Set(['workflow-skills-details', ...openRoots().roots.map((r) => 'root-details-' + idSafe(r.rootId)),
+      ...((S.w.data && S.w.data.recent) || []).map((r) => 'workflow-details-' + idSafe(r.runId))]);
+    for (const id of Object.keys(S.details)) if (!detailIds.has(id)) delete S.details[id];
+    if (!activeOnly) renderTop();
+    renderBands(); renderNav(); renderMain();
+    if (!activeOnly) renderSaveBar();
+    if (S.dialog && S.dialog.refresh) S.dialog.refresh();
+    if (fid) {
+      const el = $(fid);
+      if (el && el !== document.activeElement && !el.disabled) {
+        el.focus({ preventScroll: true });
+        if (sel && el.setSelectionRange) { try { el.setSelectionRange(sel[0], sel[1]); } catch (e) { /* a field that has no selection range */ } }
+      }
+    }
+  }
+
+  // ---------- Language ----------
+  // The page speaks the language the user chose, else the browser's. The choice is kept by the server in a cookie of this page (POST /api/language; the page itself keeps
+  // nothing), and the page is then loaded again, because the server writes the frame and sends the sentences of one language. Each name is in its own language.
+  const PAGE_LANGUAGE = document.documentElement.lang === 'ko' ? 'ko' : 'en';
+  let languageSwitching = false;
+  const LANGUAGES = [['ko', 'admin.page.top.languageKo'], ['en', 'admin.page.top.languageEn']];
+  const workFiltersActive = () => !!(S.rr.query || S.rr.state || S.rr.owner || S.rr.sort !== 'recent' || S.rr.limit !== 20 ||
+    S.w.query || S.w.kind || S.w.state || S.w.host || S.w.days !== 30);
+  async function chooseLanguage(next) {
+    if (next === PAGE_LANGUAGE || languageSwitching) return;
+    // What the user has begun is lost with the redraw: ask first, and keep the page as it is when the answer is no.
+    if ((hasPending() || S.busy || S.dialog || workFiltersActive()) && !window.confirm(t('admin.page.top.languageConfirm'))) return;
+    languageSwitching = true; clearTimeout(pollTimer);
+    let r = null;
+    try { r = await api('POST', '/api/language', { language: next }); } catch (e) { r = null; }
+    if (r && r.ok) { window.location.reload(); return; }
+    languageSwitching = false; pollLoop();
+    S.loadError = r ? errOf(r) : { code: 'NETWORK', details: {} };
+    renderBands();
+  }
+  function languageControl() {
+    return h('div', { class: 'lang', role: 'group', 'aria-label': t('admin.page.top.language') },
+      h('span', { class: 'small muted', 'aria-hidden': 'true' }, t('admin.page.top.language')),
+      ...LANGUAGES.map(([code, key]) => h('button', { type: 'button', class: 'btn sm', id: 'lang-' + code, lang: code, 'aria-pressed': code === PAGE_LANGUAGE ? 'true' : 'false',
+        onclick: () => chooseLanguage(code) }, t(key))));
+  }
+
+  function renderTop() {
+    const top = $('top');
+    const kids = [h('div', { class: 'brand' }, h('b', null, t('admin.page.top.brand')), h('span', null, t('admin.page.top.thisPcOnly'))), h('div', { class: 'grow' }), languageControl()];
+    if (S.data) {
+      const d = S.data;
+      if (d.bootstrap) kids.push(h('span', { class: 'boot' }, tn('admin.page.top.bootstrap', { time: fmtTime(d.bootstrap.at), fingerprint: h('code', null, d.bootstrap.fingerprint) })));
+      kids.push(d.keys.length
+        ? h('span', { class: 'pill ok' }, t('admin.page.top.keys', { count: d.keys.length }))
+        : h('span', { class: 'pill warn' }, t('admin.page.top.noKeys')));
+    }
+    top.replaceChildren(...kids);
+  }
+
+  const LAYER = {
+    global: t('admin.page.layer.global'), keys: t('admin.page.layer.keys'), roles: t('admin.page.layer.roles'), binding: t('admin.page.layer.binding'),
+    jev: t('admin.page.layer.jev'), jevKeys: t('admin.page.layer.jevKeys'), editExempt: t('admin.page.layer.editExempt'), jvmPreset: t('admin.page.layer.jvmPreset'),
+    convergenceLimits: t('admin.page.layer.convergenceLimits'),
+    resourceLimits: t('admin.page.layer.resourceLimits'),
+    attachmentStorage: t('admin.page.layer.attachmentStorage'),
+  };
+  function renderBands() {
+    const out = [];
+    const err = S.storeError || S.loadError;
+    if (err) {
+      out.push(h('div', { class: 'band err', role: 'alert' },
+        h('span', { class: 'txt' }, tn(err.code === 'STORE_UNAVAILABLE' ? 'admin.page.bands.storeError' : 'admin.page.bands.loadError',
+          { detail: describe(err.code, err.details), code: h('code', null, codeText(err.code, err.details)) })),
+        h('div', { class: 'acts' }, h('button', { type: 'button', class: 'btn sm', id: 'reload-top', onclick: () => loadState() }, t('admin.page.common.reload')))));
+    }
+    if (S.data) {
+      const d = S.data;
+      for (const f of d.failures) {
+        const slot = 'fail-' + f.target;
+        const acts = h('div', { class: 'acts' },
+          f.change ? signBtn({ id: 'adopt-' + idSafe(f.target), slot, cls: 'btn sm', label: t('admin.page.bands.adopt'), onclick: () => runSigned({ slot, change: f.change, onDone: () => setStatus(slot, null) }) }) : null,
+          signBtn({ id: 'ack-' + idSafe(f.target), slot, cls: 'btn sm', label: t('admin.page.bands.discard'), onclick: () => runSigned({ slot, change: { op: 'ACK', target: f.target }, onDone: () => setStatus(slot, null) }) }));
+        out.push(h('div', { class: 'band fail', role: 'alert' },
+          h('span', { class: 'txt' }, h('b', null, f.revision != null
+            ? t('admin.page.bands.failRevision', { layer: LAYER[f.layer] || f.layer, revision: String(f.revision) })
+            : t('admin.page.bands.failDefault', { layer: LAYER[f.layer] || f.layer }), ' · '), h('code', null, f.code),
+            f.target !== f.layer ? h('span', { class: 'small' }, ' ', t('admin.page.bands.failTarget', { target: f.target })) : null,
+            h('br'), h('span', { class: 'small' }, t(f.change ? 'admin.page.bands.failHelpAdopt' : 'admin.page.bands.failHelp')),
+            statusEl(slot)),
+          acts));
+      }
+      if (d.resets.length) {
+        const r0 = d.resets[0];
+        out.push(h('div', { class: 'band warn', role: 'note' }, h('span', { class: 'txt' },
+          tn('admin.page.bands.reset', { time: fmtTime(r0.at), count: d.resets.length, end: h('code', null, String(r0.resetOf || '').slice(0, 12) || '—') }))));
+      }
+      if (!d.keys.length) {
+        out.push(h('div', { class: 'band warn', role: 'status' },
+          h('span', { class: 'txt' }, t('admin.page.bands.noKeys')),
+          S.tab !== 'passkey' ? h('button', { type: 'button', class: 'btn sm warn-o', id: 'go-passkey', onclick: () => go('passkey', 'new-key-label') }, t('admin.page.bands.registerPasskey')) : null));
+      }
+    }
+    $('bands').replaceChildren(...out);
+  }
+
+  function renderNav() {
+    const nReq = S.data ? bindingProposals().length : 0;
+    const nGreq = S.data ? globalProposals().length : 0;
+    const kids = [];
+    for (const tab of TABS) {
+      if (beforeLink() && !BEFORE_LINK_TABS.includes(tab.key)) continue;
+      if (tab.group) kids.push(h('span', { class: 'nav-group', 'aria-hidden': 'true' }, tab.group));
+      const nApp = tab.key === 'approvals' && S.data ? S.data.rootApprovals.length : 0;
+      const nRoots = tab.key === 'roots' && S.data ? openRoots().roots.length : 0;
+      // The name of the open roots screen is a sentence the server sends with the state, in the request language.
+      const label = tab.key === 'roots' && S.data ? rt('tab') : tab.label;
+      const requests = tab.key === 'bindings' && nReq ? nReq : tab.key === 'global' && nGreq ? nGreq : 0;
+      const count = nApp || nRoots;
+      const text = requests ? t('admin.page.nav.withRequests', { label, count: requests }) : count ? t('admin.page.nav.withCount', { label, count }) : label;
+      kids.push(h('button', { type: 'button', class: 'nav-btn', id: 'nav-' + tab.key, 'aria-current': S.tab === tab.key ? 'page' : null, onclick: () => go(tab.key) }, text));
+    }
+    $('nav').replaceChildren(...kids);
+  }
+
+  function renderMain() {
+    const main = $('main');
+    if (!S.data) {
+      main.replaceChildren(S.loadError
+        ? h('div', { class: 'note-err' }, t('admin.page.common.loadFailed'))
+        : h('p', { class: 'muted' }, t('admin.page.common.loading')));
+      return;
+    }
+    const v = { global: viewGlobal, roles: viewRoles, bindings: viewBindings, approvals: viewApprovals, roots: viewRoots, jev: viewJev, general: viewGeneral, stats: viewStats, workflows: viewWorkflows, passkey: viewPasskey,
+      database: viewDatabase }[S.tab];
+    main.replaceChildren(v());
+  }
+
+  // ---------- root approval requests ----------
+  const ROOT_ACTIONS = {
+    REPLACE_ROOT: { label: t('admin.page.approval.replaceLabel'), effect: t('admin.page.approval.replaceEffect') },
+    RELEASE_ROOT: { label: t('admin.page.approval.releaseLabel'), effect: t('admin.page.approval.releaseEffect') },
+  };
+  function scopeBlock(title, text) {
+    return h('details', null, h('summary', null, title), h('pre', { class: 'mono', tabindex: '0' }, text));
+  }
+  function approvalCard(a) {
+    const slot = 'root-' + a.approvalId;
+    const info = ROOT_ACTIONS[a.action] || { label: a.action, effect: '' };
+    return panel({
+      title: info.label,
+      body: [info.effect ? h('p', null, info.effect) : null,
+        kv([[t('admin.page.approval.rootId'), a.rootId, 'mono'], [t('admin.page.approval.actor'), a.actorId, 'mono'], [t('admin.page.approval.requestedAt'), fmtHM(a.requestedAt)]]),
+        scopeBlock(t('admin.page.approval.scope'), a.scope),
+        a.replacementScope ? scopeBlock(t('admin.page.approval.replacementScope'), a.replacementScope) : null,
+        h('p', { class: 'muted' }, t('admin.page.approval.reuse'))],
+      acts: [h('button', { type: 'button', class: 'btn link-danger', id: 'root-no-' + idSafe(a.approvalId), disabled: !!S.busy, onclick: () => rejectRootApproval(a, slot) }, t('admin.page.approval.reject')),
+        signBtn({ slot, id: 'root-yes-' + idSafe(a.approvalId), label: t('admin.page.approval.approve'), onclick: () => runSigned({ slot,
+          change: { op: 'ROOT_APPROVE', approvalId: a.approvalId, scopeDigest: a.scopeDigest }, cancelText: t('admin.page.approval.cancelled'), onStale: loadState }) })],
+      status: statusEl(slot) });
+  }
+  function viewApprovals() {
+    const list = S.data.rootApprovals;
+    return h('section', { class: 'col', 'aria-labelledby': 'ap-title' }, head('ap-title', t('admin.page.approval.title'), t('admin.page.approval.intro')),
+      statusEl('root-screen'),
+      list.length ? h('ul', { class: 'stack', 'aria-label': t('admin.page.approval.title') }, list.map(approvalCard)) : h('p', { class: 'empty' }, t('admin.page.approval.empty')));
+  }
+  async function rejectRootApproval(a, slot) {
+    if (S.busy) return;
+    S.busy = slot; setStatus(slot, { kind: 'busy', text: t('admin.page.approval.rejecting') });
+    let r = null, kind = null;
+    try { r = await api('POST', '/api/root-approvals/' + encodeURIComponent(a.approvalId) + '/reject', {}); } catch (e) { kind = e.kind; }
+    S.busy = null;
+    if (kind) { setStatus(slot, { kind: 'error', text: t('admin.page.approval.rejectNotSent', { detail: errorText(kind) }), code: kind }); return; }
+    if (!r.ok) { const e = errOf(r); setStatus(slot, { kind: 'error', text: t('admin.page.approval.rejectFailed', { detail: describe(e.code, e.details) }), code: codeText(e.code, e.details) }); return; }
+    delete S.status[slot];
+    S.status['root-screen'] = { kind: 'ok', text: t('admin.page.approval.rejected', { time: fmtHM() }) };
+    await loadState();
+  }
+
+  // ---------- open roots: a person releases a root even when its owner session died ----------
+  // The sentences of this screen are catalog messages admin.page.rootRelease.<name> like every other sentence of the page: t() makes them from the patterns the server sent.
+  // The server gives times in UTC and they are converted here.
+  const openRoots = () => (S.data && S.data.openRoots) || { roots: [] };
+  const rt = (name, vars) => t('admin.page.rootRelease.' + name, vars);
+  // The codes that say the root changed or is gone since the list was loaded: the list is loaded again (their sentences are admin.page.error.<CODE>).
+  const ROOT_CODES = new Set(['ADMIN_ROOT_NOT_FOUND', 'ADMIN_ROOT_NOT_ACTIVE', 'ADMIN_ROOT_STALE']);
+  const ROOT_STATE_TEXT = { OPEN: 'stateOpen', NEEDS_REVIEW: 'stateNeedsReview', NEEDS_USER: 'stateNeedsUser' };
+  function fmtDateTime(iso) {
+    const d = iso ? new Date(iso) : null;
+    return d && !isNaN(d.getTime()) ? d.toLocaleString() : '';
+  }
+  function ownerLine(r) {
+    if (r.ownerPresence === 'online') return rt('ownerOnline');
+    return r.ownerBound ? rt('ownerNotOnline') : rt('ownerNotBound');
+  }
+  function askRelease(r) {
+    S.rr.confirm = r.rootId; S.rr.revision = r.revision; S.rr.reason = '';
+    delete S.status['rootrel-' + r.rootId];
+    render();
+    const field = $('rr-reason-' + idSafe(r.rootId));
+    if (field) field.focus();
+  }
+  function releaseRoot(r, slot) {
+    // The signature binds the root, the revision the screen saw and the reason. When the root changed in between, the server refuses before it asks for the signature.
+    runSigned({ slot, change: { op: 'ROOT_RELEASE', rootId: r.rootId, expectedRevision: r.revision, reason: S.rr.reason.trim() },
+      cancelText: rt('cancelled'),
+      onStale: () => { S.rr.confirm = null; return loadState(); },
+      onDone: () => { S.rr.confirm = null; S.status['roots-screen'] = { kind: 'ok', text: t('admin.page.roots.doneAt', { message: rt('done', { rootId: r.rootId }), time: fmtHM() }) }; render(); } });
+  }
+  function confirmBlock(r, slot) {
+    const key = idSafe(r.rootId);
+    const sign = signBtn({ slot, id: 'rr-sign-' + key, label: rt('sign'), busyLabel: rt('busy'), off: S.rr.reason.trim() === '', onclick: () => releaseRoot(r, slot) });
+    const input = h('textarea', { id: 'rr-reason-' + key, class: 'rr-reason', rows: '3', maxlength: '2000', value: S.rr.reason, placeholder: rt('defaultReason'), 'aria-label': rt('reason') });
+    input.addEventListener('input', () => { S.rr.reason = input.value; sign.disabled = !!S.busy || !hasKeys() || input.value.trim() === ''; });
+    return h('div', { class: 'col' },
+      h('h3', null, rt('confirmTitle')),
+      h('p', null, rt('confirmEffect')),
+      h('label', { class: 'small muted', for: 'rr-reason-' + key }, rt('reason')),
+      input,
+      h('div', { class: 'panel-acts' },
+        h('button', { type: 'button', class: 'btn', id: 'rr-cancel-' + key, disabled: !!S.busy, onclick: () => { S.rr.confirm = null; S.rr.reason = ''; delete S.status[slot]; render(); const back = $('root-release-' + key) || $('roots-reload'); if (back) back.focus(); } }, rt('cancel')), sign));
+  }
+  function rootCard(r) {
+    const slot = 'rootrel-' + r.rootId;
+    const confirming = S.rr.confirm === r.rootId;
+    // An owner is the first characters of its opaque reference and, when one of its sessions is online, the host.
+    const owners = r.owners.map((o) => h('span', { class: 'mono small' }, o.ref + (o.host ? ' · ' + o.host : '')));
+    return panel({
+      id: 'root-card-' + idSafe(r.rootId), title: h('span', { title: rt('objective') }, r.objective),
+      badge: h('span', { class: 'st ' + (r.state === 'OPEN' ? 'on' : 'warn'), title: rt('state') }, ROOT_STATE_TEXT[r.state] ? rt(ROOT_STATE_TEXT[r.state]) : r.state),
+      body: [h('div', { class: 'work-meta' },
+        h('span', { title: rt('lastActivity') }, rt('activityLine', { time: fmtDateTime(r.lastActivityAt) })),
+        h('span', null, ownerLine(r)),
+        h('span', null, tn('admin.page.rootRelease.runLine', { state: r.run ? h('span', { class: 'st off' }, workflowStateLabel(r.run.state)) : rt('noRun') }))),
+        workDetails('root-details-' + idSafe(r.rootId), rt('details'),
+          kv([[rt('identifier'), r.rootId, 'mono'], [rt('created'), fmtDateTime(r.createdAt)],
+            [rt('run'), r.run ? r.run.runId : rt('noRun'), r.run ? 'mono' : null],
+            [rt('owner'), h('div', { class: 'panel-owner' }, owners.length ? owners : ownerLine(r))]]))],
+      notice: [r.ownerPresence === 'online' ? h('div', { class: 'note-warn', role: 'alert' }, rt('ownerWarning')) : null, confirming ? confirmBlock(r, slot) : null],
+      acts: confirming ? null : [h('button', { type: 'button', class: 'btn', id: 'root-release-' + idSafe(r.rootId), disabled: !!S.busy, onclick: () => askRelease(r) }, rt('release'))],
+      status: statusEl(slot) });
+  }
+  function viewRoots() {
+    const list = openRoots().roots;
+    const rr = S.rr;
+    const update = (name, value) => { rr[name] = value; rr.limit = 20; render(); };
+    const ownerKind = (r) => !r.ownerBound ? 'unbound' : r.ownerPresence === 'online' ? 'online' : 'unknown';
+    const query = norm(rr.query);
+    const matching = list.filter((r) => (!rr.state || r.state === rr.state) && (!rr.owner || ownerKind(r) === rr.owner) &&
+      (!query || norm([r.objective, r.rootId, r.run && r.run.runId, ...r.owners.flatMap((o) => [o.ref, o.host])].join(' ')).includes(query)))
+      .slice().sort((a, b) => {
+        const order = String(a.lastActivityAt).localeCompare(String(b.lastActivityAt)) || a.rootId.localeCompare(b.rootId);
+        return rr.sort === 'oldest' ? order : -order;
+      });
+    const shown = matching.slice(0, rr.limit);
+    const pinned = rr.confirm && !shown.some((r) => r.rootId === rr.confirm) ? list.find((r) => r.rootId === rr.confirm) : null;
+    const reload = h('button', { type: 'button', class: 'btn sm', id: 'roots-reload', disabled: !!S.busy, onclick: () => loadState() }, rt('reload'));
+    return h('section', { class: 'col', 'aria-labelledby': 'roots-title' }, screenHead('roots-title', rt('title'), rt('intro'), reload),
+      statusEl('roots-screen'),
+      h('div', { class: 'work-summary', 'aria-label': rt('summary') },
+        [[rt('total'), list.length], [rt('stateNeedsReview'), list.filter((r) => r.state === 'NEEDS_REVIEW').length], [rt('stateNeedsUser'), list.filter((r) => r.state === 'NEEDS_USER').length]]
+          .map(([label, count]) => h('div', null, h('span', { class: 'small muted' }, label), h('strong', null, num(count))))),
+      h('fieldset', { class: 'work-filters', disabled: !!S.busy || !!rr.confirm, 'aria-label': rt('filters') },
+        workSearch('roots-query', rt('search'), rr.query, (value) => update('query', value)),
+        workSelect('roots-state', rt('state'), rr.state, [['', rt('allStates')], ...Object.entries(ROOT_STATE_TEXT).map(([value, key]) => [value, rt(key)])], (value) => update('state', value)),
+        workSelect('roots-owner', rt('owner'), rr.owner, [['', rt('allOwners')], ['online', rt('ownerOnline')], ['unknown', rt('ownerNotOnline')], ['unbound', rt('ownerNotBound')]], (value) => update('owner', value)),
+        workSelect('roots-sort', rt('sort'), rr.sort, [['recent', rt('sortRecent')], ['oldest', rt('sortOldest')]], (value) => update('sort', value)),
+        h('button', { type: 'button', class: 'btn', id: 'roots-reset', onclick: () => { Object.assign(rr, { query: '', state: '', owner: '', sort: 'recent', limit: 20 }); render(); $('roots-query').focus(); } }, rt('reset'))),
+      pinned ? h('section', { class: 'col', 'aria-labelledby': 'roots-confirming-title' },
+        h('h3', { id: 'roots-confirming-title' }, rt('confirmingWorkflow')),
+        h('ul', { class: 'stack', 'aria-labelledby': 'roots-confirming-title' }, rootCard(pinned))) : null,
+      h('p', { class: 'small muted', id: 'roots-count', role: 'status' }, rt('count', { shown: shown.length, matching: matching.length, total: list.length })),
+      !list.length ? h('p', { class: 'empty' }, rt('empty')) : !matching.length ? h('p', { class: 'empty' }, rt('noMatches')) : h('ul', { class: 'stack', 'aria-label': rt('title') }, shown.map(rootCard)),
+      matching.length > shown.length ? h('button', { type: 'button', class: 'btn', id: 'roots-more', disabled: !!S.busy || !!rr.confirm, onclick: () => { rr.limit += 20; render(); const next = $('root-card-' + idSafe(matching[shown.length].rootId)); if (next) { next.setAttribute('tabindex', '-1'); next.focus(); } } }, rt('more')) : null);
+  }
+
+  // ---------- global context ----------
+  function gMax() { return S.data.globalMaxBytes || (S.data.global && S.data.global.maxBytes) || 4000; }
+  function ruleMeta(text) {
+    if (!S.g.baseRules.includes(text)) return text.trim() === '' ? t('admin.page.global.metaNew') : t('admin.page.global.metaUnsaved');
+    const hist = S.data.globalHistory;
+    let since = null, broke = false;
+    for (const e of hist) { if (splitRules(e.body).includes(text)) since = e.revision; else { broke = true; break; } }
+    const cur = S.data.global ? S.data.global.revision : null;
+    if (since == null) return cur != null ? t('admin.page.global.metaSince', { revision: String(cur) }) : '';
+    const last = hist[hist.length - 1];
+    return broke || (last && last.revision === 1) ? t('admin.page.global.metaSince', { revision: String(since) }) : t('admin.page.global.metaSinceOrEarlier', { revision: String(since) });
+  }
+  function meterEl() {
+    return h('div', { class: 'col', id: 'g-meter-box' },
+      h('div', { class: 'meter-row' }, h('span', { class: 'muted' }, t('admin.page.global.meterLabel')), h('span', { id: 'g-meter-text' })),
+      h('div', { class: 'meter', id: 'g-meter', role: 'meter', 'aria-label': t('admin.page.global.meterAria'), 'aria-valuemin': '0', 'aria-valuemax': String(gMax()) }, h('div', { id: 'g-meter-bar' })));
+  }
+  function paintMeter() {
+    const txt = $('g-meter-text'); if (!txt) return;
+    const bytes = utf8len(editBody()), max = gMax(), over = bytes - max;
+    txt.textContent = over > 0 ? t('admin.page.global.meterOver', { bytes, max, over }) : t('admin.page.global.meterText', { bytes, max });
+    txt.className = over > 0 ? 'over-t' : '';
+    const m = $('g-meter'); m.classList.toggle('over', over > 0); m.setAttribute('aria-valuenow', String(bytes)); m.setAttribute('aria-valuetext', txt.textContent);
+    $('g-meter-bar').style.width = Math.min(100, (bytes / max) * 100) + '%';
+  }
+  function rowsFor(text) { return Math.max(2, Math.min(14, String(text).split('\n').length + 1)); }
+  function onRuleInput(rule, ta) {
+    rule.text = ta.value; ta.rows = rowsFor(ta.value);
+    if (S.g.saved) { S.g.saved = null; const s = $('g-saved'); if (s) s.remove(); }
+    const st = S.status.global; if (st && (st.kind === 'error' || st.kind === 'info')) delete S.status.global;
+    paintMeter();
+    for (const r of S.g.rules) { const m = $('meta-' + r.id); if (m) m.textContent = ruleMeta(r.text); }
+    renderSaveBar();
+  }
+  function viewGlobal() {
+    const d = S.data, g = S.g;
+    const sec = h('section', { class: 'col main-col', 'aria-labelledby': 'g-title' },
+      head('g-title', t('admin.page.global.title'), t('admin.page.global.desc')));
+    for (const p of globalProposals()) sec.append(globalProposalCard(p));
+    if (g.conflict) {
+      const latest = d.global || { body: '', revision: 0, updatedAt: null };
+      const h0 = d.globalHistory[0];
+      sec.append(h('div', { class: 'note-warn', role: 'alert' },
+        h('strong', null, t('admin.page.global.conflictTitle', { time: fmtTime(latest.updatedAt) })),
+        h('span', null, h0 && h0.keyLabel
+          ? t('admin.page.global.conflictBodySigned', { revision: String(latest.revision), label: h0.keyLabel, count: changeCount() })
+          : t('admin.page.global.conflictBody', { revision: String(latest.revision), count: changeCount() })),
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn warn-o', id: 'g-compare', 'aria-expanded': String(g.compareOpen), onclick: () => { g.compareOpen = !g.compareOpen; render(); } }, g.compareOpen ? t('admin.page.global.compareClose') : t('admin.page.global.compareOpen')),
+          h('button', { type: 'button', class: 'btn warn-f', id: 'g-reapply', onclick: () => { reapplyMine(); const f = $('g-save'); if (f && !f.disabled) f.focus(); } }, t('admin.page.global.reapply'))),
+        g.compareOpen ? compareView(t('admin.page.global.compareLatest', { revision: String(latest.revision) }), latest.body, t('admin.page.global.compareMine'), editBody()) : null));
+    }
+    if (g.saved) sec.append(h('div', { class: 'note-ok', role: 'status', id: 'g-saved' }, t('admin.page.global.saved', { revision: String(g.saved.revision), time: fmtHM(g.saved.at) })));
+    sec.append(meterEl());
+    const ol = h('ol', { class: 'rules', 'aria-label': t('admin.page.global.listLabel') });
+    g.rules.forEach((rule, i) => {
+      const ta = h('textarea', { id: rule.id, rows: String(rowsFor(rule.text)), value: rule.text, 'aria-describedby': 'meta-' + rule.id });
+      ta.addEventListener('input', () => onRuleInput(rule, ta));
+      ol.append(h('li', null,
+        h('label', { for: rule.id }, t('admin.page.global.ruleLabel', { number: String(i + 1) })), ta,
+        h('div', { class: 'rule-foot' }, h('span', { id: 'meta-' + rule.id }, ruleMeta(rule.text)),
+          h('button', { type: 'button', class: 'btn sm danger', id: 'del-' + rule.id, onclick: () => {
+            const idx = g.rules.indexOf(rule); g.rules.splice(idx, 1); g.saved = null; render();
+            const next = g.rules[idx] || g.rules[idx - 1];
+            const f = next ? $('del-' + next.id) : $('g-add'); if (f) f.focus();
+          } }, t('admin.page.global.ruleDelete')))));
+    });
+    if (!g.rules.length) sec.append(h('p', { class: 'empty' }, t('admin.page.global.empty')));
+    else sec.append(ol);
+    sec.append(h('div', null, h('button', { type: 'button', class: 'btn dashed', id: 'g-add', onclick: () => {
+      const r = mkRule(''); g.rules.push(r); g.saved = null; render(); const ta = $(r.id); if (ta) ta.focus();
+    } }, t('admin.page.global.add'))));
+    queueMicrotask(paintMeter);
+    return h('div', { class: 'split' }, sec, viewHistory());
+  }
+  function viewHistory() {
+    const d = S.data, hist = d.globalHistory, cur = d.global ? d.global.revision : null;
+    const aside = h('aside', { 'aria-labelledby': 'h-title' }, h('h2', { id: 'h-title' }, t('admin.page.global.historyTitle')));
+    if (!hist.length) { aside.append(h('p', { class: 'muted' }, t('admin.page.global.historyEmpty'))); return aside; }
+    const shown = hist.slice(0, LIMIT);
+    const ul = h('ul', { class: 'hist' });
+    for (const e of shown) {
+      const on = S.g.histSel === e.revision;
+      ul.append(h('li', null, h('button', { type: 'button', class: 'hist-btn', id: 'hist-' + e.revision, 'aria-pressed': String(on), onclick: () => { S.g.histSel = on ? null : e.revision; render(); } },
+        h('span', { class: 't' }, t('admin.page.global.histEntry', { revision: String(e.revision), time: fmtTime(e.updatedAt) }),
+          e.revision === S.g.justRev ? h('span', { class: 'tag new' }, t('admin.page.global.just')) : null,
+          e.revision === cur ? h('span', { class: 'tag' }, t('admin.page.global.current')) : null),
+        h('span', { class: 'small muted' }, e.keyLabel ? t('admin.page.global.signedLabel', { label: e.keyLabel }) : e.credentialId ? t('admin.page.global.signedId', { id: short(e.credentialId) }) : t('admin.page.global.signedNone')))));
+    }
+    aside.append(ul);
+    if (hist.length > LIMIT) aside.append(h('p', { class: 'small muted' }, t('admin.page.global.histLimited', { shown: LIMIT, total: hist.length })));
+    const sel = hist.find((e) => e.revision === S.g.histSel);
+    if (sel) {
+      const curBody = d.global ? d.global.body : '';
+      aside.append(h('h2', null, cur != null ? t('admin.page.global.diffTitle', { revision: String(sel.revision), current: String(cur) }) : t('admin.page.global.diffTitleNoCurrent', { revision: String(sel.revision) })),
+        sel.body === curBody ? h('p', { class: 'muted' }, t('admin.page.global.diffSame'))
+          : h('div', { class: 'col' }, h('span', { class: 'small muted' }, t('admin.page.global.diffLegend')), diffView(sel.body, curBody, t('admin.page.global.diffLabel', { revision: String(sel.revision) }))));
+    }
+    return aside;
+  }
+  function globalProposalCard(p) {
+    const slot = 'prop-' + p.id;
+    const cur = S.data.global ? S.data.global.body : '';
+    const body = p.change && typeof p.change.body === 'string' ? p.change.body : '';
+    return h('div', { class: 'note-info', role: 'region', 'aria-label': t('admin.page.global.proposalLabel') },
+      h('strong', null, t('admin.page.global.proposalTitle')),
+      h('span', { class: 'small' }, tn('admin.page.global.proposalMeta', { origin: (p.actor ? p.actor + ' · ' : '') + (p.host || ''), session: h('span', { class: 'mono', title: p.sessionId || '' }, short(p.sessionId)), time: fmtTime(p.createdAt) })),
+      p.baseChanged ? h('span', { class: 'err-t' }, t('admin.page.global.proposalBaseChanged')) : null,
+      compareView(t('admin.page.global.current'), cur, t('admin.page.global.compareRequest'), body),
+      utf8len(body) > gMax() ? h('span', { class: 'err-t' }, t('admin.page.global.proposalOver', { over: utf8len(body) - gMax() })) : null,
+      h('div', { class: 'row center' },
+        signBtn({ id: 'gp-ok-' + idSafe(p.id), slot, label: t('admin.page.global.approve'), onclick: () => runSigned({ slot, change: p.change, proposalId: p.id, onDone: (rec, ok) => { if (ok && S.data.global) { S.g.justRev = S.data.global.revision; S.g.saved = { revision: S.data.global.revision, at: rec.createdAt }; } } }) }),
+        h('button', { type: 'button', class: 'btn link-danger', id: 'gp-no-' + idSafe(p.id), disabled: !!S.busy, onclick: () => rejectProposal(p, slot) }, t('admin.page.global.reject'))),
+      statusEl(slot));
+  }
+  async function rejectProposal(p, slot) {
+    if (S.busy) return;
+    S.busy = slot; setStatus(slot, { kind: 'busy', text: t('admin.page.global.rejecting') });
+    let r = null, kind = null;
+    try { r = await api('POST', '/api/proposals/' + encodeURIComponent(p.id) + '/reject', {}); } catch (e) { kind = e.kind; }
+    S.busy = null;
+    if (kind) { setStatus(slot, { kind: 'error', text: t('admin.page.global.rejectFailedReload', { reason: errorText(kind) }), code: kind }); return; }
+    if (!r.ok) { const e = errOf(r); setStatus(slot, { kind: 'error', text: t('admin.page.global.rejectFailed', { reason: describe(e.code, e.details) }), code: codeText(e.code, e.details) }); if (e.code === 'ADMIN_PROPOSAL_NOT_FOUND') await loadState(); return; }
+    delete S.status[slot];
+    S.status['bind-screen'] = { kind: 'ok', text: t('admin.page.global.rejected', { time: fmtHM() }) };
+    await loadState();
+  }
+  async function saveGlobal() {
+    if (S.busy) return;
+    const body = editBody();
+    if (utf8len(body) > gMax() || S.g.conflict || !hasKeys()) return;
+    S.busy = 'global'; setStatus('global', { kind: 'busy', text: t('admin.page.global.checking') });
+    const ok = await loadState(); // compare the revision editing started from with the server's revision first (a conflict shows the warning band)
+    S.busy = null;
+    if (!ok) { setStatus('global', { kind: 'error', text: t('admin.page.global.checkFailed'), code: S.loadError ? S.loadError.code : '' }); return; }
+    if (S.g.conflict) { setStatus('global', null); return; }
+    await runSigned({ slot: 'global', change: { op: 'GLOBAL_SET', body }, baseHash: S.g.baseToken,
+      onStale: async () => { await loadState(); if (isGlobalDirty()) S.g.conflict = true; render(); },
+      onDone: (rec, loaded) => { if (loaded && S.data.global) { S.g.justRev = S.data.global.revision; S.g.saved = { revision: S.data.global.revision, at: rec.createdAt }; } } });
+  }
+  function renderJevSaveBar(bar) {
+    const j = jevOf(S.data), dirty = isJevDirty(), st = S.status.jev;
+    if (!j || (!dirty && !st)) { bar.hidden = true; bar.replaceChildren(); return; }
+    const lim = jevLimitCheck(S.j.cur.limit);
+    let why = '';
+    if (!hasKeys()) why = t('admin.page.global.saveNoKey');
+    else if (lim.err) why = t('admin.page.global.jevLimit');
+    else if (jevFallbackCheck(S.j.cur)) why = jevFallbackCheck(S.j.cur);
+    else if (slotBlocked('jev')) why = t('admin.page.global.saveBlocked');
+    bar.hidden = false;
+    bar.replaceChildren(
+      h('div', { class: 'txt' }, h('span', null, dirty ? t('admin.page.global.jevChanges', { count: jevChangeCount() }) : t('admin.page.global.noChanges')),
+        why ? h('span', { id: 'jev-why', class: 'small err-t' }, why) : null, statusEl('jev')),
+      h('button', { type: 'button', class: 'btn', id: 'jev-undo', disabled: !dirty || !!S.busy, onclick: () => {
+        S.j.cur = { ...S.j.base, presets: { ...S.j.base.presets } }; delete S.status.jev; render(); const f = $('jev-on'); if (f && !f.disabled) f.focus();
+      } }, t('admin.page.global.undo')),
+      h('button', { type: 'button', class: 'btn pri', id: 'jev-save', disabled: !!why || !dirty || !!S.busy, 'aria-describedby': why ? 'jev-why' : null, onclick: saveJev },
+        S.busy === 'jev' ? t('admin.page.global.saving') : t('admin.page.global.savePasskey')));
+  }
+  function renderSaveBar() {
+    const bar = $('savebar');
+    if (S.data && S.tab === 'jev') { renderJevSaveBar(bar); return; }
+    const dirty = S.data && S.tab === 'global' && isGlobalDirty();
+    const st = S.status.global;
+    if (!S.data || S.tab !== 'global' || (!dirty && !st)) { bar.hidden = true; bar.replaceChildren(); return; }
+    const bytes = utf8len(editBody()), over = bytes - gMax();
+    let why = '';
+    if (!hasKeys()) why = t('admin.page.global.saveNoKey');
+    else if (over > 0) why = t('admin.page.global.overBytes', { over });
+    else if (S.g.conflict) why = t('admin.page.global.whyConflict');
+    else if (slotBlocked('global')) why = t('admin.page.global.saveBlocked');
+    const n = changeCount();
+    const off = !!why || !dirty || !!S.busy;
+    bar.hidden = false;
+    bar.replaceChildren(
+      h('div', { class: 'txt' },
+        h('span', null, dirty ? (n ? t('admin.page.global.changes', { count: n }) : t('admin.page.global.changesOrder')) : t('admin.page.global.noChanges')),
+        why ? h('span', { id: 'save-why', class: 'small err-t' }, why) : null,
+        statusEl('global')),
+      h('button', { type: 'button', class: 'btn', id: 'g-undo', disabled: !dirty || !!S.busy, onclick: () => {
+        const d = S.data; resetGlobal(d.global ? d.global.body : '', d.global ? d.global.stateToken : null); delete S.status.global; render(); const a = $('g-add'); if (a) a.focus();
+      } }, t('admin.page.global.undo')),
+      h('button', { type: 'button', class: 'btn pri', id: 'g-save', disabled: off, 'aria-describedby': why ? 'save-why' : null, onclick: saveGlobal }, S.busy === 'global' ? t('admin.page.global.saving') : t('admin.page.global.savePasskey')));
+  }
+
+  // ---------- roles ----------
+  function checkName(raw, exceptId) {
+    const max = S.data.roleNameMaxLength || 100;
+    const name = String(raw).normalize('NFC').trim();
+    if (!name) return { name, err: raw.length ? t('admin.page.roles.nameBlank') : null, off: true };
+    const chars = Array.from(name).length; // same measure as the server (code points)
+    if (chars > max) return { name, err: t('admin.page.roles.nameTooLong', { max, chars }), off: true };
+    const lower = name.toLowerCase();
+    const same = S.data.roles.find((r) => r.roleId !== exceptId && String(r.name).normalize('NFC').toLowerCase() === lower);
+    if (same) return { name, off: true, err: same.name === name
+      ? t('admin.page.roles.nameTaken', { name: same.name })
+      : t('admin.page.roles.nameCaseOnly', { name, existing: same.name }) };
+    return { name, err: null, off: false };
+  }
+  function paintNameHint(input, hint, c) {
+    input.classList.toggle('invalid', !!c.err);
+    input.setAttribute('aria-invalid', c.err ? 'true' : 'false');
+    hint.className = 'hint' + (c.err ? ' err' : '');
+    hint.textContent = c.err || (c.name ? t('admin.page.roles.hintSaved', { name: c.name }) : t('admin.page.roles.hint'));
+  }
+  function roleSize(r) {
+    if (r.contextError) return t('admin.page.roles.readError', { error: r.contextError });
+    if (!r.context) return t('admin.page.roles.noBody');
+    return t('admin.page.roles.size', { bytes: r.context.bytes, max: r.context.maxBytes || S.data.roleMaxBytes || 0 });
+  }
+  function viewRoles() {
+    const d = S.data, roles = d.roles;
+    const sec = h('section', { class: 'col', 'aria-labelledby': 'r-title' },
+      head('r-title', t('admin.page.roles.title'), t('admin.page.roles.desc', { bytes: d.roleMaxBytes || 2000 })));
+    sec.append(statusEl('roles-screen'));
+    if (!S.dialog) { for (const k of ['role-del']) if (S.status[k] && S.status[k].kind !== 'busy') sec.append(statusEl(k)); }
+    if (!roles.length) {
+      sec.append(h('p', { class: 'empty' }, t('admin.page.roles.empty')));
+    } else {
+      const count = h('span', { class: 'small muted', id: 'role-count', 'aria-live': 'polite' });
+      const tbody = h('tbody', { id: 'role-tbody' });
+      // The search box is not rebuilt (keeps IME composition). Only the table body and the count are redrawn.
+      const paintRows = () => {
+        const q = norm(S.r.query);
+        const hit = roles.filter((r) => norm(r.name).includes(q));
+        const shown = hit.slice(0, LIMIT);
+        count.textContent = hit.length > LIMIT ? t('admin.page.roles.countCapped', { total: roles.length, matched: hit.length, shown: LIMIT }) : t('admin.page.roles.count', { total: roles.length, matched: hit.length });
+        tbody.replaceChildren(...shown.map(roleRow));
+        if (!shown.length) tbody.append(h('tr', null, h('td', { colspan: '5', class: 'muted' }, t('admin.page.roles.noMatch', { query: S.r.query.trim() }))));
+      };
+      const search = h('input', { id: 'role-search', type: 'search', class: 'txt-in', placeholder: t('admin.page.roles.searchHint'), autocomplete: 'off', value: S.r.query, 'aria-describedby': 'role-count' });
+      search.addEventListener('input', () => { S.r.query = search.value; paintRows(); });
+      paintRows();
+      sec.append(h('div', { class: 'row center' }, h('label', { for: 'role-search' }, h('b', null, t('admin.page.roles.searchLabel'))), search, count));
+      sec.append(h('div', { class: 'tbl-wrap' }, h('table', null, h('caption', null, t('admin.page.roles.caption')),
+        h('thead', null, h('tr', null, [t('admin.page.roles.colRole'), t('admin.page.roles.colBindings'), t('admin.page.roles.colContext'), t('admin.page.roles.colSaved'), t('admin.page.roles.colActions')].map((label) => h('th', { scope: 'col' }, label)))), tbody)));
+    }
+    // add
+    const c = checkName(S.r.newName, null);
+    const input = h('input', { id: 'new-role', type: 'text', class: 'txt-in', autocomplete: 'off', value: S.r.newName, 'aria-describedby': 'new-role-hint' });
+    const hint = h('span', { id: 'new-role-hint', class: 'hint' });
+    paintNameHint(input, hint, c);
+    const addBtn = signBtn({ id: 'role-add', slot: 'role-add', cls: 'pri-o al', label: t('admin.page.roles.add'), off: c.off, onclick: addRole });
+    input.addEventListener('input', () => {
+      S.r.newName = input.value; const c2 = checkName(input.value, null); paintNameHint(input, hint, c2);
+      addBtn.disabled = !!S.busy || !hasKeys() || slotBlocked('role-add') || c2.off;
+    });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && !addBtn.disabled) { e.preventDefault(); addRole(); } });
+    sec.append(h('div', { class: 'box' }, h('h2', null, t('admin.page.roles.addTitle')),
+      h('div', { class: 'row' }, h('div', { class: 'field' }, h('label', { for: 'new-role', class: 'small muted' }, t('admin.page.roles.nameLabel', { max: d.roleNameMaxLength || 100 })), input, hint),
+        addBtn),
+      !hasKeys() ? h('span', { class: 'small muted' }, t('admin.page.roles.addNoKey')) : null,
+      statusEl('role-add')));
+    return sec;
+  }
+  function roleRow(r) {
+    const ren = S.r.renaming && S.r.renaming.roleId === r.roleId ? S.r.renaming : null;
+    let nameCell;
+    if (ren) {
+      const c = checkName(ren.value, r.roleId);
+      const unchanged = c.name === r.name;
+      const inp = h('input', { id: 'rename-' + idSafe(r.roleId), type: 'text', class: 'txt-in', value: ren.value, autocomplete: 'off', 'aria-label': t('admin.page.roles.renameAria', { name: r.name }), 'aria-describedby': 'rename-hint-' + idSafe(r.roleId) });
+      const hint = h('span', { class: 'hint', id: 'rename-hint-' + idSafe(r.roleId) });
+      const slot = 'rename-' + r.roleId;
+      const save = signBtn({ id: 'rename-save-' + idSafe(r.roleId), slot, cls: 'btn sm pri', label: t('admin.page.global.savePasskey'), off: c.off || unchanged, onclick: () => doRename(r) });
+      const paint = () => { const c2 = checkName(ren.value, r.roleId); paintNameHint(inp, hint, c2); if (!c2.err && c2.name === r.name) hint.textContent = t('admin.page.roles.unchanged'); save.disabled = !!S.busy || !hasKeys() || slotBlocked(slot) || c2.off || c2.name === r.name; };
+      paint();
+      inp.addEventListener('input', () => { ren.value = inp.value; paint(); });
+      inp.addEventListener('keydown', (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === 'Escape') { e.preventDefault(); cancelRename(r); }
+        else if (e.key === 'Enter' && !save.disabled) { e.preventDefault(); doRename(r); }
+      });
+      nameCell = h('td', null, h('div', { class: 'field' }, inp, hint,
+        h('div', { class: 'row' }, save, h('button', { type: 'button', class: 'btn sm', id: 'rename-cancel-' + idSafe(r.roleId), onclick: () => cancelRename(r) }, t('admin.page.dialog.cancel'))), statusEl(slot)));
+    } else nameCell = h('td', null, h('b', null, r.name));
+    const ctx = r.context;
+    return h('tr', null, nameCell,
+      h('td', null, String(r.bindingCount || 0)),
+      h('td', { class: 'nowrap' }, roleSize(r)),
+      h('td', null, ctx && ctx.updatedAt ? (ctx.updatedBy ? ctx.updatedBy + ' · ' : '') + fmtTime(ctx.updatedAt) : '—'),
+      h('td', null, h('div', { class: 'acts' },
+        h('button', { type: 'button', class: 'btn sm', id: 'role-view-' + idSafe(r.roleId), onclick: () => openView(r) }, t('admin.page.roles.view')),
+        h('button', { type: 'button', class: 'btn sm', id: 'role-ren-' + idSafe(r.roleId), disabled: !!ren, onclick: () => { S.r.renaming = { roleId: r.roleId, value: r.name }; render(); const f = $('rename-' + idSafe(r.roleId)); if (f) f.focus(); } }, t('admin.page.roles.rename')),
+        h('button', { type: 'button', class: 'btn sm danger', id: 'role-del-' + idSafe(r.roleId), onclick: () => openDelete(r) }, t('admin.page.roles.delete')))));
+  }
+  function cancelRename(r) { S.r.renaming = null; delete S.status['rename-' + r.roleId]; render(); const f = $('role-ren-' + idSafe(r.roleId)); if (f) f.focus(); }
+  function doRename(r) {
+    const c = checkName(S.r.renaming.value, r.roleId);
+    if (c.off || c.name === r.name) return;
+    const slot = 'rename-' + r.roleId;
+    runSigned({ slot, change: { op: 'ROLE_RENAME', roleId: r.roleId, name: c.name },
+      onStale: () => loadState(),
+      onDone: () => { S.r.renaming = null; S.status['roles-screen'] = { kind: 'ok', text: t('admin.page.roles.renamed', { name: c.name, time: fmtHM() }) }; } });
+  }
+  function addRole() {
+    const c = checkName(S.r.newName, null);
+    if (c.off) return;
+    runSigned({ slot: 'role-add', change: { op: 'ROLE_ADD', roleId: 'role-' + crypto.randomUUID(), name: c.name },
+      onStale: () => loadState(),
+      onDone: () => { S.r.newName = ''; S.status['role-add'] = { kind: 'ok', text: t('admin.page.roles.added', { name: c.name, time: fmtHM() }) }; } });
+  }
+
+  // ---------- dialog ----------
+  function openDialog(o) {
+    if (S.dialog) S.dialog.el.close();
+    const el = h('dialog', { class: 'dlg ' + (o.cls || ''), 'aria-labelledby': 'dlg-title' });
+    const inner = h('div', { class: 'dlg-in' });
+    el.append(inner);
+    const openerId = o.opener && o.opener.id;
+    const dlg = { el, close: () => el.close(), refresh: () => {
+      // Keep the focus and the caret inside the dialog when it is redrawn.
+      const ae = document.activeElement, fid = ae && el.contains(ae) ? ae.id : null;
+      let sel = null;
+      if (fid) { try { if (typeof ae.selectionStart === 'number') sel = [ae.selectionStart, ae.selectionEnd]; } catch (e) { sel = null; } }
+      inner.replaceChildren(...[].concat(o.build(dlg)).filter((n) => n != null && n !== false));
+      const f = fid && $(fid);
+      if (f && f !== document.activeElement && !f.disabled) { f.focus({ preventScroll: true }); if (sel && f.setSelectionRange) { try { f.setSelectionRange(sel[0], sel[1]); } catch (e) { /* no selection range */ } } }
+    } };
+    el.addEventListener('close', () => {
+      el.remove(); if (S.dialog === dlg) S.dialog = null;
+      render();
+      const back = (openerId && $(openerId)) || (o.fallbackFocus && $(o.fallbackFocus)) || document.querySelector('main h1');
+      if (back) back.focus();
+    });
+    document.body.append(el);
+    S.dialog = dlg;
+    dlg.refresh();
+    el.showModal();
+    const f = o.focus && $(o.focus); if (f) f.focus();
+    return dlg;
+  }
+  function openView(r0) {
+    const opener = $('role-view-' + idSafe(r0.roleId));
+    const startToken = r0.context ? r0.context.stateToken : null;
+    let draft = r0.context ? r0.context.body : '';
+    delete S.status['role-body'];
+    openDialog({ opener, focus: r0.contextError ? 'dlg-close' : 'role-body-input', fallbackFocus: 'r-title', build: (dlg) => {
+      const r = roleById(r0.roleId) || r0, c = r.context;
+      const title = h('h2', { id: 'dlg-title' }, t('admin.page.dialog.viewTitle', { name: r.name }));
+      const by = c && c.updatedBy ? c.updatedBy : null, at = c && c.updatedAt ? fmtTime(c.updatedAt) : null;
+      const size = roleSize(r);
+      const info = h('p', { class: 'small muted' }, by && at ? t('admin.page.dialog.viewInfoByAt', { size, by, time: at }) : by ? t('admin.page.dialog.viewInfoBy', { size, by }) : at ? t('admin.page.dialog.viewInfoAt', { size, time: at }) : size);
+      const closeBtn = h('button', { type: 'button', class: 'btn', id: 'dlg-close', onclick: () => dlg.close() }, t('admin.page.dialog.close'));
+      if (r.contextError) return [title, info, h('p', { class: 'err-t' }, t('admin.page.dialog.viewReadFailed', { error: r.contextError })), h('div', { class: 'dlg-acts' }, closeBtn)];
+      const max = S.data.roleMaxBytes || 2000;
+      const moved = (c ? c.stateToken : null) !== startToken;
+      const off = () => moved || utf8len(draft) > max || draft === (c ? c.body : '');
+      const why = () => !hasKeys() ? t('admin.page.dialog.noKey') : moved ? t('admin.page.dialog.viewMoved') : utf8len(draft) > max ? t('admin.page.dialog.viewOver', { over: utf8len(draft) - max }) : '';
+      const meta = h('span', { id: 'role-body-meta', class: 'small muted' });
+      const whyEl = h('span', { id: 'role-body-why', class: 'small muted why' });
+      const ta = h('textarea', { id: 'role-body-input', rows: '10', value: draft, 'aria-label': t('admin.page.dialog.viewBodyLabel'), 'aria-describedby': 'role-body-meta role-body-why' });
+      const btn = signBtn({ id: 'role-body-save', slot: 'role-body', label: t('admin.page.global.savePasskey'), off: off(), why: 'role-body-why', onclick: () => runSigned({
+        slot: 'role-body', change: { op: 'ROLE_BODY_SET', roleId: r.roleId, body: draft, expectedStateToken: startToken }, onStale: () => loadState(),
+        onDone: () => { S.status['roles-screen'] = { kind: 'ok', text: t('admin.page.dialog.viewSaved', { name: r.name, time: fmtHM() }) }; dlg.close(); } }) });
+      const paint = () => {
+        meta.textContent = t('admin.page.roles.size', { bytes: utf8len(draft), max });
+        whyEl.textContent = why();
+        btn.disabled = !!S.busy || !hasKeys() || slotBlocked('role-body') || off();
+      };
+      paint();
+      ta.addEventListener('input', () => { draft = ta.value; paint(); });
+      return [title, info, ta, meta, statusEl('role-body'), h('div', { class: 'dlg-acts' }, whyEl, closeBtn, btn)];
+    } });
+  }
+  function openDelete(r0) {
+    const opener = $('role-del-' + idSafe(r0.roleId));
+    let typed = '';
+    delete S.status['role-del'];
+    openDialog({ opener, cls: 'narrow', focus: 'del-confirm', fallbackFocus: 'r-title', build: (dlg) => {
+      const r = roleById(r0.roleId) || r0;
+      const bound = S.data.sessions.filter((s) => s.binding && s.binding.roleId === r.roleId);
+      const n = r.bindingCount || 0;
+      const bytes = r.context ? r.context.bytes : 0;
+      const inp = h('input', { id: 'del-confirm', type: 'text', class: 'txt-in', autocomplete: 'off', value: typed, 'aria-describedby': 'del-why' });
+      const btn = signBtn({ id: 'del-go', slot: 'role-del', cls: 'btn danger', label: t('admin.page.dialog.deleteGo'), off: typed !== r.name, why: 'del-why', onclick: () => runSigned({
+        slot: 'role-del', change: { op: 'ROLE_DELETE', roleId: r.roleId }, onStale: () => loadState(),
+        onDone: () => { S.status['roles-screen'] = { kind: 'ok', text: t('admin.page.dialog.deleted', { name: r.name, time: fmtHM() }) }; dlg.close(); } }) });
+      const whyText = () => !hasKeys() ? t('admin.page.dialog.deleteNoKey') : typed === r.name ? '' : t('admin.page.dialog.deleteType');
+      const why = h('span', { id: 'del-why', class: 'small muted why' }, whyText());
+      inp.addEventListener('input', () => {
+        typed = inp.value;
+        btn.disabled = !!S.busy || !hasKeys() || slotBlocked('role-del') || typed !== r.name;
+        why.textContent = whyText();
+      });
+      const items = bound.map((s) => h('li', null, s.hostLabel + ' · ', h('span', { class: 'mono', title: s.sessionId }, short(s.sessionId)), ' · ' + (s.summary || t('admin.page.dialog.noSummary'))));
+      if (n > bound.length) items.push(h('li', { class: 'muted' }, t('admin.page.dialog.deleteHidden', { count: n - bound.length })));
+      return [h('h2', { id: 'dlg-title' }, t('admin.page.dialog.deleteTitle', { name: r.name })),
+        kv([[t('admin.page.dialog.deleteBinding'), n ? t('admin.page.dialog.deleteLoss', { count: n }) : t('admin.page.dialog.deleteNone')],
+          [t('admin.page.roles.colContext'), tn('admin.page.dialog.deleteBytes', { bytes, irreversible: h('strong', null, t('admin.page.dialog.deleteIrreversible')) })]]),
+        n ? h('details', null, h('summary', null, t('admin.page.dialog.deleteSessions', { count: n })), h('ul', { class: 'del-list', tabindex: '0', 'aria-label': t('admin.page.dialog.deleteListLabel') }, items)) : null,
+        h('label', { for: 'del-confirm' }, h('b', null, t('admin.page.dialog.deleteConfirmLabel', { name: r.name }))), inp,
+        statusEl('role-del'),
+        h('div', { class: 'dlg-acts' }, why, h('button', { type: 'button', class: 'btn', id: 'del-cancel', onclick: () => dlg.close() }, t('admin.page.dialog.cancel')), btn)];
+    } });
+  }
+
+  // ---------- session bindings ----------
+  const isActive = (s) => s.state !== 'ended';
+  const bound = (s) => !!(s.binding && !s.binding.lapsed);
+  function sessionModels() {
+    const props = bindingProposals();
+    const list = S.data.sessions.map((s) => ({ s, prop: props.find((p) => p.change.host === s.host && p.change.sessionId === s.sessionId) || null }));
+    for (const p of props) if (!list.some((x) => x.prop === p) && !list.some((x) => x.s.host === p.change.host && x.s.sessionId === p.change.sessionId)) {
+      list.push({ s: { host: p.change.host, hostLabel: p.change.host, sessionId: p.change.sessionId, state: 'unlisted', cwd: null, summary: null, selfRole: null, lastSeenAt: null, binding: null }, prop: p });
+    }
+    return list;
+  }
+  const STATE_CLASS = { online: 'on', unreachable: 'warn', ended: 'off', unlisted: 'warn' };
+  const stateLabel = (state) => (has('admin.page.bindings.state.' + state) ? t('admin.page.bindings.state.' + state) : String(state));
+  // The page keeps nothing in the browser: its address (the port) changes at every start, so what a browser stored would be gone. A session the page cannot classify stays in
+  // its own group ("undecided") until it is given a role or ends; there is no list to take it off.
+  /** A session for which it is unknown whether it is a main session, because the host does not mark subagents. A binding or a binding request means the user already treated it as a main session. */
+  const kindUnknown = (x) => !x.prop && !!x.s.kindUnknown && !x.s.binding && isActive(x.s);
+  function viewBindings() {
+    const d = S.data;
+    const all = sessionModels();
+    const known = (x) => isActive(x.s) && !kindUnknown(x);
+    const counts = { active: all.filter(known).length, unbound: all.filter((x) => known(x) && !bound(x.s)).length,
+      unknown: all.filter(kindUnknown).length, ended: all.filter((x) => !isActive(x.s)).length };
+    const f = S.b.filter;
+    const pick = (x) => f === 'ended' ? !isActive(x.s) : f === 'unbound' ? known(x) && !bound(x.s) : f === 'unknown' ? kindUnknown(x) : known(x);
+    const rank = (x) => x.prop ? 0 : !bound(x.s) ? 1 : 2;
+    const list = all.filter(pick).sort((a, b) => rank(a) - rank(b) || String(b.s.lastSeenAt || '').localeCompare(String(a.s.lastSeenAt || '')));
+    const sec = h('section', { class: 'col', 'aria-labelledby': 'sb-title' });
+    sec.append(h('div', { class: 'head' }, h('h1', { id: 'sb-title', tabindex: '-1' }, t('admin.page.bindings.title')),
+      h('p', { class: 'desc' }, t('admin.page.bindings.desc')),
+      h('details', { class: 'guide' }, h('summary', null, t('admin.page.bindings.guideTitle')), h('ul', null,
+        h('li', null, t('admin.page.bindings.guide1')),
+        h('li', null, t('admin.page.bindings.guide2')),
+        h('li', null, t('admin.page.bindings.guide4')),
+        h('li', null, t('admin.page.bindings.guide5')),
+        h('li', null, t('admin.page.bindings.guide6'))))));
+    if (d.sessionsError) sec.append(h('div', { class: 'note-err', role: 'alert' }, h('span', null, tn('admin.page.bindings.sessionsError', { code: h('code', null, d.sessionsError.code) })),
+      h('div', null, h('button', { type: 'button', class: 'btn sm', id: 'sess-reload', onclick: () => loadState() }, t('admin.page.bindings.reload')))));
+    const chips = [['active', t('admin.page.bindings.chipActive', { count: counts.active })], ['unbound', t('admin.page.bindings.chipUnbound', { count: counts.unbound })], ['unknown', t('admin.page.bindings.chipUnknown', { count: counts.unknown })], ['ended', t('admin.page.bindings.chipEnded', { count: counts.ended })]];
+    const group = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': t('admin.page.bindings.scope') });
+    chips.forEach(([k, label], i) => {
+      const on = f === k;
+      const b = h('button', { type: 'button', class: 'chip-r', role: 'radio', id: 'chip-' + k, 'aria-checked': String(on), tabindex: on ? '0' : '-1', onclick: () => { S.b.filter = k; S.b.limit = LIMIT; render(); $('chip-' + k).focus(); } }, label);
+      b.addEventListener('keydown', (e) => {
+        const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+        if (!dir) return;
+        e.preventDefault();
+        const nk = chips[(i + dir + chips.length) % chips.length][0];
+        S.b.filter = nk; S.b.limit = LIMIT; render(); $('chip-' + nk).focus();
+      });
+      group.append(b);
+    });
+    sec.append(group);
+    const nReq = all.filter((x) => x.prop).length;
+    if (nReq && f !== 'ended') sec.append(h('div', { class: 'note-info', role: 'status' }, t('admin.page.bindings.requested', { count: nReq })));
+    sec.append(statusEl('bind-screen'));
+    if (!S.dialog) for (const k of ['bind', 'unbind']) if (S.status[k] && S.status[k].kind !== 'busy') sec.append(statusEl(k));
+    if (!list.length) { sec.append(h('p', { class: 'empty' }, t('admin.page.bindings.empty'))); return sec; }
+    const ul = h('ul', { class: 'cards', 'aria-label': t('admin.page.bindings.listLabel') });
+    for (const x of list.slice(0, S.b.limit)) ul.append(sessionCard(x));
+    sec.append(ul);
+    if (list.length > S.b.limit) {
+      const rest = list.length - S.b.limit;
+      sec.append(h('div', null, h('span', { class: 'small muted' }, t('admin.page.bindings.shown', { shown: S.b.limit, total: list.length })), ' ',
+        h('button', { type: 'button', class: 'btn', id: 'sess-more', onclick: () => { S.b.limit += LIMIT; render(); } }, t('admin.page.bindings.more', { next: Math.min(LIMIT, rest), rest }))));
+    }
+    return sec;
+  }
+  function sessionCard(x) {
+    const s = x.s, p = x.prop, key = idSafe(s.host + '-' + s.sessionId);
+    const stLabel = stateLabel(s.state), stCls = STATE_CLASS[s.state] || 'off';
+    let roleText, roleCls, notes = [];
+    const acts = [];
+    if (p) {
+      roleText = p.change.roleId == null ? t('admin.page.bindings.unbindRequest') : t('admin.page.bindings.bindRequest', { role: roleName(p.change.roleId) });
+      roleCls = 'req';
+      notes.push(!s.binding ? t('admin.page.bindings.noteRequested')
+        : s.binding.lapsed ? t('admin.page.bindings.noteRequestedNowLapsed', { role: roleName(s.binding.roleId) })
+          : t('admin.page.bindings.noteRequestedNow', { role: roleName(s.binding.roleId) }));
+      if (p.baseChanged) notes.push(t('admin.page.bindings.baseChanged'));
+      const slot = 'prop-' + p.id;
+      acts.push(signBtn({ id: 'ap-' + key, slot, label: t('admin.page.global.approve'), off: false, onclick: (e) => p.change.roleId == null ? openUnbind(x, e.currentTarget, p) : openBind(x, 'approve', e.currentTarget) }));
+      if (p.change.roleId != null) acts.push(h('button', { type: 'button', class: 'btn', id: 'alt-' + key, disabled: !!S.busy, onclick: (e) => openBind(x, 'alt', e.currentTarget) }, t('admin.page.bindings.alt')));
+      acts.push(h('button', { type: 'button', class: 'btn link-danger', id: 'rej-' + key, disabled: !!S.busy, onclick: () => rejectProposal(p, slot) }, t('admin.page.global.reject')));
+    } else if (bound(s)) {
+      roleText = roleName(s.binding.roleId); roleCls = 'bound';
+      notes.push(s.binding.lastUsedAt ? t('admin.page.bindings.noteBoundUsed', { time: fmtTime(s.binding.boundAt), used: fmtTime(s.binding.lastUsedAt) }) : t('admin.page.bindings.noteBound', { time: fmtTime(s.binding.boundAt) }));
+      acts.push(h('button', { type: 'button', class: 'btn', id: 'chg-' + key, disabled: !!S.busy, onclick: (e) => openBind(x, 'change', e.currentTarget) }, t('admin.page.bindings.change')));
+      acts.push(h('button', { type: 'button', class: 'btn link-danger', id: 'unb-' + key, disabled: !!S.busy, onclick: (e) => openUnbind(x, e.currentTarget) }, t('admin.page.bindings.unbind')));
+    } else if (s.binding && s.binding.lapsed) {
+      roleText = t('admin.page.bindings.roleLapsed', { role: roleName(s.binding.roleId) }); roleCls = 'none';
+      notes.push(t('admin.page.bindings.noteLapsed'));
+      acts.push(h('button', { type: 'button', class: 'btn pri', id: 'set-' + key, disabled: !!S.busy, onclick: (e) => openBind(x, 'set', e.currentTarget) }, t('admin.page.bindings.setAgain')));
+      acts.push(h('button', { type: 'button', class: 'btn link-danger', id: 'unb-' + key, disabled: !!S.busy, onclick: (e) => openUnbind(x, e.currentTarget) }, t('admin.page.bindings.unbind')));
+    } else {
+      roleText = t('admin.page.bindings.noRole'); roleCls = 'none';
+      if (isActive(s)) acts.push(h('button', { type: 'button', class: 'btn pri', id: 'set-' + key, disabled: !!S.busy, onclick: (e) => openBind(x, 'set', e.currentTarget) }, t('admin.page.bindings.set')));
+      if (kindUnknown(x)) notes.push(t('admin.page.bindings.maybeSub'));
+    }
+    // What the person reads first is what the session is doing now (its summary), and on what basis (when it wrote that, and whether it was asked something since);
+    // the role and the way to set it are right under it, so a role is chosen where the summary was read. The host, the id and the folder are the small print.
+    const hasSummary = !!(s.summary && s.summary.trim());
+    const stale = s.summaryStale === true;
+    const thin = !hasSummary || stale;
+    const basis = !hasSummary ? (s.lastPromptAt ? t('admin.page.bindings.basisNoSummary', { time: fmtTime(s.lastPromptAt) }) : t('admin.page.bindings.basisNoRequest'))
+      : stale ? t('admin.page.bindings.basisStale', { time: fmtTime(s.summaryAt) }) : t('admin.page.bindings.basisFresh', { time: fmtTime(s.summaryAt) });
+    return h('li', { class: 'card sess' + (p ? ' req' : '') },
+      h('div', { class: 'ttl' }, h('span', { class: 'doing' + (hasSummary ? '' : ' none') }, hasSummary ? s.summary : t('admin.page.bindings.noSummary')), h('span', { class: 'st ' + stCls }, stLabel)),
+      h('div', { class: 's-basis' + (thin ? ' thin' : '') }, thin ? h('span', { 'aria-hidden': 'true' }, '! ') : null, basis),
+      h('div', { class: 's-role ' + roleCls },
+        h('div', { class: 's-who' }, h('span', { class: 'small muted' }, t('admin.page.bindings.role')), h('span', { class: 'role-t ' + roleCls }, roleText),
+          notes.map((note) => h('span', { class: 'small muted' }, note)),
+          s.selfRole ? h('span', { class: 'small muted' }, t('admin.page.bindings.selfRole', { role: s.selfRole })) : null),
+        h('div', { class: 's-acts' }, acts),
+        thin && isActive(s) && acts.length ? h('span', { class: 's-thin' }, t('admin.page.bindings.thinBasis')) : null),
+      h('div', { class: 's-meta' }, (s.hostLabel || s.host) + ' · ', h('span', { class: 'mono', title: s.sessionId }, short(s.sessionId)), ' · ', h('span', { class: 'mono' }, s.cwd || t('admin.page.bindings.cwdUnknown')),
+        s.lastSeenAt ? ' · ' + t('admin.page.bindings.lastSeen', { time: fmtTime(s.lastSeenAt) }) : ''),
+      p && S.status['prop-' + p.id] ? statusEl('prop-' + p.id) : null);
+  }
+  function sessionLine(s) { return t('admin.page.bindings.sessionLine', { summary: s.summary || t('admin.page.dialog.noSummary'), host: s.hostLabel || s.host, id: short(s.sessionId) }); }
+
+  // Role selection combo box
+  function buildCombo(ctx) {
+    let open = false, query = '', active = -1, shown = [];
+    const input = h('input', { id: 'role-combo', type: 'text', role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'role-listbox', 'aria-autocomplete': 'list', autocomplete: 'off', 'aria-describedby': 'combo-picked' });
+    const chev = h('span', { class: 'chev', 'aria-hidden': 'true' }, '▼');
+    const list = h('ul', { id: 'role-listbox', role: 'listbox', 'aria-label': t('admin.page.bindings.role') });
+    const foot = h('div', { class: 'combo-foot', 'aria-live': 'polite' });
+    const pop = h('div', { class: 'combo-pop', hidden: true }, list, foot);
+    const wrap = h('div', { class: 'combo' }, input, chev, pop);
+    const note = (r) => t('admin.page.bindings.comboNote', { sessions: r.bindingCount || 0, bytes: r.context ? r.context.bytes : 0 });
+    function placeholder() {
+      const r = ctx.pick && roleById(ctx.pick);
+      input.placeholder = r ? t('admin.page.bindings.comboPicked', { name: r.name }) : t('admin.page.bindings.comboPlaceholder', { count: S.data.roles.length });
+    }
+    function paint() {
+      const q = norm(query);
+      const matches = S.data.roles.filter((r) => norm(r.name).includes(q));
+      shown = matches.slice(0, LIMIT);
+      if (active >= shown.length) active = shown.length - 1;
+      list.replaceChildren(...shown.map((r, i) => {
+        const li = h('li', { role: 'option', id: 'role-opt-' + i, 'aria-selected': String(r.roleId === ctx.pick), class: i === active ? 'active' : '' },
+          h('span', { class: 'n' }, r.name), h('span', { class: 'small muted' }, note(r)));
+        li.addEventListener('mousedown', (e) => { e.preventDefault(); choose(r); }); // must come before blur
+        return li;
+      }));
+      if (!matches.length) list.append(h('li', { class: 'nomatch' }, t('admin.page.bindings.comboNoMatch', { query: query.trim() })));
+      foot.textContent = matches.length > LIMIT ? t('admin.page.bindings.comboFootCapped', { matched: matches.length, shown: LIMIT }) : t('admin.page.bindings.comboFoot', { matched: matches.length });
+      if (active >= 0) { input.setAttribute('aria-activedescendant', 'role-opt-' + active); const a = $('role-opt-' + active); if (a) a.scrollIntoView({ block: 'nearest' }); }
+      else input.removeAttribute('aria-activedescendant');
+    }
+    function setOpen(v) {
+      open = v;
+      if (!v) { query = ''; input.value = ''; active = -1; input.removeAttribute('aria-activedescendant'); }
+      input.setAttribute('aria-expanded', String(v)); pop.hidden = !v; chev.textContent = v ? '▲' : '▼';
+      if (v) paint();
+      placeholder();
+    }
+    function choose(r) { ctx.pick = r.roleId; setOpen(false); ctx.onChange(); }
+    input.addEventListener('click', () => setOpen(!open));
+    input.addEventListener('input', () => { query = input.value; active = 0; if (!open) { open = true; input.setAttribute('aria-expanded', 'true'); pop.hidden = false; chev.textContent = '▲'; } paint(); });
+    input.addEventListener('blur', () => { if (open) setOpen(false); });
+    input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) { if (e.key === 'Enter' || e.key === 'Escape') e.preventDefault(); return; } // ignore Enter and Esc during IME composition
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) { setOpen(true); active = 0; paint(); } else { active = Math.min(active + 1, shown.length - 1); paint(); } }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); if (open) { active = Math.max(active - 1, 0); paint(); } }
+      else if (e.key === 'Enter') { if (open && active >= 0 && shown[active]) { e.preventDefault(); choose(shown[active]); } }
+      else if (e.key === 'Escape') { if (open) { e.preventDefault(); e.stopPropagation(); setOpen(false); } }
+    });
+    placeholder();
+    return wrap;
+  }
+
+  function openBind(x, mode, opener) {
+    const s = x.s, p = x.prop;
+    const ctx = { pick: mode === 'approve' && p ? p.change.roleId : (mode === 'change' && s.binding ? s.binding.roleId : null), onChange: null };
+    if (ctx.pick && !roleById(ctx.pick)) ctx.pick = null;
+    delete S.status.bind;
+    let combo = null;
+    openDialog({ opener, cls: 'narrow combo-host', focus: S.data.roles.length ? 'role-combo' : 'bind-go-roles', build: (dlg) => {
+      const roles = S.data.roles;
+      const title = mode === 'approve' ? t('admin.page.bindings.bindApprove') : mode === 'alt' ? t('admin.page.bindings.bindAlt') : mode === 'change' ? t('admin.page.bindings.change') : t('admin.page.bindings.set');
+      const cur = s.binding && !s.binding.lapsed ? s.binding.roleId : null;
+      const same = !p && ctx.pick && ctx.pick === cur;
+      const picked = ctx.pick && roleById(ctx.pick);
+      const why = !hasKeys() ? t('admin.page.dialog.noKey') : !ctx.pick ? t('admin.page.bindings.bindWhyPick') : same ? t('admin.page.bindings.bindWhySame') : '';
+      const save = signBtn({ id: 'bind-save', slot: 'bind', label: t('admin.page.global.savePasskey'), off: !ctx.pick || same, why: 'bind-why', onclick: () => runSigned({
+        slot: 'bind', proposalId: p ? p.id : null,
+        change: { op: 'BINDING_SET', host: s.host, sessionId: s.sessionId, roleId: ctx.pick },
+        onStale: () => loadState(),
+        onDone: () => { S.status['bind-screen'] = { kind: 'ok', text: t('admin.page.bindings.bindSaved', { session: (s.hostLabel || s.host) + ' ' + short(s.sessionId), role: roleName(ctx.pick), time: fmtHM() }) }; dlg.close(); } }) });
+      if (!combo && roles.length) { ctx.onChange = () => dlg.refresh(); combo = buildCombo(ctx); }
+      return [h('div', { class: 'head' }, h('h2', { id: 'dlg-title' }, title), h('span', null, sessionLine(s))),
+        p && p.baseChanged ? h('p', { class: 'err-t' }, t('admin.page.bindings.bindBaseChanged')) : null,
+        mode === 'approve' && p && !roleById(p.change.roleId) ? h('p', { class: 'err-t' }, t('admin.page.bindings.bindRoleMissing')) : null,
+        roles.length
+          ? h('div', { class: 'col' }, h('label', { for: 'role-combo' }, h('b', null, t('admin.page.bindings.role'))), combo,
+            picked ? h('div', { class: 'picked', id: 'combo-picked' }, h('span', { class: 'small muted' }, t('admin.page.bindings.picked')), h('b', null, picked.name),
+              h('span', { class: 'small muted' }, t('admin.page.bindings.comboNote', { sessions: picked.bindingCount || 0, bytes: picked.context ? picked.context.bytes : 0 }))) : h('span', { id: 'combo-picked', class: 'small muted' }, t('admin.page.bindings.pickedNone')))
+          : h('div', { class: 'note-warn' }, h('span', null, t('admin.page.bindings.noRoles')),
+            h('div', null, h('button', { type: 'button', class: 'btn warn-o', id: 'bind-go-roles', onclick: () => { dlg.close(); go('roles', 'new-role'); } }, t('admin.page.bindings.goRoles')))),
+        h('p', { class: 'small muted' }, t('admin.page.bindings.bindInfo')),
+        statusEl('bind'),
+        h('div', { class: 'dlg-acts' }, h('span', { id: 'bind-why', class: 'small muted why' }, why), h('button', { type: 'button', class: 'btn', id: 'bind-cancel', onclick: () => dlg.close() }, t('admin.page.dialog.cancel')), save)];
+    } });
+  }
+  function openUnbind(x, opener, p) {
+    const s = x.s;
+    delete S.status.unbind;
+    openDialog({ opener, cls: 'narrow', focus: 'unbind-cancel', build: (dlg) => {
+      const rn = s.binding ? roleName(s.binding.roleId) : null;
+      return [h('h2', { id: 'dlg-title' }, p ? t('admin.page.bindings.unbindApprove') : t('admin.page.bindings.unbindTitle')),
+        h('p', null, rn ? t('admin.page.bindings.unbindBodyRole', { session: sessionLine(s), role: rn }) : t('admin.page.bindings.unbindBody', { session: sessionLine(s) })),
+        statusEl('unbind'),
+        h('div', { class: 'dlg-acts' }, h('button', { type: 'button', class: 'btn', id: 'unbind-cancel', onclick: () => dlg.close() }, t('admin.page.dialog.cancel')),
+          signBtn({ id: 'unbind-go', slot: 'unbind', cls: 'btn danger', label: t('admin.page.bindings.unbindGo'), onclick: () => runSigned({
+            slot: 'unbind', proposalId: p ? p.id : null, change: { op: 'BINDING_SET', host: s.host, sessionId: s.sessionId, roleId: null }, onStale: () => loadState(),
+            onDone: () => { S.status['bind-screen'] = { kind: 'ok', text: t('admin.page.bindings.unbound', { session: (s.hostLabel || s.host) + ' ' + short(s.sessionId), time: fmtHM() }) }; dlg.close(); } }) }))];
+    } });
+  }
+
+  // ---------- JEV and general settings ----------
+  // Edit model: the server value (base) and my edit (cur) are kept apart, and cur follows the server value only while nothing is being edited.
+  const jevOf = (d) => (d.settings && d.settings.jev) || null;
+  const usd = (n) => (n == null ? '—' : Number(n).toFixed(2) + ' USD');
+  // A model value is 'provider/model' (for example typesafe/jev-1.14.0), or '' when none is chosen.
+  const modelKey = (m) => (m ? m.providerId + '/' + m.modelId : '');
+  function jevBase(j) {
+    const presets = {}; for (const p of j.presets || []) presets[p.presetId] = !!p.enabled;
+    return { enabled: !!j.switchOn, limit: j.budget && j.budget.signedLimitUsd != null ? String(j.budget.signedLimitUsd) : '', presets,
+      model: modelKey(j.model), fallback: modelKey(j.fallbackModel), transmission: !!j.transmissionAllowed };
+  }
+  const JEV_FIELDS = ['enabled', 'model', 'fallback', 'transmission'];
+  /** Whether a setting with a fallback evaluator can be signed: a model must be chosen and the fallback must differ from it. Otherwise the reason (a catalog sentence); '' when it can. */
+  const jevFallbackCheck = (cur) => (!cur.fallback ? '' : !cur.model ? t('admin.page.jev.fallback.needsModel') : cur.fallback === cur.model ? t('admin.page.jev.fallback.same') : '');
+  const jevSame = (a, b) => JEV_FIELDS.every((k) => a[k] === b[k]) && a.limit.trim() === b.limit.trim() && Object.keys(a.presets).every((k) => a.presets[k] === b.presets[k]);
+  const isJevDirty = () => !!(S.j.base && S.j.cur && !jevSame(S.j.base, S.j.cur));
+  function jevChangeCount() {
+    if (!isJevDirty()) return 0;
+    const a = S.j.base, b = S.j.cur;
+    return JEV_FIELDS.filter((k) => a[k] !== b[k]).length + (a.limit.trim() !== b.limit.trim() ? 1 : 0) + Object.keys(a.presets).filter((k) => a.presets[k] !== b.presets[k]).length;
+  }
+  /** The budget field: empty is null (JEV is not called), otherwise a number of 0 or more. The limit is set by the person. */
+  function jevLimitCheck(raw) {
+    const text = String(raw).trim();
+    if (!text) return { value: null, err: null };
+    const n = Number(text);
+    if (!Number.isFinite(n) || n < 0) return { value: null, err: t('admin.page.jev.limit.invalid') };
+    return { value: Math.round(n * 100) / 100, err: null };
+  }
+  function syncSettings(d) {
+    const j = jevOf(d);
+    if (j) { const base = jevBase(j); if (!S.j.cur || !isJevDirty()) S.j.cur = { ...base, presets: { ...base.presets } }; S.j.base = base; }
+    const st = d.settings || {};
+    if (st.editGateExceptions) {
+      const b = st.editGateExceptions.signedPaths || [];
+      if (S.ex.cur === null || sameList(S.ex.cur, S.ex.base)) S.ex.cur = b.slice();
+      S.ex.base = b.slice();
+    }
+  }
+  const sameList = (a, b) => !!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]);
+  const isExemptDirty = () => S.ex.cur !== null && !sameList(S.ex.cur, S.ex.base);
+  /** The key name that the chosen model's provider uses (the first provider's when no model is chosen); only the name the server gave, undefined when the server named none. */
+  const jevKeyName = () => {
+    const j = S.data && jevOf(S.data), list = (j && j.providers) || [];
+    const own = j && j.model ? list.find((p) => p.providerId === j.model.providerId) : null;
+    return (own || list[0] || {}).credentialName;
+  };
+  /** Why JEV cannot be called with the saved settings (the server's computed missing list). */
+  function jevMissingText(code, j) {
+    const k = 'admin.page.jev.missing.' + code;
+    return has(k) ? t(k, { key: jevKeyName(), amount: usd4(j.budget.perCallUsd) }) : code;
+  }
+  const skillPreset = 'skill-classification';
+  function jevReadiness(j) {
+    const enabled = j.switchOn && j.presets.some((p) => p.presetId === skillPreset && p.enabled);
+    const status = j.ready ? 'ready' : enabled ? 'notReady' : 'off';
+    return h('div', { class: j.ready ? 'note-ok' : enabled ? 'note-warn' : 'small muted', id: 'jev-ready', role: 'status' },
+      h('b', null, t('admin.page.jev.top.' + status)),
+      enabled && !j.ready ? h('span', { class: 'small' }, j.missing.map((code) => jevMissingText(code, j)).join(' · ')) : null,
+      isJevDirty() ? h('span', { class: 'small' }, t('admin.page.jev.top.unsaved')) : null);
+  }
+  const usd4 = (n) => (n == null ? '—' : Number(n).toFixed(4) + ' USD');
+  async function saveJev() {
+    const j = jevOf(S.data); if (!j || S.busy) return;
+    const lim = jevLimitCheck(S.j.cur.limit);
+    if (lim.err || !isJevDirty() || jevFallbackCheck(S.j.cur)) return;
+    const cur = S.j.cur;
+    const modelOf = (value) => { const slash = value.indexOf('/'); return slash > 0 ? { providerId: value.slice(0, slash), modelId: value.slice(slash + 1) } : null; };
+    await runSigned({ slot: 'jev', change: { op: 'JEV_SET', enabled: cur.enabled, limitUsd: lim.value, presets: { ...cur.presets }, model: modelOf(cur.model),
+      fallbackModel: modelOf(cur.fallback), transmissionAllowed: cur.transmission }, onStale: () => loadState(),
+      onDone: (rec, loaded) => { if (loaded) { S.j.cur = null; syncSettings(S.data); } S.status.jev = { kind: 'ok', text: t('admin.page.jev.saved', { seq: String(rec.seq), time: fmtHM(rec.createdAt) }) }; } });
+  }
+  function viewJev() {
+    const j = jevOf(S.data);
+    const sec = h('section', { class: 'col', 'aria-labelledby': 'j-title' }, head('j-title', 'JEV', t('admin.page.jev.intro')));
+    if (!j || !S.j.cur) { sec.append(h('p', { class: 'empty' }, t('admin.page.jev.noSettings'))); return sec; }
+    const cur = S.j.cur;
+    sec.append(jevReadiness(j));
+    const lim = jevLimitCheck(cur.limit);
+    const sw = h('input', { type: 'checkbox', role: 'switch', id: 'jev-on', checked: cur.enabled && cur.presets[skillPreset], 'aria-describedby': 'jev-ready' });
+    sw.addEventListener('change', () => {
+      cur.enabled = sw.checked;
+      cur.presets[skillPreset] = sw.checked || S.j.base.presets[skillPreset];
+      delete S.status.jev;
+      render();
+      $('jev-on')?.focus();
+    });
+    const budget = h('input', { id: 'jev-budget', type: 'text', inputmode: 'decimal', class: 'txt-in' + (lim.err ? ' invalid' : ''), autocomplete: 'off', value: cur.limit,
+      placeholder: t('admin.page.jev.budget.placeholder'), 'aria-invalid': lim.err ? 'true' : 'false', 'aria-describedby': 'jev-budget-hint', style: 'width:160px' });
+    // The body is not redrawn while typing; only the hint and the save bar are updated.
+    budget.addEventListener('input', () => {
+      cur.limit = budget.value; delete S.status.jev;
+      const c = jevLimitCheck(cur.limit), hint = $('jev-budget-hint');
+      budget.classList.toggle('invalid', !!c.err); budget.setAttribute('aria-invalid', c.err ? 'true' : 'false');
+      if (hint) { hint.className = 'hint' + (c.err ? ' err' : ''); hint.textContent = c.err || BUDGET_HINT(j); }
+      renderSaveBar();
+    });
+    const u = j.usage;
+    sec.append(h('div', { class: 'box' },
+      h('label', { class: 'row center', for: 'jev-on' }, sw, h('b', null, t('admin.page.jev.use'))),
+      jevModelField(j, cur),
+      jevFallbackField(j, cur),
+      jevTransmissionField(j, cur),
+      h('div', { class: 'row' },
+        h('div', { class: 'field', style: 'flex:0 1 240px' }, h('label', { for: 'jev-budget', class: 'small' }, h('b', null, t('admin.page.jev.budget.label'))), budget,
+          h('span', { id: 'jev-budget-hint', class: 'hint' + (lim.err ? ' err' : '') }, lim.err || BUDGET_HINT(j))),
+        h('div', { class: 'field', style: 'flex:0 1 260px' }, h('span', { class: 'small' }, h('b', null, t('admin.page.jev.usage.label'))),
+          h('span', null, !u ? t('admin.page.jev.usage.none') : usageLine(u)),
+          h('span', { class: 'small muted' }, t('admin.page.jev.usage.note'))))));
+    sec.append(viewJevKeys(j));
+    return sec;
+  }
+  // The usage line: estimated cost and calls, then the reserved amount when there is one (an answer carries no billed amount, so none is shown).
+  function usageLine(u) {
+    const args = { estimated: usd4(u.estimatedUsd), calls: u.calls, reserved: usd4(u.reservedUsd) };
+    return u.reservedUsd ? t('admin.page.jev.usage.lineReserved', args) : t('admin.page.jev.usage.line', args);
+  }
+  const BUDGET_HINT = (j) => t('admin.page.jev.budget.hint', { amount: usd4(j.budget.perCallUsd) });
+  function jevModelField(j, cur) {
+    const opts = [h('option', { value: '' }, t('admin.page.jev.model.none'))];
+    const seen = new Set(['']);
+    for (const p of j.providers || []) for (const m of p.catalog.models) {
+      const v = p.providerId + '/' + m; if (seen.has(v)) continue; seen.add(v);
+      opts.push(h('option', { value: v }, p.label + ' · ' + m));
+    }
+    // A saved model that has left the list is still shown and does not change.
+    for (const v of [S.j.base.model, cur.model]) if (v && !seen.has(v)) { seen.add(v); opts.push(h('option', { value: v }, t('admin.page.jev.model.unlisted', { model: v.replace('/', ' · ') }))); }
+    const sel = h('select', { id: 'jev-model', class: 'txt-in', 'aria-describedby': 'jev-model-hint', style: 'width:auto;max-width:100%' }, opts);
+    sel.value = cur.model;
+    sel.addEventListener('change', () => { cur.model = sel.value; delete S.status.jev; render(); });
+    const notes = (j.providers || []).map((p) => {
+      const ck = 'admin.page.jev.catalog.' + p.catalog.status;
+      const args = { label: p.label, status: has(ck) ? t(ck) : p.catalog.status, time: p.catalog.updatedAt ? fmtTime(p.catalog.updatedAt) : '' };
+      return p.catalog.updatedAt ? t('admin.page.jev.model.noteAt', args) : t('admin.page.jev.model.note', args);
+    });
+    return h('div', { class: 'field' }, h('label', { for: 'jev-model', class: 'small' }, h('b', null, t('admin.page.jev.model.label'))), sel,
+      h('span', { id: 'jev-model-hint', class: 'hint' }, notes.length ? t('admin.page.jev.model.hintNotes', { notes: notes.join(' · ') }) : t('admin.page.jev.model.hint')));
+  }
+  // The name of a field that is sent to JEV, by its field key.
+  const sentName = (k) => (has('admin.page.jev.sent.' + k) ? t('admin.page.jev.sent.' + k) : k);
+  /** The fallback evaluator: the model asked when the chosen one cannot advise and asking it again would not help (no key, key refused, answer in the wrong form). Its list is the model field's. */
+  function jevFallbackField(j, cur) {
+    const opts = [h('option', { value: '' }, t('admin.page.jev.fallback.none'))];
+    const seen = new Set(['']);
+    for (const p of j.providers || []) for (const m of p.catalog.models) {
+      const v = p.providerId + '/' + m; if (seen.has(v)) continue; seen.add(v);
+      opts.push(h('option', { value: v }, p.label + ' · ' + m));
+    }
+    for (const v of [S.j.base.fallback, cur.fallback]) if (v && !seen.has(v)) { seen.add(v); opts.push(h('option', { value: v }, t('admin.page.jev.model.unlisted', { model: v.replace('/', ' · ') }))); }
+    const sel = h('select', { id: 'jev-fallback', class: 'txt-in', 'aria-describedby': 'jev-fallback-hint', style: 'width:auto;max-width:100%' }, opts);
+    sel.value = cur.fallback;
+    sel.addEventListener('change', () => { cur.fallback = sel.value; delete S.status.jev; render(); });
+    const problem = jevFallbackCheck(cur);
+    return h('div', { class: 'field' }, h('label', { for: 'jev-fallback', class: 'small' }, h('b', null, t('admin.page.jev.fallback.label'))), sel,
+      h('span', { id: 'jev-fallback-hint', class: 'hint' + (problem ? ' err' : '') }, problem || t('admin.page.jev.fallback.hint')));
+  }
+  function jevTransmissionField(j, cur) {
+    const cb = h('input', { type: 'checkbox', id: 'jev-send', checked: cur.transmission, 'aria-describedby': 'jev-send-hint' });
+    cb.addEventListener('change', () => { cur.transmission = cb.checked; delete S.status.jev; render(); });
+    const p = (j.providers || []).find((x) => cur.model.startsWith(x.providerId + '/')) || (j.providers || [])[0];
+    const list = (keys) => h('ul', { class: 'small' }, keys.map((k) => h('li', null, sentName(k) + ' ', h('code', null, k))));
+    return h('div', { class: 'col' },
+      h('label', { class: 'row center', for: 'jev-send' }, cb, h('b', null, t('admin.page.jev.send.label'))),
+      h('span', { id: 'jev-send-hint', class: 'hint' }, t('admin.page.jev.send.hint')),
+      p ? h('details', { open: !!S.j.sentOpen, ontoggle: (e) => { S.j.sentOpen = e.currentTarget.open; } }, h('summary', null, t('admin.page.jev.send.summary')),
+        h('p', { class: 'small' }, tn('admin.page.jev.send.endpoint', { endpoint: h('code', null, p.endpoint) })),
+        h('p', { class: 'small' }, h('b', null, t('admin.page.jev.send.perTask'))), list(p.transmitted.task.concat(p.transmitted.request)),
+        h('p', { class: 'small' }, h('b', null, t('admin.page.jev.send.perSkill'))), list(p.transmitted.perSkill),
+        h('p', { class: 'small muted' }, t('admin.page.jev.send.note'))) : null);
+  }
+  function keyState(k) {
+    // Only a key registered on this page is used.
+    if (!k.fingerprint) return t('admin.page.jev.keyState.none');
+    return k.stored ? t('admin.page.jev.keyState.registered') : t('admin.page.jev.keyState.noValue');
+  }
+  const shortFp = (fp) => (fp ? fp.slice(0, 11) + '…' + fp.slice(-4) : '—');
+  function viewJevKeys(j) {
+    const tbody = h('tbody');
+    if (!j.keys.length) tbody.append(h('tr', null, h('td', { colspan: '5', class: 'muted' }, t('admin.page.jev.keys.empty'))));
+    for (const k of j.keys) {
+      const sid = idSafe(k.name);
+      tbody.append(h('tr', null,
+        h('td', null, h('code', null, k.name), k.jev ? h('div', { class: 'small muted' }, 'JEV') : null),
+        h('td', null, keyState(k)),
+        h('td', null, k.fingerprint ? h('code', { title: k.fingerprint }, shortFp(k.fingerprint)) : '—'),
+        h('td', { class: 'nowrap' }, k.setAt ? fmtTime(k.setAt) : '—'),
+        h('td', null, h('div', { class: 'acts' },
+          h('button', { type: 'button', class: 'btn sm' + (k.fingerprint ? '' : ' pri-o'), id: 'jk-set-' + sid, disabled: !!S.busy || !hasKeys(),
+            onclick: (e) => openKeyDialog(k.name, !!k.fingerprint, e.currentTarget) }, k.fingerprint ? t('admin.page.jev.keys.replace') : t('admin.page.jev.keys.register')),
+          k.fingerprint ? h('button', { type: 'button', class: 'btn sm danger', id: 'jk-del-' + sid, disabled: !!S.busy || !hasKeys(),
+            onclick: (e) => openKeyDelete(k, e.currentTarget) }, t('admin.page.jev.keys.delete')) : null))));
+    }
+    return h('div', { class: 'col' }, statusEl('jev-keys'),
+      h('div', { class: 'tbl-wrap' }, h('table', null, h('caption', null, t('admin.page.jev.keys.caption')),
+        h('thead', null, h('tr', null, [t('admin.page.jev.keys.colName'), t('admin.page.jev.keys.colState'), t('admin.page.jev.keys.colFingerprint'), t('admin.page.jev.keys.colSetAt'), t('admin.page.jev.keys.colActions')].map((label) => h('th', { scope: 'col' }, label)))), tbody)),
+      h('div', null, h('button', { type: 'button', class: 'btn dashed', id: 'jk-new', disabled: !!S.busy || !hasKeys(), onclick: (e) => openKeyDialog('', false, e.currentTarget) }, t('admin.page.jev.keys.registerOther'))),
+      h('p', { class: 'small muted' }, t('admin.page.jev.keys.note')));
+  }
+  async function fingerprintOfBytes(bytes) {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    return 'sha256:' + Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  async function fingerprintOf(value) { return fingerprintOfBytes(enc.encode(value)); }
+  const KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+  function openKeyDialog(name0, replacing, opener) {
+    let name = name0, value = '';
+    delete S.status['jev-key'];
+    // The dialog is not redrawn while typing (IME composition and the caret are kept); only the button and the hint are updated in place.
+    const check = () => {
+      const nameOk = KEY_NAME.test(name);
+      const ok = nameOk && value.length > 0 && value.length <= 4096 && !/[\u0000-\u001f\u007f]/.test(value);
+      const why = !hasKeys() ? t('admin.page.jev.dialog.whyNoPasskey') : !nameOk ? t('admin.page.jev.dialog.whyName') : !value ? t('admin.page.jev.dialog.whyValue')
+        : !ok ? t('admin.page.jev.dialog.whyControl') : '';
+      return { ok, why };
+    };
+    openDialog({ opener, cls: 'narrow', focus: name0 ? 'jk-value' : 'jk-name', fallbackFocus: 'j-title', build: (dlg) => {
+      const { ok, why } = check();
+      const paint = () => { const c = check(); btn.disabled = !!S.busy || !hasKeys() || slotBlocked('jev-key') || !c.ok; whyEl.textContent = c.why; };
+      const nameIn = name0 ? null : h('input', { id: 'jk-name', type: 'text', class: 'txt-in', autocomplete: 'off', spellcheck: 'false', value: name, maxlength: '128', 'aria-describedby': 'jk-why' });
+      if (nameIn) nameIn.addEventListener('input', () => { name = nameIn.value.trim(); paint(); });
+      const valIn = h('input', { id: 'jk-value', type: 'password', class: 'txt-in', autocomplete: 'off', spellcheck: 'false', value, 'aria-describedby': 'jk-why' });
+      valIn.addEventListener('input', () => { value = valIn.value; paint(); });
+      const whyEl = h('span', { id: 'jk-why', class: 'small muted why' }, why);
+      const btn = signBtn({ id: 'jk-go', slot: 'jev-key', label: t('admin.page.jev.dialog.save'), off: !ok, why: 'jk-why', onclick: async () => {
+        const fingerprint = await fingerprintOf(value);
+        await runSigned({ slot: 'jev-key', change: { op: 'JEV_KEY_SET', name, fingerprint }, secret: value, onStale: () => loadState(),
+          onDone: () => { value = ''; S.status['jev-keys'] = { kind: 'ok', text: (replacing ? t('admin.page.jev.dialog.replaced', { name, fingerprint: shortFp(fingerprint), time: fmtHM() }) : t('admin.page.jev.dialog.registered', { name, fingerprint: shortFp(fingerprint), time: fmtHM() })) }; dlg.close(); } });
+      } });
+      return [h('h2', { id: 'dlg-title' }, name0 ? (replacing ? t('admin.page.jev.dialog.titleReplace', { name: name0 }) : t('admin.page.jev.dialog.titleRegister', { name: name0 })) : t('admin.page.jev.dialog.titleNew')),
+        h('p', { class: 'small muted' }, t('admin.page.jev.dialog.intro')),
+        nameIn ? h('label', { for: 'jk-name' }, h('b', null, t('admin.page.jev.dialog.nameLabel', { key: jevKeyName() }))) : null, nameIn,
+        h('label', { for: 'jk-value' }, h('b', null, t('admin.page.jev.dialog.valueLabel'))), valIn,
+        statusEl('jev-key'),
+        h('div', { class: 'dlg-acts' }, whyEl,
+          h('button', { type: 'button', class: 'btn', id: 'jk-cancel', onclick: () => dlg.close() }, t('admin.page.jev.dialog.cancel')), btn)];
+    } });
+  }
+  function openKeyDelete(k, opener) {
+    delete S.status['jev-key-del'];
+    openDialog({ opener, cls: 'narrow', focus: 'jkd-cancel', fallbackFocus: 'j-title', build: (dlg) => [
+      h('h2', { id: 'dlg-title' }, t('admin.page.jev.delete.title', { name: k.name })),
+      h('p', null, k.jev ? tn('admin.page.jev.delete.bodyJev', { fingerprint: h('code', null, shortFp(k.fingerprint)), time: fmtTime(k.setAt) })
+        : tn('admin.page.jev.delete.body', { fingerprint: h('code', null, shortFp(k.fingerprint)), time: fmtTime(k.setAt) })),
+      statusEl('jev-key-del'),
+      h('div', { class: 'dlg-acts' }, h('button', { type: 'button', class: 'btn', id: 'jkd-cancel', onclick: () => dlg.close() }, t('admin.page.jev.dialog.cancel')),
+        signBtn({ id: 'jkd-go', slot: 'jev-key-del', cls: 'btn danger', label: t('admin.page.jev.delete.go'), onclick: () => runSigned({
+          slot: 'jev-key-del', change: { op: 'JEV_KEY_DELETE', name: k.name }, onStale: () => loadState(),
+          onDone: () => { S.status['jev-keys'] = { kind: 'ok', text: t('admin.page.jev.delete.done', { name: k.name, time: fmtHM() }) }; dlg.close(); } }) }))] });
+  }
+
+  /** Whether the text looks like an absolute path (the server checks it again by this PC's rules). */
+  const looksAbsolute = (p) => /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(p);
+  // ---------- Skill statistics ----------
+  const USAGE_PERIODS = [1, 7, 30, 90];
+  async function loadUsage() {
+    const u = S.u, seq = ++u.seq; pollText = null;
+    u.loading = true; render();
+    let r = null, error = null;
+    try {
+      r = await api('GET', '/api/skill-usage?days=' + u.days);
+      if (!r.ok) error = errOf(r);
+    } catch (e) { error = { code: e.kind, details: {} }; }
+    if (seq !== u.seq) return; // A late earlier response is dropped.
+    u.loading = false; u.error = error;
+    if (!error) u.data = r.json;
+    render();
+  }
+  /** The host columns come from the records and the current sessions; the session list is read too so that a host with no record yet is not left out. */
+  function usageModel(d) {
+    const hosts = [...new Set([...d.hosts.map((x) => x.host), ...d.rows.map((x) => x.host), ...S.data.sessions.map((x) => x.host)])].sort();
+    const bases = new Map(), skills = new Map();
+    const skill = (id) => { if (!skills.has(id)) skills.set(id, { id, total: 0, last: '', cells: new Map() }); return skills.get(id); };
+    d.groups.forEach((g) => g.skills.forEach(skill));
+    for (const x of d.rows) {
+      const s = skill(x.skillId);
+      const c = s.cells.get(x.host) || { calls: 0, sub: 0 };
+      c.calls += x.calls; if (x.subagent) c.sub += x.calls;
+      s.cells.set(x.host, c);
+      s.total += x.calls;
+      if (x.lastAt > s.last) s.last = x.lastAt;
+      if (!bases.has(x.host)) bases.set(x.host, new Set());
+      bases.get(x.host).add(x.basis);
+    }
+    const byCalls = (a, b) => b.total - a.total || a.id.localeCompare(b.id);
+    // Skills are split by group (correction, specialist) and shown by call count within a group; a skill in no group comes last without a title.
+    const grouped = new Set(d.groups.flatMap((g) => g.skills));
+    const parts = d.groups.map((g) => ({ title: g.title, rows: g.skills.map((id) => skills.get(id)).sort(byCalls) }));
+    const rest = [...skills.values()].filter((s) => !grouped.has(s.id)).sort(byCalls);
+    if (rest.length) parts.push({ title: '', rows: rest });
+    return { hosts, bases, parts };
+  }
+  function viewUsageTable(d) {
+    const m = usageModel(d);
+    const recorded = new Set(d.hosts.map((x) => x.host));
+    const hostHead = (host) => h('th', { scope: 'col' }, host, h('br'), h('span', { class: 'small' },
+      m.bases.has(host) ? [...m.bases.get(host)].map((b) => (has('admin.page.stats.basis.' + b) ? t('admin.page.stats.basis.' + b) : b)).join(' · ')
+        : recorded.has(host) ? t('admin.page.stats.noCallsInPeriod') : t('admin.page.stats.noRecord')));
+    const skillRow = (s) => h('tr', null,
+      h('td', null, h('code', null, s.id)),
+      m.hosts.map((host) => {
+        const c = s.cells.get(host);
+        return h('td', { class: 'num' }, c ? String(c.calls) : h('span', { class: 'muted' }, '0'), c && c.sub ? h('span', { class: 'small muted' }, t('admin.page.stats.subagentCalls', { count: c.sub })) : null);
+      }),
+      h('td', { class: 'num' }, h('b', null, String(s.total))),
+      h('td', { class: 'num' }, s.last ? fmtTime(s.last) : '—'));
+    const body = m.parts.map((part) => h('tbody', null,
+      part.title ? h('tr', { class: 'skill-group' }, h('th', { scope: 'colgroup', colspan: String(m.hosts.length + 3) }, t('admin.page.stats.groupTitle', { title: part.title, count: part.rows.length }))) : null,
+      part.rows.map(skillRow)));
+    return h('div', { class: 'tbl-wrap' }, h('table', null, h('caption', null, t('admin.page.stats.caption')),
+      h('thead', null, h('tr', null, h('th', { scope: 'col' }, t('admin.page.stats.colSkill')), m.hosts.map(hostHead), h('th', { scope: 'col' }, t('admin.page.stats.colTotal')), h('th', { scope: 'col' }, t('admin.page.stats.colLast')))), body));
+  }
+  function viewStats() {
+    const u = S.u, d = u.data;
+    const sec = h('section', { class: 'col', 'aria-labelledby': 'u-title' }, head('u-title', t('admin.page.stats.title'), t('admin.page.stats.desc')));
+    const select = h('select', { id: 'usage-days', class: 'txt-in' }, USAGE_PERIODS.map((days) => h('option', { value: String(days), selected: days === u.days }, t('admin.page.stats.period.' + days))));
+    select.addEventListener('change', () => { u.days = Number(select.value); loadUsage(); });
+    sec.append(h('div', { class: 'row center' }, h('label', { for: 'usage-days' }, t('admin.page.stats.periodLabel')), select,
+      h('button', { type: 'button', class: 'btn sm', id: 'usage-reload', disabled: u.loading, onclick: () => loadUsage() }, u.loading ? t('admin.page.stats.loading') : t('admin.page.stats.reload'))));
+    if (u.error) {
+      sec.append(h('div', { class: 'note-err', role: 'alert' }, tn('admin.page.stats.loadFailed', { reason: describe(u.error.code, u.error.details), code: h('code', null, codeText(u.error.code, u.error.details)) })));
+    }
+    if (!d) { if (!u.error) sec.append(h('p', { class: 'muted', role: 'status' }, t('admin.page.stats.loading'))); return sec; }
+    const total = d.rows.reduce((n, x) => n + x.calls, 0);
+    if (!d.hosts.length) {
+      sec.append(h('p', { class: 'empty' }, t('admin.page.stats.empty')));
+    } else {
+      const used = new Set(d.rows.map((x) => x.skillId)).size;
+      sec.append(h('p', { role: 'status' }, t('admin.page.stats.summary', { total, used, all: d.groups.reduce((n, g) => n + g.skills.length, 0) })), viewUsageTable(d));
+    }
+    sec.append(h('p', { class: 'small muted' }, t('admin.page.stats.noteBasis')),
+      h('p', { class: 'small muted' }, t('admin.page.stats.noteMissing', { days: d.retainDays })));
+    return sec;
+  }
+
+  // ---------- Workflow statistics ----------
+  // The sentences are catalog messages admin.page.workflows.<name>; the kind and the run state come from the server (the enum's constant names), and a name with no sentence is shown as it is.
+  const wt = (name, vars) => t('admin.page.workflows.' + name, vars);
+  const kindLabel = (kind) => (has('admin.page.workflows.kind.' + kind) ? wt('kind.' + kind) : kind);
+  const workflowStateLabel = (state) => (has('admin.page.workflows.state.' + state) ? wt('state.' + state) : state);
+  async function loadWorkflows() {
+    const w = S.w, seq = ++w.seq; pollText = null;
+    w.loading = true; render();
+    let r = null, error = null;
+    try {
+      r = await api('GET', '/api/workflow-stats?days=' + w.days);
+      if (!r.ok) error = errOf(r);
+    } catch (e) { error = { code: e.kind, details: {} }; }
+    if (seq !== w.seq) return; // A late earlier response is dropped.
+    w.loading = false; w.error = error;
+    if (!error) w.data = r.json;
+    render();
+  }
+  function viewKindsTable(d) {
+    const head0 = h('thead', null, h('tr', null, h('th', { scope: 'col' }, wt('colKind')), h('th', { scope: 'col' }, wt('colStarted')), h('th', { scope: 'col' }, wt('colNoSkills'))));
+    const body = h('tbody', null, d.kinds.map((k) => h('tr', null,
+      h('td', null, kindLabel(k.kind)),
+      h('td', { class: 'num' }, h('b', null, String(k.started))),
+      h('td', { class: 'num' }, String(k.withoutSkills)))));
+    return h('div', { class: 'tbl-wrap narrow' }, h('table', null, h('caption', null, wt('kindsCaption')), head0, body));
+  }
+  /** The skills of each kind in a table of its own: a kind whose skills are optional is never added to the others. */
+  function viewKindSkills(d) {
+    return d.kinds.map((k) => {
+      const id = 'w-skills-' + k.kind;
+      const rows = d.skills.filter((s) => s.kind === k.kind);
+      return h('div', { class: 'col', role: 'group', 'aria-labelledby': id },
+        h('h3', { id }, wt('kindHeading', { kind: kindLabel(k.kind), count: k.started }), k.skillsRequired ? null : h('span', { class: 'tag' }, wt('skillsOptional'))),
+        !k.skillsRequired && k.withoutSkills ? h('p', { class: 'small muted' }, wt('withoutSkills', { count: k.withoutSkills })) : null,
+        rows.length
+          ? h('div', { class: 'tbl-wrap narrow' }, h('table', null,
+            h('thead', null, h('tr', null, h('th', { scope: 'col' }, wt('colSkill')), h('th', { scope: 'col' }, wt('colWorkflows')))),
+            h('tbody', null, rows.map((s) => h('tr', null, h('td', null, h('code', null, s.skillId)), h('td', { class: 'num' }, String(s.workflows)))))))
+          : h('p', { class: 'small muted' }, wt('noSkillsInKind')));
+    });
+  }
+  function viewRecentWorkflows(d) {
+    const w = S.w, query = norm(w.query);
+    const recent = d.recent.filter((x) => (!w.kind || x.kind === w.kind) && (!w.state || x.state === w.state) &&
+      (!w.host || JSON.stringify(x.host || null) === w.host) && (!query || norm([x.goal, x.runId, x.kind, kindLabel(x.kind), x.state, workflowStateLabel(x.state), x.host, ...x.skills].join(' ')).includes(query)));
+    const update = (name, value) => { w[name] = value; render(); };
+    const kinds = [...new Set([...d.kinds.map((x) => x.kind), ...d.recent.map((x) => x.kind), w.kind].filter(Boolean))];
+    const states = [...new Set([...d.recent.map((x) => x.state), w.state].filter(Boolean))];
+    const hosts = [...new Set([...d.recent.map((x) => JSON.stringify(x.host || null)), w.host].filter(Boolean))];
+    const filters = h('div', { class: 'work-filters', role: 'group', 'aria-label': wt('filters') },
+      workSearch('workflow-query', wt('search'), w.query, (value) => update('query', value)),
+      workSelect('workflow-kind', wt('colKind'), w.kind, [['', wt('allKinds')], ...kinds.map((x) => [x, kindLabel(x)])], (value) => update('kind', value)),
+      workSelect('workflow-state', wt('colState'), w.state, [['', wt('allStates')], ...states.map((x) => [x, workflowStateLabel(x)])], (value) => update('state', value)),
+      workSelect('workflow-host', wt('colHost'), w.host, [['', wt('allHosts')], ...hosts.map((x) => [x, JSON.parse(x) || wt('noHost')])], (value) => update('host', value)),
+      h('button', { type: 'button', class: 'btn', id: 'workflow-reset', onclick: () => { Object.assign(w, { query: '', kind: '', state: '', host: '' }); render(); $('workflow-query').focus(); } }, wt('reset')));
+    const col = (name) => h('th', { scope: 'col' }, wt(name));
+    const row = (x) => h('tr', null,
+      h('td', { class: 'goal work-goal' }, x.goal),
+      h('td', null, h('span', { class: 'st off' }, workflowStateLabel(x.state))),
+      h('td', null, kindLabel(x.kind)),
+      h('td', { class: 'nowrap', title: fmtDateTime(x.startedAt) }, x.startedAt ? fmtTime(x.startedAt) : '—'),
+      h('td', null, x.host ? x.host : h('span', { class: 'muted' }, wt('noHost'))),
+      h('td', null, workDetails('workflow-details-' + idSafe(x.runId), wt('details'),
+        kv([[wt('colRunId'), x.runId, 'mono'], [wt('colSkills'), x.skills.length ? h('div', { class: 'work-skills' }, x.skills.map((s, i) => [i ? ' ' : null, h('code', null, s)])) : wt('noSkills')]]))));
+    return h('div', { class: 'col' }, filters,
+      h('p', { id: 'workflow-count', class: 'small muted', role: 'status' }, wt('count', { shown: recent.length, loaded: d.recent.length })),
+      recent.length ? h('div', { class: 'tbl-wrap work-recent', role: 'region', tabindex: '0', 'aria-labelledby': 'w-recent-title' }, h('table', null,
+        h('thead', null, h('tr', null, col('colGoal'), col('colState'), col('colKind'), col('colAt'), col('colHost'), col('details'))),
+        h('tbody', null, recent.map(row)))) : h('p', { class: 'empty' }, wt('noMatches')));
+  }
+  function viewWorkflows() {
+    const w = S.w, d = w.data;
+    const sec = h('section', { class: 'col', 'aria-labelledby': 'w-title' }, head('w-title', wt('title'), wt('desc')));
+    const select = h('select', { id: 'workflow-days', class: 'txt-in' }, USAGE_PERIODS.map((days) => h('option', { value: String(days), selected: days === w.days }, t('admin.page.stats.period.' + days))));
+    select.addEventListener('change', () => { w.days = Number(select.value); loadWorkflows(); });
+    sec.append(h('div', { class: 'row center' }, h('label', { for: 'workflow-days' }, t('admin.page.stats.periodLabel')), select,
+      h('button', { type: 'button', class: 'btn sm', id: 'workflow-reload', disabled: w.loading, onclick: () => loadWorkflows() }, w.loading ? t('admin.page.stats.loading') : t('admin.page.stats.reload'))));
+    if (w.error) {
+      sec.append(h('div', { class: 'note-err', role: 'alert' }, tn('admin.page.workflows.loadFailed', { reason: describe(w.error.code, w.error.details), code: h('code', null, codeText(w.error.code, w.error.details)) })));
+    }
+    if (!d) { if (!w.error) sec.append(h('p', { class: 'muted', role: 'status' }, t('admin.page.stats.loading'))); return sec; }
+    if (d.days !== w.days) sec.append(h('p', { class: 'hint', role: 'status' }, wt('previousPeriod', { days: d.days })));
+    if (!d.total) { sec.append(h('p', { class: 'empty' }, wt('empty'))); return sec; }
+    // Start with the period totals, then the runs a person can inspect; the skill breakdown is available on demand.
+    sec.append(h('p', { role: 'status' }, wt('summary', { total: d.total })),
+      h('section', { class: 'col', 'aria-labelledby': 'w-kinds-title' }, h('h2', { id: 'w-kinds-title' }, wt('kindsTitle')), viewKindsTable(d)),
+      h('section', { class: 'col', 'aria-labelledby': 'w-recent-title' }, h('h2', { id: 'w-recent-title' }, wt('recentTitle')), h('p', { class: 'small muted' }, wt('recentNote', { limit: d.recentLimit })), viewRecentWorkflows(d)),
+      h('section', { class: 'col', 'aria-labelledby': 'w-skills-title' }, h('h2', { id: 'w-skills-title' }, wt('skillsTitle')), workDetails('workflow-skills-details', wt('skillsToggle'), h('p', { class: 'small muted' }, wt('skillsDesc')), viewKindSkills(d))));
+    return sec;
+  }
+
+  function viewGeneral() {
+    const st = S.data.settings || {};
+    const sec = h('section', { class: 'col', 'aria-labelledby': 's-title' }, head('s-title', t('admin.page.general.title'), t('admin.page.general.desc')));
+    const ex = st.editGateExceptions;
+    if (ex) sec.append(viewExempt(ex));
+    if (st.jvm && st.jvm.current) sec.append(viewJvm(st.jvm));
+    if (st.resourceLimits) sec.append(viewResourceLimits(st.resourceLimits));
+    if (st.attachmentStorage) sec.append(viewAttachmentStorage(st.attachmentStorage));
+    if (st.convergence) sec.append(viewConvergence(st.convergence));
+    return sec;
+  }
+  function viewAttachmentStorage(view) {
+    const slot = 'attachment-storage', state = S.attachments, saved = view.settings, token = view.stateToken ?? null;
+    const message = (key) => t('admin.page.general.attachmentStorage.' + key);
+    const mib = 1048576;
+    const fields = ['directory', 'maxFileBytes', 'attachmentBudgetBytes'];
+    const displayMib = (bytes) => (bytes / mib).toFixed(20).replace(/\.?0+$/, '');
+    const display = (key, value) => key === 'directory' ? String(value) : displayMib(value);
+    const text = (key) => state.draft?.[key] ?? display(key, saved[key]);
+    const parse = (key) => {
+      const raw = text(key).trim();
+      if (key === 'directory') return raw || null;
+      if (!/^[0-9]+(?:\.[0-9]+)?$/.test(raw)) return null;
+      const bytes = Number(raw) * mib;
+      return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : null;
+    };
+    const values = () => ({ ...saved, ...Object.fromEntries(fields.map((key) => [key, parse(key)])) });
+    const changed = () => fields.some((key) => text(key) !== display(key, saved[key]));
+    const error = (key) => {
+      const value = parse(key);
+      if (value === null) return message('invalid');
+      if (key === 'maxFileBytes' && value > saved.stagingBudgetBytes) return message('fileLimit');
+      if (key === 'attachmentBudgetBytes' && value < saved.stagingBudgetBytes) return message('totalLimit');
+      return null;
+    };
+    const firstError = () => fields.map(error).find(Boolean);
+    const conflict = !!state.draft && state.baseToken !== token;
+    const canSave = () => !firstError() && fields.some((key) => parse(key) !== saved[key]);
+    const refresh = () => {
+      for (const key of fields) {
+        const bad = !!error(key);
+        $('as-' + key).setAttribute('aria-invalid', String(bad));
+        $('as-' + key).classList.toggle('invalid', bad);
+      }
+      const problem = firstError();
+      $('as-validation').textContent = problem ?? '';
+      $('as-validation').hidden = !problem;
+      $('as-save').disabled = !!S.busy || !hasKeys() || slotBlocked(slot) || conflict || !canSave();
+      $('as-undo').disabled = !!S.busy || (!changed() && !conflict);
+    };
+    const input = (key) => {
+      const id = 'as-' + key, isPath = key === 'directory';
+      const field = h('input', { id, class: 'txt-in', type: isPath ? 'text' : 'number', value: text(key), autocomplete: 'off',
+        disabled: !!S.busy, ...(isPath ? {} : { min: 0, step: 'any' }),
+        'aria-describedby': isPath ? 'as-directory-hint as-validation' : 'as-validation', 'aria-invalid': String(!!error(key)),
+        style: isPath ? 'width:100%' : 'width:12rem;max-width:100%' });
+      field.addEventListener('input', () => {
+        if (!state.draft) state.baseToken = token;
+        state.draft = { ...Object.fromEntries(fields.map((name) => [name, text(name)])), [key]: field.value };
+        if (!conflict && !changed()) state.draft = null;
+        refresh();
+      });
+      return h('div', { class: 'field' }, h('label', { for: id, class: 'small' }, h('b', null, message(key))), field);
+    };
+    return h('div', { class: 'box' }, h('h2', null, message('heading')), h('p', { class: 'desc' }, message('applies')),
+      input('directory'), h('p', { id: 'as-directory-hint', class: 'hint' }, message('directoryHint')),
+      h('div', { class: 'row' }, fields.slice(1).map(input)),
+      h('p', { id: 'as-validation', class: 'hint err', role: 'status', hidden: !firstError() }, firstError()),
+      conflict ? h('p', { id: 'as-conflict', class: 'hint err', role: 'status' }, message('conflict')) : null,
+      h('div', { class: 'row center' },
+        signBtn({ id: 'as-save', slot, label: t('admin.page.general.save'), why: conflict ? 'as-conflict' : null,
+          off: conflict || !canSave(), onclick: () => {
+            if (conflict || !canSave()) return;
+            const draft = state.draft;
+            runSigned({ slot, change: { op: 'ATTACHMENT_STORAGE_SET', settings: values() }, baseHash: state.baseToken, onStale: loadState,
+              onDone: (record, loaded) => {
+                if (loaded && state.draft === draft) state.draft = null;
+                S.status[slot] = { kind: 'ok', text: message('saved') };
+              } });
+          } }),
+        h('button', { id: 'as-undo', type: 'button', class: 'btn', disabled: !!S.busy || (!changed() && !conflict), onclick: () => {
+          state.draft = null; delete S.status[slot]; render();
+        } }, t('admin.page.general.undo'))), statusEl(slot));
+  }
+  function viewResourceLimits(view) {
+    const slot = 'resource-limits';
+    const message = (key, args) => t('admin.page.general.resourceLimits.' + key, args);
+    const token = view.stateToken ?? null;
+    const limits = view.limits;
+    const id = 'rl-open-workflows', min = 1, max = view.maxWorkflowsPerSession;
+    const saved = limits.maxOpenWorkflowsPerSession;
+    const text = () => S.rl.draft?.workflows ?? String(saved);
+    const parse = () => {
+      const raw = text().trim();
+      const value = Number(raw);
+      return /^[0-9]+$/.test(raw) && value >= min && value <= max ? value : null;
+    };
+    const changed = () => text() !== String(saved);
+    const canSave = () => parse() !== null && parse() !== saved;
+    const conflict = !!S.rl.draft && S.rl.baseToken !== token;
+    const hint = () => parse() === null
+      ? message('invalid', { min, max })
+      : message('workflowsHint', { default: view.defaults.maxOpenWorkflowsPerSession, min, max });
+    const bad = parse() === null;
+    const input = h('input', { id, type: 'number', min, max, step: 1, inputmode: 'numeric', autocomplete: 'off',
+      disabled: !!S.busy, value: text(), 'aria-invalid': String(bad), 'aria-describedby': id + '-hint',
+      class: 'txt-in' + (bad ? ' invalid' : ''), style: 'width:12rem;max-width:100%' });
+    const explanation = h('span', { id: id + '-hint', class: 'hint' + (bad ? ' err' : '') }, hint());
+    input.addEventListener('input', () => {
+      if (!S.rl.draft) S.rl.baseToken = token;
+      S.rl.draft = { workflows: input.value };
+      if (!conflict && !changed()) S.rl.draft = null;
+      const invalid = parse() === null;
+      input.classList.toggle('invalid', invalid);
+      input.setAttribute('aria-invalid', String(invalid));
+      explanation.className = 'hint' + (invalid ? ' err' : '');
+      explanation.textContent = hint();
+      $('rl-save').disabled = !!S.busy || !hasKeys() || slotBlocked(slot) || conflict || !canSave();
+      $('rl-undo').disabled = !!S.busy || (!changed() && !conflict);
+    });
+    return h('div', { class: 'box' }, h('h2', null, message('heading')),
+      h('p', { class: 'desc' }, message('applies')),
+      h('p', { class: 'small muted' }, message(view.signed ? 'stateSigned' : 'stateDefault', { workflows: saved })),
+      h('div', { class: 'field' }, h('label', { for: id, class: 'small' }, h('b', null, message('workflowsLabel'))), input, explanation),
+      conflict ? h('p', { class: 'hint err', role: 'status', id: 'rl-conflict' }, message('conflict')) : null,
+      h('div', { class: 'row center' },
+        signBtn({ id: 'rl-save', slot, label: t('admin.page.general.save'), why: conflict ? 'rl-conflict' : null, off: conflict || !canSave(), onclick: () => {
+          if (conflict || !canSave()) return;
+          const draft = S.rl.draft;
+          runSigned({ slot, change: { op: 'RESOURCE_LIMITS_SET', limits: { ...limits, maxOpenWorkflowsPerSession: parse() } }, baseHash: S.rl.baseToken, onStale: loadState,
+            onDone: (record, loaded) => {
+              if (loaded && S.rl.draft === draft) S.rl.draft = null;
+              S.status[slot] = { kind: 'ok', text: message('saved', { time: fmtHM(record.createdAt) }) };
+            } });
+        } }),
+        h('button', { type: 'button', class: 'btn', id: 'rl-undo', disabled: !!S.busy || (!changed() && !conflict), onclick: () => {
+          S.rl.draft = null; delete S.status[slot]; render();
+        } }, t('admin.page.general.undo'))),
+      statusEl(slot));
+  }
+  /** The server JVM preset: chosen only among fixed values (there is no field to type options). A changed value applies when the server is restarted. */
+  function jvmLabel(p) {
+    return p.heap.startsWith('-Xmx')
+      ? t('admin.page.general.jvm.heapSize', { collector: p.collector, size: p.heap.slice(4).toUpperCase().replace(/([MG])$/, ' $1B') })
+      : t('admin.page.general.jvm.heapPercent', { collector: p.collector, percent: p.heap.split('=')[1] });
+  }
+  function viewJvm(jv) {
+    if (S.jv.cur === null || !jv.presets.some((p) => p.id === S.jv.cur)) S.jv.cur = jv.current;
+    const cur = S.jv.cur, dirty = cur !== jv.current;
+    const sel = h('select', { id: 'jvm-preset', class: 'txt-in', 'aria-describedby': 'jvm-hint', style: 'width:auto;max-width:100%' },
+      jv.presets.map((p) => h('option', { value: p.id, selected: p.id === cur }, jv.estimate && jv.estimate.defaultPreset === p.id ? t('admin.page.general.jvm.defaultOption', { label: jvmLabel(p) }) : jvmLabel(p))));
+    sel.addEventListener('change', () => { S.jv.cur = sel.value; delete S.status.jvm; render(); const f = $('jvm-preset'); if (f) f.focus(); });
+    return h('div', { class: 'box' }, h('h2', null, t('admin.page.general.jvm.heading')),
+      h('p', { class: 'desc' }, t('admin.page.general.jvm.desc')),
+      jv.estimate ? h('p', { class: 'small muted', id: 'jvm-estimate' }, jv.estimate.message) : null,
+      h('div', { class: 'field' }, h('label', { for: 'jvm-preset', class: 'small' }, h('b', null, t('admin.page.general.jvm.label'))), sel,
+        h('span', { id: 'jvm-hint', class: 'hint' }, jv.pending ? t('admin.page.general.jvm.hintPending', { signed: jv.signed }) : t('admin.page.general.jvm.hintCurrent', { current: jv.current }))),
+      h('div', { class: 'row center' },
+        signBtn({ id: 'jvm-save', slot: 'jvm', label: t('admin.page.general.save'), off: !dirty, onclick: () => runSigned({ slot: 'jvm', change: { op: 'JVM_PRESET_SET', preset: cur }, onStale: () => loadState(),
+          onDone: (rec, loaded) => { if (loaded) { S.jv.cur = null; } S.status.jvm = { kind: 'ok', text: t('admin.page.general.jvm.saved', { time: fmtHM(rec.createdAt) }) }; } }) }),
+        dirty ? h('button', { type: 'button', class: 'btn', id: 'jvm-undo', disabled: !!S.busy, onclick: () => { S.jv.cur = jv.current; render(); } }, t('admin.page.general.undo')) : null),
+      statusEl('jvm'));
+  }
+  /**
+   * The convergence limits: two whole numbers of 1 or more (the server refuses anything else before a signature is asked for, so the page holds the same rule). A saved value
+   * applies to roots opened afterwards; a root that is already open keeps its own. The inputs are not redrawn while typing: only their hints and the buttons are updated.
+   */
+  const CV_MAX = 2147483647;
+  const CV_FIELDS = [['attempts', 'cv-attempts', 'maxAttemptsPerEpoch'], ['epochs', 'cv-epochs', 'maxEpochs']];
+  function cvParse(text) {
+    const v = String(text).trim();
+    return /^[0-9]+$/.test(v) && Number(v) >= 1 && Number(v) <= CV_MAX ? Number(v) : null;
+  }
+  function cvHint(text, fallback) {
+    return cvParse(text) === null ? t('admin.page.general.convergence.err', { max: CV_MAX }) : t('admin.page.general.convergence.hint', { default: fallback });
+  }
+  function cvState(limits) {
+    const a = cvParse(S.cv.attempts), e = cvParse(S.cv.epochs), ok = a !== null && e !== null;
+    return { a, e, ok, dirty: ok && (a !== limits.maxAttemptsPerEpoch || e !== limits.maxEpochs),
+      changed: S.cv.attempts !== String(limits.maxAttemptsPerEpoch) || S.cv.epochs !== String(limits.maxEpochs) };
+  }
+  function cvRefresh(cv) {
+    CV_FIELDS.forEach(([key, id, name]) => {
+      const inp = $(id), hint = $(id + '-hint'), bad = cvParse(S.cv[key]) === null;
+      if (!inp || !hint) return;
+      inp.classList.toggle('invalid', bad); inp.setAttribute('aria-invalid', bad ? 'true' : 'false');
+      hint.className = 'hint' + (bad ? ' err' : ''); hint.textContent = cvHint(S.cv[key], cv.defaults[name]);
+    });
+    const s = cvState(cv.limits), save = $('cv-save'), undo = $('cv-undo');
+    if (save) save.disabled = !!S.busy || !hasKeys() || !!slotBlocked('cv') || !s.dirty;
+    if (undo) undo.disabled = !!S.busy || !s.changed;
+  }
+  function viewConvergence(cv) {
+    const limits = cv.limits;
+    if (S.cv.attempts === null) S.cv.attempts = String(limits.maxAttemptsPerEpoch);
+    if (S.cv.epochs === null) S.cv.epochs = String(limits.maxEpochs);
+    const field = ([key, id, name], label) => {
+      const bad = cvParse(S.cv[key]) === null;
+      const inp = h('input', { id, type: 'number', min: '1', max: String(CV_MAX), step: '1', inputmode: 'numeric', autocomplete: 'off', class: 'txt-in' + (bad ? ' invalid' : ''),
+        value: S.cv[key], 'aria-invalid': bad ? 'true' : 'false', 'aria-describedby': id + '-hint', style: 'width:10rem;max-width:100%' });
+      inp.addEventListener('input', () => { S.cv[key] = inp.value; cvRefresh(cv); });
+      return h('div', { class: 'field' }, h('label', { for: id, class: 'small' }, h('b', null, label)), inp,
+        h('span', { id: id + '-hint', class: 'hint' + (bad ? ' err' : '') }, cvHint(S.cv[key], cv.defaults[name])));
+    };
+    const s = cvState(limits);
+    const values = { attempts: limits.maxAttemptsPerEpoch, epochs: limits.maxEpochs };
+    return h('div', { class: 'box' }, h('h2', null, t('admin.page.general.convergence.heading')),
+      h('p', { class: 'desc' }, t('admin.page.general.convergence.desc')),
+      h('p', { class: 'small muted', id: 'cv-state' }, t(cv.signed ? 'admin.page.general.convergence.stateSigned' : 'admin.page.general.convergence.stateDefault', values)),
+      h('p', { class: 'small muted' }, t('admin.page.general.convergence.applies')),
+      h('div', { class: 'row' }, field(CV_FIELDS[0], t('admin.page.general.convergence.attemptsLabel')), field(CV_FIELDS[1], t('admin.page.general.convergence.epochsLabel'))),
+      h('div', { class: 'row center' },
+        signBtn({ id: 'cv-save', slot: 'cv', label: t('admin.page.general.save'), off: !s.dirty, onclick: () => {
+          const now = cvState(limits);
+          if (!now.dirty) return;
+          runSigned({ slot: 'cv', change: { op: 'CONVERGENCE_LIMITS_SET', limits: { maxAttemptsPerEpoch: now.a, maxEpochs: now.e } }, onStale: () => loadState(),
+            onDone: (rec, loaded) => { if (loaded) { S.cv.attempts = null; S.cv.epochs = null; } S.status.cv = { kind: 'ok', text: t('admin.page.general.convergence.saved', { time: fmtHM(rec.createdAt) }) }; } });
+        } }),
+        h('button', { type: 'button', class: 'btn', id: 'cv-undo', disabled: !!S.busy || !s.changed, onclick: () => { S.cv.attempts = null; S.cv.epochs = null; delete S.status.cv; render(); } }, t('admin.page.general.undo'))),
+      statusEl('cv'));
+  }
+  const EX_HINT = () => t('admin.page.general.exempt.hint');
+  function exemptAddError(raw, cur, max) {
+    return !raw ? null : !looksAbsolute(raw) ? t('admin.page.general.exempt.errAbsolute')
+      : cur.includes(raw) ? t('admin.page.general.exempt.errDuplicate') : cur.length >= max ? t('admin.page.general.exempt.errMax', { max }) : null;
+  }
+  function viewExempt(ex) {
+    const cur = S.ex.cur || [], dirty = isExemptDirty();
+    const raw = S.ex.newPath.trim();
+    const addErr = exemptAddError(raw, cur, ex.maxPaths);
+    const add = () => {
+      const value = S.ex.newPath.trim();
+      if (!value || exemptAddError(value, cur, ex.maxPaths)) return;
+      cur.push(value); S.ex.cur = cur; S.ex.newPath = ''; delete S.status.exempt; render(); const f = $('ex-new'); if (f) f.focus();
+    };
+    const inp = h('input', { id: 'ex-new', type: 'text', class: 'txt-in' + (addErr ? ' invalid' : ''), autocomplete: 'off', spellcheck: 'false', value: S.ex.newPath,
+      placeholder: t('admin.page.general.exempt.placeholder'), 'aria-invalid': addErr ? 'true' : 'false', 'aria-describedby': 'ex-hint' });
+    // The screen is not redrawn while typing (IME composition is kept); only the hint and the button are updated.
+    inp.addEventListener('input', () => {
+      S.ex.newPath = inp.value;
+      const c = exemptAddError(S.ex.newPath.trim(), cur, ex.maxPaths), hint = $('ex-hint'), btn = $('ex-add');
+      inp.classList.toggle('invalid', !!c); inp.setAttribute('aria-invalid', c ? 'true' : 'false');
+      if (hint) { hint.className = 'hint' + (c ? ' err' : ''); hint.textContent = c || EX_HINT(); }
+      if (btn) btn.disabled = !S.ex.newPath.trim() || !!c;
+    });
+    // Enter during IME composition confirms the composition, so it does not add the path.
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); add(); } });
+    const list = cur.length ? h('ul', { class: 'paths', 'aria-label': t('admin.page.general.exempt.listLabel') }, ...cur.map((p, i) => h('li', null, h('code', null, p),
+      !ex.signedPaths.includes(p) ? h('span', { class: 'tag new' }, t('admin.page.general.exempt.unsaved')) : null,
+      h('button', { type: 'button', class: 'btn sm danger', id: 'ex-del-' + i, disabled: !!S.busy, 'aria-label': t('admin.page.general.exempt.removeLabel', { path: p }), onclick: () => {
+        cur.splice(i, 1); S.ex.cur = cur; delete S.status.exempt; render(); const f = $('ex-del-' + Math.min(i, cur.length - 1)) || $('ex-new'); if (f) f.focus();
+      } }, t('admin.page.general.exempt.remove')))))
+      : h('p', { class: 'muted' }, t('admin.page.general.exempt.empty'));
+    const removed = ex.signedPaths.filter((p) => !cur.includes(p));
+    return h('div', { class: 'box' }, h('h2', null, t('admin.page.general.exempt.heading')),
+      h('p', { class: 'desc' }, t('admin.page.general.exempt.desc')),
+      list,
+      h('div', { class: 'row' },
+        h('div', { class: 'field' }, h('label', { for: 'ex-new', class: 'small muted' }, t('admin.page.general.exempt.label')), inp,
+          h('span', { id: 'ex-hint', class: 'hint' + (addErr ? ' err' : '') }, addErr || EX_HINT())),
+        h('button', { type: 'button', class: 'btn pri-o al', id: 'ex-add', disabled: !raw || !!addErr, onclick: add }, t('admin.page.general.exempt.add'))),
+      h('div', { class: 'row center' },
+        signBtn({ id: 'ex-save', slot: 'exempt', label: t('admin.page.general.save'), off: !dirty, onclick: () => runSigned({ slot: 'exempt', change: { op: 'EDIT_EXEMPT_SET', paths: cur.slice() },
+          onStale: () => loadState(),
+          onDone: (rec, loaded) => { if (loaded) { S.ex.cur = null; syncSettings(S.data); } S.status.exempt = { kind: 'ok', text: t('admin.page.general.exempt.saved', { time: fmtHM(rec.createdAt) }) }; } }) }),
+        dirty ? h('button', { type: 'button', class: 'btn', id: 'ex-undo', disabled: !!S.busy, onclick: () => { S.ex.cur = S.ex.base.slice(); render(); } }, t('admin.page.general.undo')) : null,
+        dirty ? h('span', { class: 'small muted' }, t('admin.page.general.exempt.counts', { added: cur.filter((p) => !ex.signedPaths.includes(p)).length, removed: removed.length })) : null),
+      statusEl('exempt'));
+  }
+
+  // ---------- Passkeys ----------
+  async function registerKey() {
+    if (S.busy) return;
+    const d = S.data;
+    const label = (S.newKeyLabel.trim() || t('admin.page.passkey.defaultLabel', { n: '1' })).slice(0, 60);
+    if (!window.PublicKeyCredential || !navigator.credentials) { setStatus('key-add', { kind: 'error', text: errorText('WEBAUTHN_UNSUPPORTED'), code: 'WEBAUTHN_UNSUPPORTED' }); return; }
+    S.busy = 'key-add'; setStatus('key-add', { kind: 'busy', text: t('admin.page.passkey.creating') });
+    let cred;
+    try {
+      cred = await navigator.credentials.create({ publicKey: {
+        rp: { id: d.rpId, name: t('admin.page.passkey.rpName') },
+        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'sennard-admin', displayName: t('admin.page.passkey.rpName') },
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -8 }, { type: 'public-key', alg: -257 }],
+        authenticatorSelection: { userVerification: 'required', residentKey: 'preferred' }, attestation: 'none', timeout: 120000 } });
+    } catch (e) { S.busy = null; webauthnFail('key-add', e, t('admin.page.passkey.createCancelledTimeout')); return; }
+    S.busy = null;
+    if (!cred) { webauthnFail('key-add', { name: 'NotAllowedError' }, t('admin.page.passkey.createCancelled')); return; }
+    const pk = typeof cred.response.getPublicKey === 'function' ? cred.response.getPublicKey() : null;
+    if (!pk) { setStatus('key-add', { kind: 'error', text: errorText('WEBAUTHN_PUBLIC_KEY_UNAVAILABLE'), code: 'WEBAUTHN_PUBLIC_KEY_UNAVAILABLE' }); return; }
+    const id = b64u.enc(cred.rawId);
+    // The signed record names the key by its fingerprint; the key itself travels with the commit and is kept in the settings database, not in the business database.
+    const fingerprint = await fingerprintOfBytes(pk);
+    await runSigned({ slot: 'key-add', bootstrap: true, allow: [id], publicKey: b64u.enc(pk),
+      change: { op: 'KEY_ADD', credentialId: id, fingerprint, alg: cred.response.getPublicKeyAlgorithm(), label },
+      cancelText: t('admin.page.passkey.registerCancelled'),
+      onStale: () => loadState(),
+      onDone: () => { S.newKeyLabel = ''; S.status['key-add'] = { kind: 'ok', text: t('admin.page.passkey.registered', { label, time: fmtHM() }) }; } });
+  }
+  // ---------- the business database ----------
+  let linkTimer = null, linkWatching = false;
+  /** After a link is saved the server connects and migrates in the background: the state is read again until the store is ready (or has failed). */
+  function watchLink() {
+    clearTimeout(linkTimer); linkWatching = true;
+    linkTimer = setTimeout(async () => {
+      await loadState();
+      const l = S.data && S.data.link;
+      if (l && (l.phase === 'CONNECTING' || l.phase === 'MIGRATING' || (l.beforeLink && l.phase === 'NOT_CONFIGURED' && l.saved))) watchLink(); else linkWatching = false;
+    }, 1500);
+  }
+  function dbField(id, key, label, hint, type, onInput) {
+    const input = h('input', { id, type: type || 'text', class: 'txt-in', autocomplete: 'off', spellcheck: 'false', value: S.db[key], 'aria-describedby': id + '-hint' });
+    input.addEventListener('input', () => { S.db[key] = input.value; if (onInput) onInput(); });
+    return h('div', { class: 'field' }, h('label', { for: id, class: 'small muted' }, label), input, h('span', { id: id + '-hint', class: 'hint' }, hint));
+  }
+  function viewDatabase() {
+    const d = S.data, l = d.link;
+    const sec = h('section', { class: 'col', 'aria-labelledby': 'db-title' }, head('db-title', t('admin.page.database.title'), t('admin.page.database.desc')));
+    // The state is a badge in words (ready, failed, or still on its way) so that it is read at a glance; the failure's code follows it.
+    const phaseCls = l.phase === 'READY' ? 'on' : l.phase === 'FAILED' ? 'err' : 'warn';
+    sec.append(h('div', { class: 'box' }, kv([
+      [t('admin.page.database.phase'), h('span', { class: 'st ' + phaseCls }, t('admin.page.database.phase.' + l.phase))],
+      l.failure ? [t('admin.page.database.failure'), h('code', null, l.failure)] : null].filter(Boolean))));
+    if (l.saved) {
+      const s = l.saved;
+      sec.append(h('div', { class: 'box' }, h('h2', null, t('admin.page.database.saved')),
+        kv([[t('admin.page.database.url'), s.jdbcUrl, 'mono'], [t('admin.page.database.account'), s.accountName, 'mono'], [t('admin.page.database.driver'), s.driverPath, 'mono'],
+          [t('admin.page.database.passwordFile'), s.passwordRef, 'mono'], [t('admin.page.database.tls'), t('admin.page.database.tls.' + s.tls)], [t('admin.page.database.savedAt'), fmtTime(s.savedAt)]])));
+    }
+    if (l.restartRequired) sec.append(h('div', { class: 'band warn', role: 'status' }, h('span', { class: 'txt' }, t('admin.page.database.restartRequired'))));
+    if (!d.keys.length) {
+      sec.append(h('div', { class: 'band warn', role: 'status' }, h('span', { class: 'txt' }, t('admin.page.database.needKey')),
+        h('button', { type: 'button', class: 'btn sm warn-o', onclick: () => go('passkey', 'new-key-label') }, t('admin.page.bands.registerPasskey'))));
+      return sec;
+    }
+    const tls = h('select', { id: 'db-tls', class: 'txt-in', style: 'width:auto;max-width:100%', 'aria-describedby': 'db-tls-hint' },
+      ['LOOPBACK_PLAINTEXT', 'VERIFY_FULL'].map((v) => h('option', { value: v, selected: S.db.tls === v }, t('admin.page.database.tls.' + v))));
+    tls.addEventListener('change', () => { S.db.tls = tls.value; });
+    const slot = 'db-link';
+    const off = () => !(S.db.driverPath.trim() && S.db.jdbcUrl.trim() && S.db.accountName.trim() && S.db.passwordRef.trim());
+    let saveBtn;
+    const paint = () => { saveBtn.disabled = !!S.busy || !hasKeys() || slotBlocked(slot) || off(); };
+    sec.append(h('div', { class: 'box' }, h('h2', null, t('admin.page.database.form')), h('p', { class: 'small muted' }, t('admin.page.database.formNote')),
+      dbField('db-driver', 'driverPath', t('admin.page.database.driver'), t('admin.page.database.driverHint'), undefined, paint),
+      dbField('db-url', 'jdbcUrl', t('admin.page.database.url'), t('admin.page.database.urlHint'), undefined, paint),
+      dbField('db-account', 'accountName', t('admin.page.database.account'), t('admin.page.database.accountHint'), undefined, paint),
+      dbField('db-password-file', 'passwordRef', t('admin.page.database.passwordFile'), t('admin.page.database.passwordFileHint'), undefined, paint),
+      h('div', { class: 'field' }, h('label', { for: 'db-tls', class: 'small muted' }, t('admin.page.database.tls')), tls, h('span', { id: 'db-tls-hint', class: 'hint' }, t('admin.page.database.tlsHint'))),
+      h('div', { class: 'row' }, saveBtn = signBtn({ id: 'db-link-save', slot, label: t('admin.page.database.save'), off: off(), onclick: () => runSigned({ slot,
+        change: { op: 'DATABASE_LINK', driverPath: S.db.driverPath.trim(), jdbcUrl: S.db.jdbcUrl.trim(), accountName: S.db.accountName.trim(), passwordRef: S.db.passwordRef.trim(), tls: S.db.tls },
+        onStale: () => loadState(), onDone: () => { S.status[slot] = { kind: 'ok', text: t(l.phase === 'READY' ? 'admin.page.database.saved.restart' : 'admin.page.database.saved.done', { time: fmtHM() }) }; watchLink(); } }) })),
+      statusEl(slot)));
+    return sec;
+  }
+
+  function viewPasskey() {
+    const d = S.data, keys = d.keys;
+    const sec = h('section', { class: 'col', 'aria-labelledby': 'p-title' },
+      head('p-title', t('admin.page.passkey.title'), t('admin.page.passkey.desc')));
+    // The personal edition has one passkey, and the server refuses a second one. Once it is registered the page shows it and the way back when it is lost; the form is there only while there is none.
+    if (keys.length) {
+      const k = keys[0];
+      sec.append(statusEl('key-add'),
+        h('div', { class: 'box' }, h('h2', null, k.label),
+          kv([[t('admin.page.passkey.colFingerprint'), h('code', null, k.fingerprint)], [t('admin.page.passkey.colAdded'), fmtTime(k.addedAt)], [t('admin.page.passkey.colLastUsed'), k.lastUsedAt ? fmtTime(k.lastUsedAt) : '']])),
+        h('p', { class: 'small muted' }, tn('admin.page.passkey.lostHint', { command: h('code', null, 'sennard admin-reset') })));
+      return sec;
+    }
+    const lab = h('input', { id: 'new-key-label', type: 'text', class: 'txt-in', maxlength: '60', autocomplete: 'off', value: S.newKeyLabel, placeholder: t('admin.page.passkey.labelPlaceholder'), 'aria-describedby': 'new-key-hint' });
+    lab.addEventListener('input', () => { S.newKeyLabel = lab.value; });
+    const addBtn = h('button', { type: 'button', class: 'btn pri al', id: 'key-add', disabled: !!S.busy || slotBlocked('key-add'), onclick: registerKey },
+      S.busy === 'key-add' ? t('admin.page.passkey.saving') : t('admin.page.passkey.addFirst'));
+    sec.append(h('div', { class: 'box' }, h('h2', null, t('admin.page.passkey.addFirst')),
+      h('div', { class: 'row' }, h('div', { class: 'field' }, h('label', { for: 'new-key-label', class: 'small muted' }, t('admin.page.passkey.labelLabel', { n: '1' })), lab,
+        h('span', { id: 'new-key-hint', class: 'hint' }, t('admin.page.passkey.hintFirst'))),
+        addBtn),
+      statusEl('key-add')));
+    return sec;
+  }
+
+  // ---------- Startup ----------
+  function hasUnsaved() {
+    if (!S.data) return false;
+    if (isGlobalDirty() || S.attachments.draft || S.rl.draft) return true;
+    if (S.r.newName.trim()) return true;
+    const ren = S.r.renaming; if (ren) { const r = roleById(ren.roleId); if (r && ren.value.normalize('NFC').trim() !== r.name) return true; }
+    if (isJevDirty() || isExemptDirty() || S.ex.newPath.trim()) return true;
+    return false;
+  }
+  /** Everything the user has begun and not saved, on any screen: what a redraw of the page would take. */
+  function hasPending() {
+    return hasUnsaved() || !!S.newKeyLabel.trim() || !!S.rr.confirm || Object.values(S.db).some((v, i) => i < 4 && String(v).trim() !== '');
+  }
+  // A language change the user confirmed has already taken the unsaved edits, so the browser does not ask a second time.
+  window.addEventListener('beforeunload', (e) => { if (hasUnsaved() && !languageSwitching) { e.preventDefault(); e.returnValue = ''; } });
+  // ---------- Automatic refresh of the screen that is shown ----------
+  // Every 3 seconds the data of the shown screen is read again (the statistics read their own list, every other screen reads the page state, which the server has no smaller
+  // answer for) and only that screen is drawn again, and only when the data changed, so nothing flickers. It never runs while it could take something from the user: a hidden
+  // tab, a save in progress, an open dialog, an unsaved edit or a field being typed in, a read that is still on its way, or the wait for the database link. A read that
+  // is overtaken (another screen, another read) is dropped. A failure is told once, by the same band as any load error, and the band goes when a read succeeds again.
+  const POLL_MS = 3000;
+  let pollTimer = null, pollRunning = false, pollFailed = false;
+  const TEXT_FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select';
+  function pollBlocked() {
+    if (document.hidden || languageSwitching || !S.data || S.busy || S.dialog || S.u.loading || S.w.loading || linkWatching) return true;
+    if (document.querySelector('dialog[open]')) return true;
+    const ae = document.activeElement;
+    if (ae && ae.matches && ae.matches(TEXT_FIELD)) return true;
+    return hasPending();
+  }
+  /** Stable ids keep a work item's details with that item after filtering or sorting. Other screens retain their existing summary-based behavior. */
+  function openDetails() {
+    const seen = new Map(), open = [];
+    for (const d of $('main').querySelectorAll('details')) {
+      const s = d.querySelector('summary'), key = d.id ? 'id:' + d.id : 'text:' + (s ? s.textContent : ''), n = seen.get(key) || 0;
+      seen.set(key, n + 1);
+      if (d.open) open.push(key + '\u0000' + n);
+    }
+    return open;
+  }
+  function restoreDetails(open) {
+    const seen = new Map();
+    for (const d of $('main').querySelectorAll('details')) {
+      const s = d.querySelector('summary'), key = d.id ? 'id:' + d.id : 'text:' + (s ? s.textContent : ''), n = seen.get(key) || 0;
+      seen.set(key, n + 1);
+      if (open.includes(key + '\u0000' + n)) d.open = true;
+    }
+  }
+  async function pollOnce() {
+    if (pollRunning || pollBlocked()) return;
+    pollRunning = true;
+    try {
+      const tab = S.tab, stateSeq = loadSeq, usageSeq = S.u.seq, workflowSeq = S.w.seq;
+      let r = null, error = null;
+      try {
+        r = await api('GET', tab === 'stats' ? '/api/skill-usage?days=' + S.u.days : tab === 'workflows' ? '/api/workflow-stats?days=' + S.w.days : '/api/state');
+        if (!r.ok) error = errOf(r);
+      } catch (e) { error = { code: e.kind, details: {} }; }
+      if (S.tab !== tab || loadSeq !== stateSeq || S.u.seq !== usageSeq || S.w.seq !== workflowSeq || pollBlocked()) return; // overtaken, or the user began something meanwhile
+      if (error) {
+        if (!pollFailed && !S.loadError) { pollFailed = true; S.loadError = error; renderBands(); }
+        return;
+      }
+      const recovered = pollFailed;
+      if (pollFailed) { pollFailed = false; S.loadError = null; }
+      const text = JSON.stringify(r.json);
+      if (text === pollText && !recovered) return;
+      pollText = text;
+      const open = openDetails(), y = window.scrollY;
+      if (tab === 'stats') S.u.data = r.json; else if (tab === 'workflows') S.w.data = r.json; else applyState(r.json);
+      render(S.tab === tab);
+      restoreDetails(open);
+      window.scrollTo(window.scrollX, y);
+    } finally { pollRunning = false; }
+  }
+  function pollLoop() {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(async () => { try { await pollOnce(); } finally { pollLoop(); } }, POLL_MS);
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { clearTimeout(pollTimer); pollOnce().finally(pollLoop); } });
+  render();
+  loadState();
+  pollLoop();
+})();
+</script>
+</body>
+</html>

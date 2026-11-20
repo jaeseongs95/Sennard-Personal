@@ -1,0 +1,3 @@
+{
+  "description": "Use when the same failure repeats: anything (test, build, command, deploy, external call) failing twice or more with the same symptom, failing again after a fix, or several candidate causes needing an order to check. Separates observed failure episodes from cause hypotheses and picks the next discriminating check that yields new information. Does not fix, rerun the same check or do the final audit."
+}

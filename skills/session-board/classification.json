@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "agent-correction",
+  "actions": [
+    "update-session-status",
+    "read-session-status"
+  ],
+  "targets": [
+    "same-computer-concurrent-sessions"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "capabilities": [
+    "local-session-coordination"
+  ],
+  "applicability": [
+    {
+      "path": "skills/session-board/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:33877bbeb40a09bc2393516c9a7c6661110d524d617832b36301d263a44d61ef",
+      "startByte": 0,
+      "endByte": 390
+    },
+    {
+      "path": "skills/session-board/SKILL.md",
+      "startLine": 11,
+      "endLine": 11,
+      "digest": "sha256:33877bbeb40a09bc2393516c9a7c6661110d524d617832b36301d263a44d61ef",
+      "startByte": 0,
+      "endByte": 240
+    },
+    {
+      "path": "skills/session-board/SKILL.md",
+      "startLine": 13,
+      "endLine": 21,
+      "digest": "sha256:33877bbeb40a09bc2393516c9a7c6661110d524d617832b36301d263a44d61ef",
+      "startByte": 0,
+      "endByte": 1336
+    },
+    {
+      "path": "skills/session-board/references/entry-details.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:acac4bc5bb46420e96a6bdd5004063a8a9e3f42924c64a9b906d44b16166371f",
+      "startByte": 0,
+      "endByte": 310
+    },
+    {
+      "path": "skills/session-board/references/entry-details.md",
+      "startLine": 9,
+      "endLine": 11,
+      "digest": "sha256:acac4bc5bb46420e96a6bdd5004063a8a9e3f42924c64a9b906d44b16166371f",
+      "startByte": 0,
+      "endByte": 152
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/session-board/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:33877bbeb40a09bc2393516c9a7c6661110d524d617832b36301d263a44d61ef",
+      "startByte": 391,
+      "endByte": 442
+    },
+    {
+      "path": "skills/session-board/SKILL.md",
+      "startLine": 11,
+      "endLine": 11,
+      "digest": "sha256:33877bbeb40a09bc2393516c9a7c6661110d524d617832b36301d263a44d61ef",
+      "startByte": 241,
+      "endByte": 381
+    },
+    {
+      "path": "skills/session-board/references/entry-details.md",
+      "startLine": 12,
+      "endLine": 12,
+      "digest": "sha256:acac4bc5bb46420e96a6bdd5004063a8a9e3f42924c64a9b906d44b16166371f",
+      "startByte": 0,
+      "endByte": 163
+    },
+    {
+      "path": "skills/session-board/references/entry-details.md",
+      "startLine": 13,
+      "endLine": 13,
+      "digest": "sha256:acac4bc5bb46420e96a6bdd5004063a8a9e3f42924c64a9b906d44b16166371f",
+      "startByte": 0,
+      "endByte": 566
+    },
+    {
+      "path": "skills/session-board/references/entry-details.md",
+      "startLine": 14,
+      "endLine": 14,
+      "digest": "sha256:acac4bc5bb46420e96a6bdd5004063a8a9e3f42924c64a9b906d44b16166371f",
+      "startByte": 0,
+      "endByte": 84
+    }
+  ]
+}

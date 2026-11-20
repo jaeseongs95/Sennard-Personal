@@ -1,0 +1,19 @@
+{
+  "skillCheck.unknownSkill": "Unknown skill: {skill}.",
+  "skillCheck.unknownCommand": "Skill {skill} has no command {command}.",
+  "skillCheck.argumentRequired": "Argument {name} is required.",
+  "skillCheck.argumentMustBeString": "Argument {name} must be a string.",
+  "skillCheck.argumentMustBeInteger": "Argument {name} must be an integer.",
+  "skillCheck.argumentMustBeArray": "Argument {name} must be an array.",
+  "skillCheck.argumentMustBeBoolean": "Argument {name} must be a boolean.",
+  "skillCheck.inputTooLarge": "The input is larger than this check accepts.",
+  "skillCheck.invalidSubagentModelRequest": "The subagent model request does not satisfy its contract.",
+  "skillCheck.invalidSubagentModelAdvice": "The subagent model advice does not satisfy its contract.",
+  "skillCheck.argumentMustBeObjectOfStrings": "Argument {name} must be an object whose values are all strings.",
+  "skillCheck.argumentFileMustBeString": "A file argument must name an absolute path.",
+  "skillCheck.invalidJson": "The document is not valid UTF-8 JSON.",
+  "skillCheck.malformedArgument": "An argument does not have the JSON shape this check requires.",
+  "skillCheck.jobReferenceInvalid": "jobRef is not a job reference.",
+  "skillCheck.jobNotFound": "No job has this reference.",
+  "skillCheck.processesNotAvailable": "This edition cannot run a command for this check."
+}

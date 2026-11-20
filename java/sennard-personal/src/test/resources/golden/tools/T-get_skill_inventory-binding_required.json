@@ -1,0 +1,33 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "BINDING_REQUIRED",
+              "details" : {
+                "reasonCode" : "CODEX_CALL_META_MISSING"
+              },
+              "message" : "This call needs the session it belongs to, and it does not say which one it is.",
+              "messageKey" : "error.BINDING_REQUIRED",
+              "params" : { }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

@@ -1,0 +1,47 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "createdAt" : "<TIME>",
+              "errorCode" : null,
+              "finishedAt" : "<TIME>",
+              "jobRef" : "<UUID>",
+              "kind" : "skill-check",
+              "result" : {
+                "data" : null,
+                "error" : {
+                  "code" : "INVALID_INPUT",
+                  "details" : null,
+                  "message" : "workflow run-golden-no-record has no change record: submit the change plan with submit_change_plan first",
+                  "messageKey" : "skillScripts.changeScope.journalMissing",
+                  "params" : {
+                    "workflowId" : "run-golden-no-record"
+                  }
+                },
+                "ok" : false,
+                "schemaVersion" : "1.0.0"
+              },
+              "startedAt" : "<TIME>",
+              "state" : "SUCCEEDED"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

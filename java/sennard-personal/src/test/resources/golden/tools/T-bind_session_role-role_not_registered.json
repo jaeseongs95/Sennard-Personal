@@ -1,0 +1,37 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "INVALID_INPUT",
+              "details" : {
+                "adminUrl" : "http://localhost:{ADMIN_PORT}",
+                "reasonCode" : "ROLE_NOT_REGISTERED"
+              },
+              "message" : "The role \"golden-unregistered-role\" is not in the registry. The user creates roles on the local admin page (http://localhost:{ADMIN_PORT}), Roles menu. Tell the user, then ask again with a registered role name.",
+              "messageKey" : "continuity.layers.roleNotRegistered",
+              "params" : {
+                "adminUrl" : "http://localhost:{ADMIN_PORT}",
+                "role" : "golden-unregistered-role"
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

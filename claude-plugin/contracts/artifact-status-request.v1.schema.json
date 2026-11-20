@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/artifact-status-request.v1.schema.json",
+  "title": "ArtifactStatusRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "uploadId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "attachmentId": { "type": "string", "minLength": 1, "maxLength": 64 }
+  },
+  "oneOf": [
+    { "required": ["uploadId"], "not": { "required": ["attachmentId"] } },
+    { "required": ["attachmentId"], "not": { "required": ["uploadId"] } }
+  ]
+}

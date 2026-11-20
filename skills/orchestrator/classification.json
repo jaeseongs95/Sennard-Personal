@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "agent-correction",
+  "actions": [
+    "classify-request",
+    "connect-specialist-results"
+  ],
+  "targets": [
+    "skill-selection",
+    "execution-order",
+    "input-output-contract",
+    "gates"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "capabilities": [
+    "skill-orchestration"
+  ],
+  "applicability": [
+    {
+      "path": "skills/orchestrator/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:546ff458c6071368730f97f47a3f898eb2f9d574ff2dbf348720701b4b27d8cf",
+      "startByte": 0,
+      "endByte": 146
+    },
+    {
+      "path": "skills/orchestrator/SKILL.md",
+      "startLine": 11,
+      "endLine": 11,
+      "digest": "sha256:546ff458c6071368730f97f47a3f898eb2f9d574ff2dbf348720701b4b27d8cf",
+      "startByte": 0,
+      "endByte": 219
+    },
+    {
+      "path": "skills/orchestrator/references/intake.md",
+      "startLine": 19,
+      "endLine": 19,
+      "digest": "sha256:3f782ed04786e4ae9cb7de4da65e709df5fd4462f8ed8115deaff015dc77762c",
+      "startByte": 0,
+      "endByte": 187
+    },
+    {
+      "path": "skills/orchestrator/references/intake.md",
+      "startLine": 20,
+      "endLine": 20,
+      "digest": "sha256:3f782ed04786e4ae9cb7de4da65e709df5fd4462f8ed8115deaff015dc77762c",
+      "startByte": 0,
+      "endByte": 121
+    },
+    {
+      "path": "skills/orchestrator/references/skill-classification.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:53b6d12c87c67cbc9f8cac22e3ac9926aa6da40fa65f4b249c9f2739b4f84bb7",
+      "startByte": 0,
+      "endByte": 135
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/orchestrator/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:546ff458c6071368730f97f47a3f898eb2f9d574ff2dbf348720701b4b27d8cf",
+      "startByte": 147,
+      "endByte": 290
+    },
+    {
+      "path": "skills/orchestrator/SKILL.md",
+      "startLine": 11,
+      "endLine": 11,
+      "digest": "sha256:546ff458c6071368730f97f47a3f898eb2f9d574ff2dbf348720701b4b27d8cf",
+      "startByte": 220,
+      "endByte": 313
+    },
+    {
+      "path": "skills/orchestrator/references/intake.md",
+      "startLine": 4,
+      "endLine": 4,
+      "digest": "sha256:3f782ed04786e4ae9cb7de4da65e709df5fd4462f8ed8115deaff015dc77762c",
+      "startByte": 143,
+      "endByte": 208
+    },
+    {
+      "path": "skills/orchestrator/references/intake.md",
+      "startLine": 4,
+      "endLine": 4,
+      "digest": "sha256:3f782ed04786e4ae9cb7de4da65e709df5fd4462f8ed8115deaff015dc77762c",
+      "startByte": 209,
+      "endByte": 314
+    },
+    {
+      "path": "skills/orchestrator/references/intake.md",
+      "startLine": 19,
+      "endLine": 19,
+      "digest": "sha256:3f782ed04786e4ae9cb7de4da65e709df5fd4462f8ed8115deaff015dc77762c",
+      "startByte": 188,
+      "endByte": 235
+    },
+    {
+      "path": "skills/orchestrator/references/intake.md",
+      "startLine": 4,
+      "endLine": 4,
+      "digest": "sha256:3f782ed04786e4ae9cb7de4da65e709df5fd4462f8ed8115deaff015dc77762c",
+      "startByte": 385,
+      "endByte": 467
+    },
+    {
+      "path": "skills/orchestrator/references/intake.md",
+      "startLine": 20,
+      "endLine": 20,
+      "digest": "sha256:3f782ed04786e4ae9cb7de4da65e709df5fd4462f8ed8115deaff015dc77762c",
+      "startByte": 122,
+      "endByte": 250
+    }
+  ]
+}

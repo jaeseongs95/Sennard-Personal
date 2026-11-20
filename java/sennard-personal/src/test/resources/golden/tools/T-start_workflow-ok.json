@@ -1,0 +1,65 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "changeJournal" : {
+                "phase" : "PLANNING",
+                "planRevision" : 1,
+                "unreadable" : [ ]
+              },
+              "defaultsUsed" : [
+                "taskId",
+                "scope",
+                "riskLevel",
+                "workUnits",
+                "constraints",
+                "authorization",
+                "decision",
+                "orchestration",
+                "frame",
+                "outputTargets"
+              ],
+              "lateAdoption" : null,
+              "revision" : 0,
+              "rootId" : "root-<UUID>",
+              "runId" : "run-task-<UUID>",
+              "schemaVersion" : "1.0.0",
+              "sessionCapacity" : {
+                "limit" : 5,
+                "openCount" : 1,
+                "remaining" : 4
+              },
+              "stages" : [
+                {
+                  "capability" : "minimal-implementation",
+                  "stageId" : "stage-01-minimal-implementation"
+                }
+              ],
+              "state" : "RUNNING",
+              "taskId" : "task-<UUID>"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        },
+        {
+          "text" : "Session workflow capacity: 1/5 open; 4 more can be opened.\nFor additions, corrections or status questions about this work, resume this workflow and update its working plan and completion criteria; revise its files with submit_change_plan inside the existing write scope. Open a separate workflow only for independent work. Existing scope and approval requirements still apply.\n[Sennard workflow change] Next stage: stage-01-minimal-implementation (capability minimal-implementation); record its result under the minimal-implementation provider contract.\nRun run-task-<UUID> started in its planning phase, because start_workflow was given no changePlan: read and investigate only. Edits inside its writeTargets are refused until you call submit_change_plan with runId run-task-<UUID>, expectedRevision 0, files (what you will change, all inside writeTargets) and a new operationKey. A start_workflow call that gives changePlan starts the run executing at once.\nThe workflow changed: before the next judgment or action, re-match it against the skill targets and call every match now. A stage's provider is only the contract its result is recorded under; it does not limit the skills used, and another skill needs no plan change.\nUpdate checkpoint_context when a finished step or failure changes goals, remaining work or needed evidence.\nBefore first running a test, install or external tool in an environment, read that environment's guide and the script of its last successful run and set every condition the run needs at once. Before a full verification of a change to something many places read (fixed values, hashes, contracts, formats, public text), find its readers first and fix them in one pass. If failures keep changing under the same change, stop fixing one at a time and regroup the causes. Read every verification runner's result before reporting.",
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

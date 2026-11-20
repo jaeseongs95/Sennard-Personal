@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/execute-state-cleanup-request.v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operationKey", "planToken"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "operationKey": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{16,128}$", "description": "Your key for this operation: make a new random one for each call (a UUID, for example), 16 to 128 characters of A-Z a-z 0-9 _ . : -. The same key with the same content answers the first result without doing the work again; the same key with other content is REQUEST_CONFLICT. This tool has no session, so the key is shared by every caller of it, and the result is kept for 24 hours." },
+    "planToken": { "type": "string", "minLength": 80 }
+  }
+}

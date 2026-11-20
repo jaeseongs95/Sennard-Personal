@@ -1,0 +1,17 @@
+{
+  "conversationId": "00000000-0000-4000-8000-000000000002",
+  "workspacePaths": ["/home/user/project"],
+  "transcriptPath": "/home/user/.gemini/antigravity-cli/brain/00000000-0000-4000-8000-000000000002/transcript.jsonl",
+  "artifactDirectoryPath": "/home/user/.gemini/antigravity-cli/brain/00000000-0000-4000-8000-000000000002",
+  "modelName": "example-model",
+  "lastUserInput": "List the files in the project.",
+  "invocationNum": 1,
+  "executionNum": 2,
+  "fullyIdle": false,
+  "error": "none",
+  "terminationReason": "none",
+  "toolCall": {
+    "name": "call_mcp_tool",
+    "args": {"ServerName": "example", "ToolName": "example_tool", "Arguments": {"note": "A1"}}
+  }
+}

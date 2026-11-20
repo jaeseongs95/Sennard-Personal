@@ -1,0 +1,463 @@
+{
+  "schemaVersion": "1.0.0",
+  "name": "sennard-cs-engineering",
+  "version": "0.1.0",
+  "moduleStatusMeaning": {
+    "draft": "Authored guidance; not promoted for implicit selection. Explicit draft adoption required.",
+    "validated": "Locally checked core guidance with bounded executable reference cases. Not independent audit, proof of all cases, Sennard product validation, or live-host effectiveness."
+  },
+  "modules": [
+    {
+      "id": "algorithms-data-structures",
+      "title": "알고리즘·자료구조",
+      "status": "validated",
+      "reference": "references/algorithms-data-structures.md",
+      "ruleFile": "assets/rules/algorithms-data-structures.json",
+      "ruleIds": [
+        "ALG-TERMINATION-001",
+        "ALG-ORDER-002",
+        "ALG-COST-003",
+        "ALG-KEY-004"
+      ]
+    },
+    {
+      "id": "language-semantics",
+      "title": "언어 의미론",
+      "status": "draft",
+      "reference": "references/language-semantics.md",
+      "ruleFile": "assets/rules/language-semantics.json",
+      "ruleIds": [
+        "LANG-ALIAS-001",
+        "LANG-NUMERIC-002",
+        "LANG-ERROR-003",
+        "LANG-VISIBILITY-004"
+      ]
+    },
+    {
+      "id": "operating-systems",
+      "title": "운영체제·자원 수명",
+      "status": "draft",
+      "reference": "references/operating-systems.md",
+      "ruleFile": "assets/rules/operating-systems.json",
+      "ruleIds": [
+        "OS-LIFETIME-001",
+        "OS-PUBLISH-002",
+        "OS-CLOCK-003",
+        "OS-PATH-004"
+      ]
+    },
+    {
+      "id": "concurrency",
+      "title": "동시성",
+      "status": "validated",
+      "reference": "references/concurrency.md",
+      "ruleFile": "assets/rules/concurrency.json",
+      "ruleIds": [
+        "CONC-CLAIM-001",
+        "CONC-FENCE-002",
+        "CONC-LOCK-003",
+        "CONC-CANCEL-004"
+      ]
+    },
+    {
+      "id": "databases",
+      "title": "데이터베이스",
+      "status": "validated",
+      "reference": "references/databases.md",
+      "ruleFile": "assets/rules/databases.json",
+      "ruleIds": [
+        "DB-BOUNDARY-001",
+        "DB-ISOLATION-002",
+        "DB-CONSTRAINT-003",
+        "DB-MIGRATION-004"
+      ]
+    },
+    {
+      "id": "distributed-systems",
+      "title": "분산시스템",
+      "status": "validated",
+      "reference": "references/distributed-systems.md",
+      "ruleFile": "assets/rules/distributed-systems.json",
+      "ruleIds": [
+        "DIST-ACK-001",
+        "DIST-IDEMPOTENCY-002",
+        "DIST-RETRY-003",
+        "DIST-ORDER-004"
+      ]
+    },
+    {
+      "id": "networking",
+      "title": "네트워크",
+      "status": "draft",
+      "reference": "references/networking.md",
+      "ruleFile": "assets/rules/networking.json",
+      "ruleIds": [
+        "NET-FRAME-001",
+        "NET-DEADLINE-002",
+        "NET-SEMANTICS-003",
+        "NET-RECONNECT-004"
+      ]
+    },
+    {
+      "id": "performance",
+      "title": "성능",
+      "status": "validated",
+      "reference": "references/performance.md",
+      "ruleFile": "assets/rules/performance.json",
+      "ruleIds": [
+        "PERF-MEASURE-001",
+        "PERF-BOUND-002",
+        "PERF-CACHE-003",
+        "PERF-BATCH-004"
+      ]
+    },
+    {
+      "id": "software-design",
+      "title": "소프트웨어 설계",
+      "status": "draft",
+      "reference": "references/software-design.md",
+      "ruleFile": "assets/rules/software-design.json",
+      "ruleIds": [
+        "DESIGN-CONTRACT-001",
+        "DESIGN-STATE-002",
+        "DESIGN-COMPAT-003",
+        "DESIGN-MINIMAL-004"
+      ]
+    },
+    {
+      "id": "security-boundaries",
+      "title": "보안 경계",
+      "status": "draft",
+      "reference": "references/security-boundaries.md",
+      "ruleFile": "assets/rules/security-boundaries.json",
+      "ruleIds": [
+        "SEC-AUTHORITY-001",
+        "SEC-EVIDENCE-002",
+        "SEC-INPUT-003",
+        "SEC-SECRET-004"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "ALG-TERMINATION-001",
+      "domain": "algorithms-data-structures",
+      "title": "탐색의 종료와 방문 상태",
+      "status": "validated",
+      "path": "assets/rules/algorithms-data-structures.json",
+      "digest": "sha256:98c8c9731b46dd6331f664de0893fa02c90a32dfa7898ed3afa5938cb3e5dce2"
+    },
+    {
+      "id": "ALG-ORDER-002",
+      "domain": "algorithms-data-structures",
+      "title": "위상 순서와 순환 거부",
+      "status": "validated",
+      "path": "assets/rules/algorithms-data-structures.json",
+      "digest": "sha256:24bed131ef62e6ddf4e252fcd15d25a7254a3ab1307d0cf4d16b7b66db7ce067"
+    },
+    {
+      "id": "ALG-COST-003",
+      "domain": "algorithms-data-structures",
+      "title": "입력 크기와 비용 모델",
+      "status": "validated",
+      "path": "assets/rules/algorithms-data-structures.json",
+      "digest": "sha256:0861e27b61bdeeae88dcc8610669d1597425576a909b6fe06441f990c2f62d3a"
+    },
+    {
+      "id": "ALG-KEY-004",
+      "domain": "algorithms-data-structures",
+      "title": "동일성과 메모이제이션",
+      "status": "validated",
+      "path": "assets/rules/algorithms-data-structures.json",
+      "digest": "sha256:2fb485438c702fab10a3469132e2848597d6713f6975cbaa43114f46802a27e0"
+    },
+    {
+      "id": "LANG-ALIAS-001",
+      "domain": "language-semantics",
+      "title": "공유 참조와 불변 스냅샷",
+      "status": "draft",
+      "path": "assets/rules/language-semantics.json",
+      "digest": "sha256:647785c6731931ef11a95c1c0fb2c0e4b1d5cdfcdaa10a5feb758d681eebbb2f"
+    },
+    {
+      "id": "LANG-NUMERIC-002",
+      "domain": "language-semantics",
+      "title": "숫자 표현과 경계",
+      "status": "draft",
+      "path": "assets/rules/language-semantics.json",
+      "digest": "sha256:e5b8f11255114a0e5204df4453e976d669f5efa4b163d193188a00a5652f0c16"
+    },
+    {
+      "id": "LANG-ERROR-003",
+      "domain": "language-semantics",
+      "title": "예외와 결과 상태",
+      "status": "draft",
+      "path": "assets/rules/language-semantics.json",
+      "digest": "sha256:8eec7b5db264b614f1ba55d322a9f0ae0976125c4e4868b40b8c3c07015f8d02"
+    },
+    {
+      "id": "LANG-VISIBILITY-004",
+      "domain": "language-semantics",
+      "title": "동시 실행의 가시성",
+      "status": "draft",
+      "path": "assets/rules/language-semantics.json",
+      "digest": "sha256:60d5ca82b113dd54bf05e237c8105450cf698b297fb4fab9c4d506df942db5c8"
+    },
+    {
+      "id": "OS-LIFETIME-001",
+      "domain": "operating-systems",
+      "title": "자원 수명과 단일 책임",
+      "status": "draft",
+      "path": "assets/rules/operating-systems.json",
+      "digest": "sha256:14c90974a7678baf9f21ec374f459f89a5ae84173585dd623de26eef1d1829c8"
+    },
+    {
+      "id": "OS-PUBLISH-002",
+      "domain": "operating-systems",
+      "title": "파일 게시와 내구성",
+      "status": "draft",
+      "path": "assets/rules/operating-systems.json",
+      "digest": "sha256:752bca99df1b54b15def7072aec1423ea2ce714240824beadd812ca13e6b21a1"
+    },
+    {
+      "id": "OS-CLOCK-003",
+      "domain": "operating-systems",
+      "title": "경과 시간과 벽시계",
+      "status": "draft",
+      "path": "assets/rules/operating-systems.json",
+      "digest": "sha256:9ea5b6d7bd5102e557794cb013dc15872e5a433ecc54e66e6dc9d03a92bc9d30"
+    },
+    {
+      "id": "OS-PATH-004",
+      "domain": "operating-systems",
+      "title": "경로와 실제 파일 경계",
+      "status": "draft",
+      "path": "assets/rules/operating-systems.json",
+      "digest": "sha256:202a2d787e48898e99f1db525b16b98a7779756dad5ea4a3b6030ed965aa9f9e"
+    },
+    {
+      "id": "CONC-CLAIM-001",
+      "domain": "concurrency",
+      "title": "조회와 원자적 claim",
+      "status": "validated",
+      "path": "assets/rules/concurrency.json",
+      "digest": "sha256:cec564b4015f086bd71025215051162fb1915216304a05b96f4b8a24dfc126f0"
+    },
+    {
+      "id": "CONC-FENCE-002",
+      "domain": "concurrency",
+      "title": "오래된 소유자의 쓰기 차단",
+      "status": "validated",
+      "path": "assets/rules/concurrency.json",
+      "digest": "sha256:d8433bb33cc38bf3e83c32f5aa1baf96372899ca36b23194bfb43e075b891e74"
+    },
+    {
+      "id": "CONC-LOCK-003",
+      "domain": "concurrency",
+      "title": "교착과 락 순서",
+      "status": "validated",
+      "path": "assets/rules/concurrency.json",
+      "digest": "sha256:829c9f7c1ca24786c9e40b8e4e8f7a9dd0b5e2ee9ebb67483d681b5eaa4f9899"
+    },
+    {
+      "id": "CONC-CANCEL-004",
+      "domain": "concurrency",
+      "title": "취소와 결과 확정 경합",
+      "status": "validated",
+      "path": "assets/rules/concurrency.json",
+      "digest": "sha256:cc59a6f529cacf77f871ffa8b7509ae8cf0c317f1ef064e109566520e2c0863d"
+    },
+    {
+      "id": "DB-BOUNDARY-001",
+      "domain": "databases",
+      "title": "트랜잭션과 불변조건",
+      "status": "validated",
+      "path": "assets/rules/databases.json",
+      "digest": "sha256:6d268b6ec81896069ec353c9b969139c4f5e3b4679901aa724da92bba94f5879"
+    },
+    {
+      "id": "DB-ISOLATION-002",
+      "domain": "databases",
+      "title": "격리 수준별 이상 현상",
+      "status": "validated",
+      "path": "assets/rules/databases.json",
+      "digest": "sha256:8de18cd8ddc58a80d0e3053802ddc0c434240e0dc011be8dadbf75b22a08e1dd"
+    },
+    {
+      "id": "DB-CONSTRAINT-003",
+      "domain": "databases",
+      "title": "DB 제약과 경쟁 입력",
+      "status": "validated",
+      "path": "assets/rules/databases.json",
+      "digest": "sha256:334b6b8595ddb96ebec35013e9a72752b99ea5c672a10c4de371994e9900ecd4"
+    },
+    {
+      "id": "DB-MIGRATION-004",
+      "domain": "databases",
+      "title": "스키마 변화와 복구",
+      "status": "validated",
+      "path": "assets/rules/databases.json",
+      "digest": "sha256:a5e23f776b51a03bfc4233fb4e8b9184d49d93c088f7f27d2cc0675f19c69175"
+    },
+    {
+      "id": "DIST-ACK-001",
+      "domain": "distributed-systems",
+      "title": "ACK와 부작용 경계",
+      "status": "validated",
+      "path": "assets/rules/distributed-systems.json",
+      "digest": "sha256:328f41eb9866a68f68b72fc65a900fa3252dab99db605dfd5ddbb01373c0af35"
+    },
+    {
+      "id": "DIST-IDEMPOTENCY-002",
+      "domain": "distributed-systems",
+      "title": "멱등성 키의 의미",
+      "status": "validated",
+      "path": "assets/rules/distributed-systems.json",
+      "digest": "sha256:d2a423af692e08889e90581052a67391d11302563b0ab023399794ba9228763b"
+    },
+    {
+      "id": "DIST-RETRY-003",
+      "domain": "distributed-systems",
+      "title": "부분 장애와 재시도 예산",
+      "status": "validated",
+      "path": "assets/rules/distributed-systems.json",
+      "digest": "sha256:f94ec69ef18f44322af5a30a5c70078bb3244602c30e43b2cc9ab442938ba659"
+    },
+    {
+      "id": "DIST-ORDER-004",
+      "domain": "distributed-systems",
+      "title": "순서와 버전 단조성",
+      "status": "validated",
+      "path": "assets/rules/distributed-systems.json",
+      "digest": "sha256:7e651485934505b7ef765b85cbf54b7fa9222c545417b59f9fad3e41c1f1cbe3"
+    },
+    {
+      "id": "NET-FRAME-001",
+      "domain": "networking",
+      "title": "메시지 framing과 부분 수신",
+      "status": "draft",
+      "path": "assets/rules/networking.json",
+      "digest": "sha256:2c22031f5faec36d81ba01c7c84f9cce38bb5de19ba93c816b8d191f28d61366"
+    },
+    {
+      "id": "NET-DEADLINE-002",
+      "domain": "networking",
+      "title": "종단 deadline",
+      "status": "draft",
+      "path": "assets/rules/networking.json",
+      "digest": "sha256:b03391bd06e610c0b788a52bdd1a27f9ec6031ccca25819b648bc8a931329e67"
+    },
+    {
+      "id": "NET-SEMANTICS-003",
+      "domain": "networking",
+      "title": "HTTP 재시도와 조건부 요청",
+      "status": "draft",
+      "path": "assets/rules/networking.json",
+      "digest": "sha256:eb3312ad840ef5bc7cdc10b0c8c31dadc112780bfcf3f5bcf9fa6632ee12b4ef"
+    },
+    {
+      "id": "NET-RECONNECT-004",
+      "domain": "networking",
+      "title": "재연결과 세션 경계",
+      "status": "draft",
+      "path": "assets/rules/networking.json",
+      "digest": "sha256:8b0fdd1dfefc632d1b5a78c1169cf06af671f2ef78dde197a14372f982a3e7b8"
+    },
+    {
+      "id": "PERF-MEASURE-001",
+      "domain": "performance",
+      "title": "비교 가능한 성능 계측",
+      "status": "validated",
+      "path": "assets/rules/performance.json",
+      "digest": "sha256:e8129c9e36c35e3f0b6b9c6c264b7311d3989c0d03d74ca807289bcd63c9f3eb"
+    },
+    {
+      "id": "PERF-BOUND-002",
+      "domain": "performance",
+      "title": "백프레셔와 상한",
+      "status": "validated",
+      "path": "assets/rules/performance.json",
+      "digest": "sha256:5a39e9b0fd1f4e829d4923cf45c2375ca08549082c4e8d5d33a242c16b3c2dfd"
+    },
+    {
+      "id": "PERF-CACHE-003",
+      "domain": "performance",
+      "title": "캐시 정합성과 수명",
+      "status": "validated",
+      "path": "assets/rules/performance.json",
+      "digest": "sha256:a88c8f191461b24cbacea82624a48bfb173d4018e9c8acb167f5da32a9c27010"
+    },
+    {
+      "id": "PERF-BATCH-004",
+      "domain": "performance",
+      "title": "배치와 지연 절충",
+      "status": "validated",
+      "path": "assets/rules/performance.json",
+      "digest": "sha256:4ed294f162233cb1c27efc3eed83a9a179b0b6123be4d5f1f7e02f4b9b39cdd9"
+    },
+    {
+      "id": "DESIGN-CONTRACT-001",
+      "domain": "software-design",
+      "title": "모듈 경계와 책임",
+      "status": "draft",
+      "path": "assets/rules/software-design.json",
+      "digest": "sha256:fe79283e2217c2fe525746e0086faece81098e3272c39526ed49fc6549a24450"
+    },
+    {
+      "id": "DESIGN-STATE-002",
+      "domain": "software-design",
+      "title": "명시적 상태 전이",
+      "status": "draft",
+      "path": "assets/rules/software-design.json",
+      "digest": "sha256:e74364ebf611c04d4198719aa30af435f9186e7de08224e8f660c4f5359ffea3"
+    },
+    {
+      "id": "DESIGN-COMPAT-003",
+      "domain": "software-design",
+      "title": "계약 버전과 호환성",
+      "status": "draft",
+      "path": "assets/rules/software-design.json",
+      "digest": "sha256:6531c899d1d17c20c33ebc8e5d2ecbd68ef201ef25de9e1eb4dc63ea358680c8"
+    },
+    {
+      "id": "DESIGN-MINIMAL-004",
+      "domain": "software-design",
+      "title": "불변조건을 만족하는 최소 변경",
+      "status": "draft",
+      "path": "assets/rules/software-design.json",
+      "digest": "sha256:89ae523b47d91e2a5b819f9d16b881b0000edf0ed6931fe62465b31cf0b00a5d"
+    },
+    {
+      "id": "SEC-AUTHORITY-001",
+      "domain": "security-boundaries",
+      "title": "데이터와 권한의 분리",
+      "status": "draft",
+      "path": "assets/rules/security-boundaries.json",
+      "digest": "sha256:a1dfec51d6d9b8fe8609dcd004653feb5aaca35ffc53ac260d7d82768301913a"
+    },
+    {
+      "id": "SEC-EVIDENCE-002",
+      "domain": "security-boundaries",
+      "title": "근거 무결성과 진실성",
+      "status": "draft",
+      "path": "assets/rules/security-boundaries.json",
+      "digest": "sha256:c745c4407df5d6f0d2169e7131265b4df895f133f89bb88871023ee52166b1e7"
+    },
+    {
+      "id": "SEC-INPUT-003",
+      "domain": "security-boundaries",
+      "title": "입력 경계와 자원 제한",
+      "status": "draft",
+      "path": "assets/rules/security-boundaries.json",
+      "digest": "sha256:3b841cec3be8dfc804b60d768411ea6e81f370828dd034e4fe27f13a72d35dc9"
+    },
+    {
+      "id": "SEC-SECRET-004",
+      "domain": "security-boundaries",
+      "title": "민감 데이터 최소화",
+      "status": "draft",
+      "path": "assets/rules/security-boundaries.json",
+      "digest": "sha256:174bbd6b2b87252419180ec3f60e515cf39a2193a8277fb3f71fe5d8c6c060b2"
+    }
+  ]
+}

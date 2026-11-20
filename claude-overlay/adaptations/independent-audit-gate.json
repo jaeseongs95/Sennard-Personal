@@ -1,0 +1,15 @@
+{
+  "description": "Use before and after executing or releasing a change that mutation-risk-preflight classifies as high-risk. An auditor separate from the author checks the final change and verification evidence directly and judges whether it can be completed. Not for simple research, low-risk fixes, general code review or design talk without implementation.",
+  "replacements": [
+    {
+      "file": "references/entry-details.md",
+      "find": "적용 가능한 상위 지침, `AGENTS.md`, 사용자 권한",
+      "replace": "적용 가능한 상위 지침, `CLAUDE.md`(import된 `AGENTS.md` 포함), 사용자 권한"
+    },
+    {
+      "file": "references/entry-details.md",
+      "find": "협업 도구가 지원하면 `fork_turns:none`을 사용하고 재위임과 하위 에이전트 생성을 금지한다.",
+      "replace": "Agent 도구로 fork가 아닌 새 서브에이전트를 시작한다. 가능하면 `sennard:independent-auditor`를 사용하고, 재위임과 하위 에이전트 생성을 금지한다. 부모 대화를 상속하는 fork(`#fork`, `/subtask`)는 감사자로 쓰지 않는다."
+    }
+  ]
+}

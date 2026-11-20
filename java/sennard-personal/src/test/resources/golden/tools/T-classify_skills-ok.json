@@ -1,0 +1,90 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "advice" : [ ],
+              "adviceApplied" : false,
+              "adviceQualification" : null,
+              "agentSelectedSkillIds" : null,
+              "classificationResponseRef" : "sha256:c50a08f39f08bb365a32b5224a440b0ca8659dd8f1afd313017ee901633030c8",
+              "discovery" : {
+                "scope" : "local-tree",
+                "status" : "COMPLETE"
+              },
+              "independentSelection" : null,
+              "result" : {
+                "attempts" : [ ],
+                "config" : {
+                  "configRevision" : "unconfigured",
+                  "externalClassificationAllowed" : false,
+                  "jevEnabled" : false,
+                  "mode" : "select",
+                  "providerProfileRegistryRef" : "unconfigured",
+                  "timeoutMs" : 30000
+                },
+                "profileRevision" : "unconfigured",
+                "request" : {
+                  "classificationCriteriaRef" : "skills/orchestrator/references/skill-classification.md",
+                  "inventoryDigest" : "sha256:0b55a786a7c105222434ce79e6dc11962ea95588a007fa53472ae8d72fd6aec6",
+                  "operationKey" : "op-golden-classify",
+                  "promptDigest" : "sha256:2e269c89648c505912e19dfc90c949d4bd34bccb83753faf95701563e55864f1",
+                  "requestDigest" : "sha256:7e1fd1b637bb2fec20a35a1ddea854cbdc0644e426d301c32c80c88115f10775",
+                  "requestId" : "req-golden-classify",
+                  "schemaVersion" : "1.0.0",
+                  "skillCount" : 23,
+                  "taxonomyRevision" : "1.0.0"
+                },
+                "response" : {
+                  "error" : {
+                    "code" : "PROFILE_UNAVAILABLE",
+                    "dispatchState" : "not-started",
+                    "retryable" : false
+                  },
+                  "inventoryDigest" : "sha256:0b55a786a7c105222434ce79e6dc11962ea95588a007fa53472ae8d72fd6aec6",
+                  "judgments" : [ ],
+                  "operationKey" : "op-golden-classify",
+                  "requestDigest" : "sha256:7e1fd1b637bb2fec20a35a1ddea854cbdc0644e426d301c32c80c88115f10775",
+                  "requestId" : "req-golden-classify",
+                  "schemaVersion" : "1.0.0",
+                  "status" : "UNAVAILABLE",
+                  "unresolvedItems" : [
+                    {
+                      "reasonCode" : "PROFILE_UNAVAILABLE",
+                      "skillId" : null
+                    }
+                  ]
+                },
+                "skipped" : [ ],
+                "snapshot" : {
+                  "cancelled" : false,
+                  "configRevision" : "unconfigured",
+                  "inventoryDigest" : "sha256:0b55a786a7c105222434ce79e6dc11962ea95588a007fa53472ae8d72fd6aec6",
+                  "profileRevision" : "unconfigured",
+                  "requestDigest" : "sha256:7e1fd1b637bb2fec20a35a1ddea854cbdc0644e426d301c32c80c88115f10775",
+                  "taskRevision" : null
+                }
+              },
+              "selectionSource" : null,
+              "selectionStatus" : "PROPOSED"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

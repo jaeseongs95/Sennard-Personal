@@ -1,0 +1,15 @@
+# Explicitly exposed by this Claude hook. The native host uses its existing account.
+PATH
+Path
+HOME
+USERPROFILE
+APPDATA
+LOCALAPPDATA
+SystemRoot
+TEMP
+TMP
+LANG
+CLAUDE_CONFIG_DIR
+ANTHROPIC_API_KEY
+ANTHROPIC_AUTH_TOKEN
+CLAUDE_CODE_OAUTH_TOKEN

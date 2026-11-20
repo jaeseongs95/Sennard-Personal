@@ -1,0 +1,33 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "body" : "golden role body",
+              "bytes" : 16,
+              "digest" : "sha256:743063de0d9146605504592a1f48598dd7ec87af5a22c53ce59a6936ae176081",
+              "maxBytes" : 2000,
+              "stateToken" : "ctx-<TOKEN>",
+              "updatedAt" : "<TIME>",
+              "updatedBy" : "root"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

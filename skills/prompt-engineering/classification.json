@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "specialist",
+  "actions": [
+    "design-llm-prompts",
+    "review-prompt-failures",
+    "improve-prompt-contracts",
+    "design-prompt-comparisons"
+  ],
+  "targets": [
+    "llm-prompt",
+    "agent-instruction",
+    "tool-description",
+    "model-input-template"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "applicability": [
+    {
+      "path": "skills/prompt-engineering/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:8ba06fac1c72f8067d5d896871a125df74245aed54a63272f042be8ede14bc9f",
+      "startByte": 0,
+      "endByte": 322
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/prompt-engineering/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:8ba06fac1c72f8067d5d896871a125df74245aed54a63272f042be8ede14bc9f",
+      "startByte": 323,
+      "endByte": 517
+    }
+  ]
+}

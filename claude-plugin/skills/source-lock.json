@@ -1,0 +1,152 @@
+{
+  "schemaVersion": "4.0.0",
+  "sources": [
+    {
+      "skillId": "coordinate-subagents",
+      "path": "skills/coordinate-subagents",
+      "version": "2.1.0",
+      "integratedChecksum": "sha256:a4c5c3f391e2f58e27ef9da6e4bb9a57a4faa6cb9e0c4234f83fcc28f2165c11",
+      "checksumScope": "relative paths and normalized text bytes under skills/coordinate-subagents"
+    },
+    {
+      "skillId": "independent-audit-gate",
+      "path": "skills/independent-audit-gate",
+      "version": "1.0.0",
+      "integratedChecksum": "sha256:64e08c99126e194dab63ab3dcc7e1b8fb054f1fc656e2013b19c00f23e66b995",
+      "checksumScope": "relative paths and normalized text bytes under skills/independent-audit-gate"
+    },
+    {
+      "skillId": "independent-deliberation-panel",
+      "path": "skills/independent-deliberation-panel",
+      "version": "2.0.0",
+      "integratedChecksum": "sha256:e0a57babf8db0a43b1a5aff3ffa91eb6892bb9d3f7b9d969eeab0823ae06c35d",
+      "checksumScope": "relative paths and normalized text bytes under skills/independent-deliberation-panel"
+    },
+    {
+      "skillId": "task-contract",
+      "path": "skills/task-contract",
+      "version": "1.1.0",
+      "integratedChecksum": "sha256:859d815b234a907f3cb0e8d772a22ed711cf6a31d9af72ef060e93ca6e515a79",
+      "checksumScope": "relative paths and normalized text bytes under skills/task-contract"
+    },
+    {
+      "skillId": "acceptance-evidence-validator",
+      "path": "skills/acceptance-evidence-validator",
+      "version": "1.0.0",
+      "integratedChecksum": "sha256:a41c7cb284492e70fbaa555a49f82b14c23662112ca7c35447fe7ab7025a4b5a",
+      "checksumScope": "relative paths and normalized text bytes under skills/acceptance-evidence-validator"
+    },
+    {
+      "skillId": "blocker-diagnostician",
+      "path": "skills/blocker-diagnostician",
+      "version": "1.1.0",
+      "integratedChecksum": "sha256:2da410471107f4c158ca73f9beefce68753b5ceb294ff2c767c9cbe48ceda163",
+      "checksumScope": "relative paths and normalized text bytes under skills/blocker-diagnostician"
+    },
+    {
+      "skillId": "mutation-risk-preflight",
+      "path": "skills/mutation-risk-preflight",
+      "version": "1.0.3",
+      "integratedChecksum": "sha256:4093adb3c672b0bc2a47d82cea666574bff38c2b9ec500e53787220074179f13",
+      "checksumScope": "relative paths and normalized text bytes under skills/mutation-risk-preflight"
+    },
+    {
+      "skillId": "instruction-scope-resolver",
+      "path": "skills/instruction-scope-resolver",
+      "version": "1.0.0",
+      "integratedChecksum": "sha256:cfe28d8233be2f81f269039f40bc0d70ed409097fdf2f1b356e6837a08ed3511",
+      "checksumScope": "relative paths and normalized text bytes under skills/instruction-scope-resolver"
+    },
+    {
+      "skillId": "change-scope-guardian",
+      "path": "skills/change-scope-guardian",
+      "version": "1.0.0",
+      "integratedChecksum": "sha256:2ead4de739a5afd429b51bd822780324056bb99e1f584ca9cda7ab411dd3cd03",
+      "checksumScope": "relative paths and normalized text bytes under skills/change-scope-guardian"
+    },
+    {
+      "skillId": "iteration-frame-auditor",
+      "path": "skills/iteration-frame-auditor",
+      "version": "1.0.0",
+      "integratedChecksum": "sha256:4b1a0f6448c3d1f2b11a20c38a409e6264d6ffe92bfc64d40ba605eaeb83ff93",
+      "checksumScope": "relative paths and normalized text bytes under skills/iteration-frame-auditor"
+    },
+    {
+      "skillId": "recovery-strategy-selector",
+      "path": "skills/recovery-strategy-selector",
+      "version": "0.2.0",
+      "integratedChecksum": "sha256:35fb46b8fdd70e33ec4685db36903ca0d66ccaf61449beb7a4c9a3897a0e3284",
+      "checksumScope": "relative paths and normalized text bytes under skills/recovery-strategy-selector"
+    },
+    {
+      "skillId": "korean-prose-editor",
+      "path": "skills/korean-prose-editor",
+      "version": "0.1.0",
+      "integratedChecksum": "sha256:c8298d94ba0bc084c2b4e6be252cc3f1767e6de1562686206f85affe8be75867",
+      "checksumScope": "relative paths and normalized text bytes under skills/korean-prose-editor"
+    },
+    {
+      "skillId": "evaluation-validity-auditor",
+      "path": "skills/evaluation-validity-auditor",
+      "version": "1.0.0",
+      "integratedChecksum": "sha256:0917ac691ea31c4ab092ca60c442a83c70fc0d02a1e3e4e51c2461ca3d3c1c69",
+      "checksumScope": "relative paths and normalized text bytes under skills/evaluation-validity-auditor"
+    },
+    {
+      "skillId": "minimal-implementation",
+      "path": "skills/minimal-implementation",
+      "version": "1.0.0",
+      "integratedChecksum": "sha256:8dbe5b351c2d530c6f5546b3d1c533354ac9323539ce1648bfd7e86928ab9397",
+      "checksumScope": "relative paths and normalized text bytes under skills/minimal-implementation"
+    },
+    {
+      "skillId": "software-security-auditor",
+      "path": "skills/software-security-auditor",
+      "version": "0.1.0",
+      "integratedChecksum": "sha256:791704a35e6157cea696703fd0ca8d41af3f424f24d408b9573c3178cb92f8ab",
+      "checksumScope": "relative paths and normalized text bytes under skills/software-security-auditor"
+    },
+    {
+      "skillId": "cs-engineering",
+      "path": "skills/cs-engineering",
+      "version": "0.2.0",
+      "integratedChecksum": "sha256:e0cbf8128279c9b973b50c2cd6b7e51d48675b7f0737c36b138930f044e52768",
+      "checksumScope": "relative paths and normalized text bytes under skills/cs-engineering"
+    },
+    {
+      "skillId": "test-engineering",
+      "path": "skills/test-engineering",
+      "version": "0.1.0",
+      "integratedChecksum": "sha256:b55a913cb36c8ed78cd639337e779ef0472355701fbf2d450ce159a8b9b67440",
+      "checksumScope": "relative paths and normalized text bytes under skills/test-engineering"
+    },
+    {
+      "skillId": "code-review",
+      "path": "skills/code-review",
+      "version": "0.1.0",
+      "integratedChecksum": "sha256:130af54b13846b822a9176cf024b9a63ed3484f6f813a45b24a7ff901fd17483",
+      "checksumScope": "relative paths and normalized text bytes under skills/code-review"
+    },
+    {
+      "skillId": "solid-design",
+      "path": "skills/solid-design",
+      "version": "0.1.0",
+      "integratedChecksum": "sha256:4975b0d8f1401f81c8137aa60f9e28af22a43815b8995825553f2a6df2003e4d",
+      "checksumScope": "relative paths and normalized text bytes under skills/solid-design"
+    },
+    {
+      "skillId": "prompt-engineering",
+      "path": "skills/prompt-engineering",
+      "version": "0.1.0",
+      "integratedChecksum": "sha256:d228d543118126762be8fcae8e5d26c2a6ac92a1e67cb3639097e259bed6a941",
+      "checksumScope": "relative paths and normalized text bytes under skills/prompt-engineering"
+    },
+    {
+      "skillId": "ui-ux-design",
+      "path": "skills/ui-ux-design",
+      "version": "0.1.0",
+      "integratedChecksum": "sha256:17dfee4cac01c2905f2deec470bf81db06e8741cf297f5c2535bab0ef8c66994",
+      "checksumScope": "relative paths and normalized text bytes under skills/ui-ux-design"
+    }
+  ]
+}

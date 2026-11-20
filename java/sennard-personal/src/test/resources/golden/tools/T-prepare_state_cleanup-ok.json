@@ -1,0 +1,64 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "candidateDigest" : "sha256:37cca38aff3bf78ca32c50c2d17750c894313a1759bfba79bfd6a2e047d74d31",
+              "candidates" : {
+                "continuitySnapshots" : [ ],
+                "continuityTasks" : [ ],
+                "standaloneWorkflowRuns" : [ ],
+                "workflowRoots" : [ ]
+              },
+              "counts" : {
+                "continuitySnapshots" : 0,
+                "continuityTasks" : 0,
+                "protectedActiveContinuityTasks" : 4,
+                "protectedActiveRoots" : 18,
+                "workflowRoots" : 0,
+                "workflowRuns" : 0
+              },
+              "createdAt" : "<TIME>",
+              "cutoffs" : {
+                "continuityPayload" : "<TIME>",
+                "continuityRecord" : "<TIME>",
+                "workflow" : "<TIME>"
+              },
+              "planId" : "<UUID>",
+              "planToken" : "<TOKEN>",
+              "policy" : {
+                "continuityPayloadRetentionDays" : 30,
+                "continuityRecordRetentionDays" : 180,
+                "workflowRetentionDays" : 180
+              },
+              "protection" : "os-managed-unverified",
+              "rootProtection" : {
+                "activeRoots" : 18,
+                "linkedMissingReceiptRoots" : 0,
+                "linkedNonTerminalRoots" : 0,
+                "linkedRecentRoots" : 0,
+                "previewCreatedAt" : "<TIME>",
+                "totalProtectedRoots" : 18
+              },
+              "schemaVersion" : "1.0.0"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

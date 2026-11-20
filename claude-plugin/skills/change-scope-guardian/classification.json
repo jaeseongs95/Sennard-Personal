@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "agent-correction",
+  "actions": [
+    "capture-change-baseline",
+    "verify-change-scope"
+  ],
+  "targets": [
+    "workspace-changes",
+    "workspace"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "applicability": [
+    {
+      "path": "skills/change-scope-guardian/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:55eee1409b593b31ca49c22ac70916e9723b3bc2ef8909ab899dfc7020a82a8c",
+      "startByte": 0,
+      "endByte": 344
+    },
+    {
+      "path": "skills/change-scope-guardian/SKILL.md",
+      "startLine": 14,
+      "endLine": 18,
+      "digest": "sha256:55eee1409b593b31ca49c22ac70916e9723b3bc2ef8909ab899dfc7020a82a8c",
+      "startByte": 0,
+      "endByte": 405
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/change-scope-guardian/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:55eee1409b593b31ca49c22ac70916e9723b3bc2ef8909ab899dfc7020a82a8c",
+      "startByte": 345,
+      "endByte": 399
+    },
+    {
+      "path": "skills/change-scope-guardian/SKILL.md",
+      "startLine": 20,
+      "endLine": 20,
+      "digest": "sha256:55eee1409b593b31ca49c22ac70916e9723b3bc2ef8909ab899dfc7020a82a8c",
+      "startByte": 0,
+      "endByte": 166
+    }
+  ]
+}

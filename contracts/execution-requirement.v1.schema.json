@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/execution-requirement.v1.schema.json",
+  "title": "ExecutionRequirement.v1",
+  "description": "What a stage asks of its execution: that the host's observation of the model is recorded. It names no model or reasoning-effort floor; the observed values are recorded and never judged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policyId",
+    "kind",
+    "observationRequired"
+  ],
+  "properties": {
+    "policyId": {
+      "const": "semantic-execution-assurance-v1"
+    },
+    "kind": {
+      "enum": [
+        "deterministic",
+        "semantic"
+      ]
+    },
+    "observationRequired": {
+      "type": "boolean"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "deterministic"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "observationRequired": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "semantic"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "observationRequired": {
+            "const": true
+          }
+        }
+      }
+    }
+  ]
+}

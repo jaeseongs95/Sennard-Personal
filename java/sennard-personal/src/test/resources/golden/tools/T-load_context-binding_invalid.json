@@ -1,0 +1,33 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "BINDING_INVALID",
+              "details" : {
+                "reasonCode" : "CONTINUITY_TOKEN_MALFORMED"
+              },
+              "message" : "Signed continuity token is malformed.",
+              "messageKey" : "continuity.token.malformed",
+              "params" : { }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

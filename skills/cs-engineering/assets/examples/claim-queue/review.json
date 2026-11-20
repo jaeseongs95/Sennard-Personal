@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1.0.0",
+  "reviewId": "CS-EXAMPLE-REVIEW",
+  "constraintReportDigest": "sha256:84c7cb2fab2a67633a98b54fd056dba13a3d4a809eefc3ed5f0032867893c5fe",
+  "candidateDigest": "sha256:38484423317c2d92b7492ab45e8c82de0a574c410b005ec63611169562113382",
+  "reviewerActorRef": "package-author-reference-review; not independent or host-attested",
+  "findings": [
+    {
+      "id": "F-CLAIM",
+      "invariantId": "INV-CLAIM",
+      "status": "SATISFIED",
+      "evidenceRefs": [
+        "E-QUEUE-TESTS"
+      ],
+      "reasoningSummary": "각자 독립된 데이터베이스 연결을 사용하는 6개 스레드의 claim 경합에서 한 소유자만 성공하고, 의도적으로 잘못된 읽기/쓰기 분리 예제에서는 중복 성공을 관측했다."
+    },
+    {
+      "id": "F-FENCE",
+      "invariantId": "INV-FENCE",
+      "status": "SATISFIED",
+      "evidenceRefs": [
+        "E-QUEUE-TESTS"
+      ],
+      "reasoningSummary": "재할당 후 이전 owner의 쓰기와 만료된 owner의 쓰기는 거부되고 현재 유효 owner만 완료한다."
+    }
+  ],
+  "verificationResults": [
+    {
+      "obligationId": "OB-CLAIM",
+      "executionStatus": "EXECUTED",
+      "result": "PASS",
+      "targetDigest": "sha256:38484423317c2d92b7492ab45e8c82de0a574c410b005ec63611169562113382",
+      "environmentRef": "jdk25-postgresql-jdbc-concurrent-connections",
+      "method": "dynamic-test",
+      "evidenceRefs": [
+        "E-QUEUE-TESTS"
+      ]
+    },
+    {
+      "obligationId": "OB-FENCE",
+      "executionStatus": "EXECUTED",
+      "result": "PASS",
+      "targetDigest": "sha256:38484423317c2d92b7492ab45e8c82de0a574c410b005ec63611169562113382",
+      "environmentRef": "jdk25-postgresql-jdbc-concurrent-connections",
+      "method": "dynamic-test",
+      "evidenceRefs": [
+        "E-QUEUE-TESTS"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "E-QUEUE-TESTS",
+      "path": "evidence/queue-tests.json",
+      "digest": "sha256:b1d26425b1756169016a2e42914b4530c3ba99a0ab7684e0ac1a76d0341a810a",
+      "targetDigest": "sha256:38484423317c2d92b7492ab45e8c82de0a574c410b005ec63611169562113382",
+      "environmentRef": "jdk25-postgresql-jdbc-concurrent-connections",
+      "kind": "dynamic-test",
+      "statement": "실제 JDK·PostgreSQL JDBC 동시 연결 검사의 기록. 시험은 java/sennard-store-pg의 CsQueueReferenceTest이고 Gradle로 다시 실행한다."
+    }
+  ],
+  "blockingFindingIds": [],
+  "unverifiedRequiredObligationIds": [],
+  "verdict": "PASS"
+}

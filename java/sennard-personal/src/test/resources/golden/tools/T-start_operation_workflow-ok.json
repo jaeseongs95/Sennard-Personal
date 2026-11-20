@@ -1,0 +1,60 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "changeJournal" : {
+                "phase" : "PLANNING",
+                "planRevision" : 1,
+                "unreadable" : [ ]
+              },
+              "defaultsUsed" : [
+                "taskId",
+                "scope",
+                "riskLevel",
+                "workUnits",
+                "constraints",
+                "authorization",
+                "decision",
+                "orchestration",
+                "frame",
+                "outputTargets"
+              ],
+              "lateAdoption" : null,
+              "revision" : 0,
+              "rootId" : "root-<UUID>",
+              "runId" : "run-task-<UUID>",
+              "schemaVersion" : "1.0.0",
+              "sessionCapacity" : {
+                "limit" : 5,
+                "openCount" : 1,
+                "remaining" : 4
+              },
+              "stages" : [ ],
+              "state" : "RUNNING",
+              "taskId" : "task-<UUID>"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        },
+        {
+          "text" : "Session workflow capacity: 1/5 open; 4 more can be opened.\nFor additions, corrections or status questions about this work, resume this workflow and update its working plan and completion criteria; revise its files with submit_change_plan inside the existing write scope. Open a separate workflow only for independent work. Existing scope and approval requirements still apply.\nAll planned stages are passed or this workflow has no stages. Explicitly call finalize_workflow with runId=run-task-<UUID>, expectedRevision=0, and a fresh operationKey to complete the workflow and release its scope.\nThe workflow changed: before the next judgment or action, re-match it against the skill targets and call every match now. A stage's provider is only the contract its result is recorded under; it does not limit the skills used, and another skill needs no plan change.\nUpdate checkpoint_context when a finished step or failure changes goals, remaining work or needed evidence.",
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

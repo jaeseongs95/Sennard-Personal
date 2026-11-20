@@ -1,0 +1,33 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "emptyStateToken" : "<TOKEN>",
+              "epoch" : 1,
+              "purged" : true,
+              "purgedAt" : "<TIME>",
+              "schemaVersion" : "1.0.0",
+              "stateToken" : "<TOKEN>",
+              "tombstoneDigest" : "<DIGEST>"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

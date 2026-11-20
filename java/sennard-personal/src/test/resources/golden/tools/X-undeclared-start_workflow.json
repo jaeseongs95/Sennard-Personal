@@ -1,0 +1,35 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "INVALID_INPUT",
+              "details" : {
+                "reasonCode" : "UNDECLARED_ARGUMENT"
+              },
+              "message" : "Undeclared arguments: [_sessionBinding]",
+              "messageKey" : "server.call.undeclaredArgument",
+              "params" : {
+                "arguments" : "[_sessionBinding]"
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

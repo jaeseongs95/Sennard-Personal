@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/model-policy.v1.schema.json",
+  "title": "Shared model routing policy",
+  "$defs": {
+    "modelClass": {
+      "enum": [
+        "lightweight",
+        "general",
+        "deep",
+        "frontier"
+      ]
+    },
+    "reasoningEffort": {
+      "description": "A reasoning effort label as the host spells it. Any non-empty string: the set of labels belongs to the host and its models, and a label this product has not seen is recorded, not refused.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,36 @@
+[한국어](execution-attestation.ko.md)
+
+# Execution Observation and Host Integration
+
+Execution observation comes from the `execution` of the caller verified by the server (`VerifiedCaller`). The caller ingress of each host fills in that value from facts the host wrote, the common `HostAttestationProvider` determines eligibility through a trusted adapter, and `WorkflowService` enforces the binding of task, run, stage, and revision, and single consumption. An observation does not expire with time. Reuse is prevented permanently by the single-consumption record, and only an observation with a future timestamp is rejected. The `executionContext` JSON of a tool argument or a wished-for configuration value does not substitute for an observation. There is no signed token (`_hostAttestation`, `aghs1`, `aghs2`).
+
+## Observation and Execution Eligibility
+
+- `caller.execution` is `{model, effort, turnId, provenance}` or `{unavailable: reason}`. Only the tools that record an observation (`plan_workflow`, `record_stage_result`, `classify_skills`, `record_skill_selection`) consume it. 6.0.0 has no execution floor.
+- Two fields are both called `provenance`, and they answer different questions. `caller.execution.provenance` says where the model and the reasoning level came from (the host reported them). `recordedBy.provenance` of a stage result (`ObservedCaller`, `WorkflowCall.of`) says how the server came to know *who* recorded it: `HOST_OBSERVED` only for a subagent whose whole chain the host showed in the call; the main (root) session is `UNAVAILABLE` by design, because it may record on behalf of an agent the host never showed. So a main session whose model and effort were observed still records `recordedBy.provenance: UNAVAILABLE`; the observed execution is in the result's `execution`.
+- `ExecutionAssurance.observe()` in 6.0.0 records the model and the reasoning level reported by the host exactly as reported. The reasoning level is any non-empty string (if there is no report or it is blank, it is `null` with the informational note `HOST_EFFORT_UNREPORTED`), and because the server does not know the model class, it is `null` with the informational note `MODEL_NOT_IN_CATALOG`. There is no list of models or reasoning levels, no list of supported efforts, and no determination of a minimum effort.
+- `observationId` is a hash of (host, sessionId, actor, callId). Even if the same host call is sent again, the second consumption is rejected by the workflow ledger. A host that gives a call no ID (agy) gets its call ID from the row its PreToolUse hook left (see the table below), so its observation exists only when that row is found; `HOST_CALL_ID_UNAVAILABLE` is the diagnosis of a call that has neither an ID nor such a row.
+
+## Integration of the Distributions
+
+| Host | Observation source | Limits |
+| --- | --- | --- |
+| Codex | The static header `Sennard-Host-Label: codex` in `.mcp.json`. The server reads `x-codex-turn-metadata` (`model`, `reasoning_effort`, `turn_id`) in the `_meta` of `tools/call` and the `callId`. There is no hook | If there is no model, `CODEX_EXECUTION_META_MISSING`. If there is no effort, it is observed as `reasoningEffort: null`. A child also uses the value of its own thread |
+| Claude Code | The static header `Sennard-Host-Label: claude` in the manifest. The PreToolUse governance hook records the effort (`effort.level`) and the model (the originating transcript entry, or if none, the session model recorded by `SessionStart` or `PostModelSwitch`) in an admission row (it waits up to 0.3 seconds for the originating entry, and up to 5 seconds when there is no session model to substitute), and the server retrieves that row once by `claudecode/toolUseId` | If the model cannot be observed, `CLAUDE_MODEL_UNOBSERVED` and similar. If there is no effort, it is observed as `reasoningEffort: null`. A transcript-latest estimate is not made |
+| Antigravity | The header `Sennard-Host-Label: agy` in `mcp_config.json` selects the adapter. The MCP host supplies the conversation, root and, for a child, parent in `_meta`. The server takes a PreToolUse observation from the preceding 30 seconds with the same raw conversation, tool and normalized arguments. The hook also records model and effort when the host supplies them. | A missing or conflicting tool observation leaves the call unbound with `HOOK_OBSERVATION_UNMATCHED`. Overlapping observations from different conversations for identical tool inputs are ambiguous until they expire. Where there are retries from one conversation, one call can claim the observations. |
+
+If the host label is absent or a value the adapter does not know, the host is handled as a host seen for the first time. Its trust level is `unavailable`, and the session is designated by `sessionRef` (issued by `open_session`).
+
+The server does not decide a model class. It records `modelClass` as `null` and does not read a list of model names or a class mapping. Whatever reasoning level is reported is recorded as it is, and execution eligibility is not rejected on the basis of a model's supported list or a minimum. If there is no reasoning level, it is recorded as `reasoningEffort: null` and is not supplemented with the value of another model or turn.
+
+## Failure and Verification
+
+If the caller cannot be observed, the result is `BINDING_REQUIRED` (`CALLER_PROVENANCE_UNAVAILABLE`); if the facts of the host contradict each other or there is an eligibility or reuse error, it is `BINDING_INVALID`. A call whose execution alone could not be observed keeps its identity and is still accepted, because 6.0.0 has no execution floor (see below). Isolation from a process that writes to the DB with the same OS user's permissions or calls the MCP path of the server directly is not guaranteed.
+
+The synthetic `_meta` of a unit fixture and the observation of an actually installed host are different verifications. The release and installation owner must confirm, on a real host (design 6.2), the observation and the completion of a guarded workflow separately.
+
+## Basis and Scope of Stage Recommendations
+
+A plan has no floor field for model class or reasoning level. Execution proceeds with whatever agent or model arrives, and whether the root or a subagent records, `record_stage_result` and `finalize_workflow` are not rejected because of the observed model class or reasoning level (including when not observed). A stage requirement has only `policyId`, `kind`, and `observationRequired` (a `deterministic` stage, determined only by the skill's checks, does not require an observation, and any other `semantic` stage does), and the observed values are only recorded. The observation itself (call binding, freshness, format) continues to be checked, and a wished-for value entered by the caller is not turned into an actual observation. Audit obligations, independence, and deliverable checks are enforced as before.
+
+`constraints` of a TaskEnvelope is a string array, and the `gate` of a provider is an audit condition. There is no separate input contract that states an explicit model floor. A generated stage requirement is bound to the `taskDigest` and to the signature of the whole plan, and is recomputed from the task at claim time and compared. If the caller changes a signed value, it is rejected by the integrity check.

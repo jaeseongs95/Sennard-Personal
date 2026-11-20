@@ -1,0 +1,87 @@
+server:
+  address: 127.0.0.1
+  # The server of the hooks, MCP and Actuator: the port the operating system gives at each start, as the admin page's has always been (AdminPageAddress). A fixed port is a
+  # port another program may hold, and a host's configuration file that names it breaks with it. Nothing names the port beforehand: the server writes it, with its process id,
+  # into <state folder>/server.properties once it is ready (ServerAddressPublisher, ServerAddress), and the hook client, the MCP relay and the commands read it from there.
+  port: 0
+  shutdown: graceful
+  # Every client is a process of this PC on the loopback address: no forwarding header is honored (left unset, Spring Boot trusts X-Forwarded-For
+  # from 127/8 when it detects a cloud platform).
+  forward-headers-strategy: none
+  tomcat:
+    max-connections: 256
+    accept-count: 64
+    connection-timeout: 5s
+    keep-alive-timeout: 30s
+spring:
+  main:
+    banner-mode: "off"
+    keep-alive: true
+  config:
+    import: optional:file:${sennard.home:.}/sennard.yaml
+  web:
+    # A request without Accept-Language is answered in the catalogs' source language, not in the language of the machine the server runs on.
+    locale: en
+  threads:
+    virtual:
+      enabled: true
+  transaction:
+    # The time every transaction of the store has (Spring Boot's setting, applied to the store's transaction manager by TransactionManagerCustomizers): no statement of it starts past
+    # that, and a statement is cut when the time left is over (JDBC's query timeout), which is the reason STORE_TIMEOUT. A hosted edition names its own value in its own settings file.
+    default-timeout: 10s
+  lifecycle:
+    timeout-per-shutdown-phase: 2s
+  ai:
+    mcp:
+      server:
+        # Pinned: Spring AI's default is STREAMABLE, so the key stays, and StatelessMcpProtocol refuses a start with any other value.
+        protocol: STATELESS
+        type: SYNC
+        name: sennard
+        version: "@project.version@"
+        capabilities:
+          resource: false
+          prompt: false
+          completion: false
+        streamable-http:
+          mcp-endpoint: /mcp
+management:
+  health:
+    db:
+      # The store answers STORE_PREPARING until its database is prepared; a DataSource health check would call that a failure of the server.
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health,shutdown,metrics,sennard
+  endpoint:
+    shutdown:
+      access: unrestricted # Reached only through GuardFilter.
+sennard:
+  # The JVM's user.home on every OS (not USERPROFILE or HOME: the same input gives the same folder everywhere, and a test that sets user.home isolates the whole product).
+  state-dir: ${user.home}/.sennard
+  # Sennard's own settings database (H2: passkeys, the admin records before the business database is linked, the link settings): a folder under the state folder.
+  settings:
+    directory: ${sennard.state-dir}/settings
+  # The business database's isolation level of this edition (Spring's Isolation: READ_UNCOMMITTED, READ_COMMITTED, REPEATABLE_READ, SERIALIZABLE, DEFAULT). The personal edition has one
+  # user, so READ_COMMITTED is enough: concurrent requests are decided by the database's row locks and the constraints. A hosted edition names its own value in its own settings file.
+  store:
+    isolation: READ_COMMITTED
+  # The attachments (docs/contributing/attachments.md): the bodies of the evidence files, AES-256-GCM segments in files of this folder, and the key files outside it, in a folder the
+  # owner alone can read. The keys' meanings and defaults are AttachmentProperties'; only the two folders are the installation's.
+  attachments:
+    directory: ${sennard.state-dir}/attachments
+    key-directory: ${sennard.state-dir}/secrets/attachment-keys
+  # The skill folders of the installed version (copied from the release jar's sennard-content/ by sennard install). A host with no skill tool of its own does not read SKILL.md from here but from its own copy of the plugin
+  # (HostInstalledSkills: the host's package location); a read of either counts as the skill used.
+  skills-dir: ${sennard.home:.}/skills
+  # Where the agent hosts keep their own files (SennardProperties.Hosts). Claude Code moves its whole configuration folder with CLAUDE_CONFIG_DIR (empty when not set; then it is
+  # .claude in the user's home, which Hosts.claudeConfig decides).
+  hosts:
+    claude-config-dir: ${CLAUDE_CONFIG_DIR:}
+    user-home: ${user.home}
+logging:
+  charset:
+    console: UTF-8
+  level:
+    root: WARN

@@ -1,0 +1,341 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "attemptsRemainingInEpoch" : 2,
+              "attemptsUsedInEpoch" : 1,
+              "currentEpoch" : 1,
+              "gateError" : null,
+              "leases" : [
+                {
+                  "actorId" : "codex:session-dc3f6c441c8e9fd6456a3c3b",
+                  "controlDigest" : "sha256:709e7077a869064bc0dfc4e2c4c2d3394c52004b5306c342b64c005e885c343a",
+                  "epoch" : 1,
+                  "expiresAt" : "<TIME>",
+                  "frameDigest" : "<DIGEST>",
+                  "issuedAt" : "<TIME>",
+                  "leaseId" : "lease-<UUID>",
+                  "operationalDigest" : "sha256:4134fc3119800fc3767c31be392181685a3748d922a6009058ad8de6288c35fa",
+                  "ordinal" : 1,
+                  "outputTargets" : [
+                    "."
+                  ],
+                  "outputTargetsDigest" : "sha256:19a3f6872c35183258369865a8dbf1c1d9153746792b755d177241c485a2544f",
+                  "planIntegrityToken" : "<TOKEN>",
+                  "priorEvidenceDigests" : [ ],
+                  "proposalDigest" : "<DIGEST>",
+                  "rootId" : "root-<UUID>",
+                  "rootRevision" : 1,
+                  "schemaVersion" : "1.0.0",
+                  "state" : "CONSUMED",
+                  "targetDigest" : "sha256:b5c8887d4d1f9e4a7fc65a58ca2d577bc4298d4aeb827af97d6f7d5a916a08d7",
+                  "taskDigest" : "<DIGEST>",
+                  "workspaceDigest" : "<DIGEST>"
+                }
+              ],
+              "maxAttemptsPerEpoch" : 3,
+              "maxEpochs" : 2,
+              "outcomes" : [ ],
+              "proposals" : [
+                {
+                  "expectedRevision" : 0,
+                  "frame" : {
+                    "controlArtifacts" : [
+                      {
+                        "artifactId" : "acceptance-criteria",
+                        "digest" : "sha256:98704316a71756ab0814959c0c61f57dbd18b7570f157cd87e0a4f6ab3d0de88",
+                        "locator" : "taskEnvelope.acceptanceCriteria",
+                        "role" : "pass-condition"
+                      }
+                    ],
+                    "operationalSettings" : {
+                      "leaseTtlSeconds" : 300,
+                      "maxAttemptsPerEpoch" : 3,
+                      "maxEpochs" : 2
+                    },
+                    "schemaVersion" : "1.0.0",
+                    "targetArtifacts" : [
+                      {
+                        "artifactId" : "target-1",
+                        "digest" : "sha256:3128cedbd0b6f420e41515ff4abea8aa022ef7499b86eba8ada405b32aee542b",
+                        "locator" : ".",
+                        "role" : "target"
+                      }
+                    ],
+                    "workspace" : {
+                      "locator" : "{WS}/t-get-convergence-status-ok",
+                      "workspaceId" : "t-get-convergence-status-ok"
+                    }
+                  },
+                  "outputTargets" : [
+                    "."
+                  ],
+                  "plan" : {
+                    "bootstrapExecution" : {
+                      "context" : {
+                        "actorId" : "codex:session-dc3f6c441c8e9fd6456a3c3b",
+                        "model" : "gpt-6.1-sol",
+                        "modelClass" : null,
+                        "observationId" : "P4Xo2x391WJUTJxwDdcX5wKPyooDxBjAbEdCk5aEiWI",
+                        "observedAt" : "<TIME>",
+                        "policyNotes" : [
+                          "MODEL_NOT_IN_CATALOG"
+                        ],
+                        "reasoningEffort" : "low",
+                        "revision" : null,
+                        "runId" : null,
+                        "schemaVersion" : "1.0.0",
+                        "source" : "runtime",
+                        "stageId" : null,
+                        "taskId" : "task-<UUID>"
+                      },
+                      "requirement" : {
+                        "kind" : "semantic",
+                        "observationRequired" : true,
+                        "policyId" : "semantic-execution-assurance-v1"
+                      }
+                    },
+                    "currentStageId" : null,
+                    "errors" : [ ],
+                    "executionMode" : "orchestrated",
+                    "integrityToken" : "<TOKEN>",
+                    "nextStageId" : "stage-01-minimal-implementation",
+                    "schemaVersion" : "1.0.0",
+                    "selectedSkills" : [
+                      "minimal-implementation"
+                    ],
+                    "stages" : [
+                      {
+                        "executionClass" : "workflow",
+                        "executionRequirement" : {
+                          "kind" : "semantic",
+                          "observationRequired" : true,
+                          "policyId" : "semantic-execution-assurance-v1"
+                        },
+                        "gate" : {
+                          "kind" : "none",
+                          "policy" : "none",
+                          "validator" : null,
+                          "validatorSchema" : null
+                        },
+                        "inputBindings" : [ ],
+                        "order" : 1,
+                        "outputSchema" : {
+                          "digest" : "sha256:623de96ffedcfd5fd0084b524832e7d5072645f82264be3e706e0977201f1386",
+                          "path" : "contracts/freeform-output.v1.schema.json"
+                        },
+                        "phase" : "implementation",
+                        "phaseOrder" : 44,
+                        "producedArtifacts" : [ ],
+                        "providerKey" : "minimal-implementation:implementation:1",
+                        "requiredArtifacts" : [ ],
+                        "requiredCapability" : "minimal-implementation",
+                        "requiredInputArtifacts" : [ ],
+                        "resultSchema" : {
+                          "digest" : "sha256:bb8fefad354b7e61f5de8f5c535227f45b4f441765558e66d1765a7883d85927",
+                          "path" : "contracts/provider-result.v1.schema.json"
+                        },
+                        "riskGate" : "none",
+                        "satisfiedCapabilities" : [
+                          "minimal-implementation"
+                        ],
+                        "selectionReason" : "Selected 'minimal-implementation' because provider 'minimal-implementation:implementation:1' supplies 'minimal-implementation' at priority 50.",
+                        "skillId" : "minimal-implementation",
+                        "stageId" : "stage-01-minimal-implementation",
+                        "state" : "READY",
+                        "stateMapping" : {
+                          "adapterErrors" : [
+                            "INVALID_INPUT",
+                            "MISSING_EVIDENCE"
+                          ],
+                          "default" : "reject",
+                          "selector" : "/output/status",
+                          "values" : {
+                            "blocked" : {
+                              "allowedErrorCodes" : [
+                                "MISSING_EVIDENCE"
+                              ],
+                              "errorRequired" : true,
+                              "state" : "BLOCKED"
+                            },
+                            "failed" : {
+                              "allowedErrorCodes" : [
+                                "GATE_FAILED"
+                              ],
+                              "errorRequired" : true,
+                              "state" : "FAILED"
+                            },
+                            "passed" : {
+                              "errorRequired" : false,
+                              "state" : "PASSED"
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "state" : "READY",
+                    "taskDigest" : "<DIGEST>",
+                    "taskId" : "task-<UUID>"
+                  },
+                  "priorFailure" : null,
+                  "rootId" : "root-<UUID>",
+                  "schemaVersion" : "1.0.0",
+                  "taskEnvelope" : {
+                    "acceptanceCriteria" : [
+                      "The change works."
+                    ],
+                    "authorization" : {
+                      "allowedActions" : [ ],
+                      "approvalRequired" : [ ],
+                      "prohibitedActions" : [ ]
+                    },
+                    "constraints" : [ ],
+                    "decision" : {
+                      "complexity" : "complex",
+                      "hasConflicts" : false
+                    },
+                    "objective" : "Change [.] in t-get-convergence-status-ok",
+                    "orchestration" : {
+                      "mcpAvailable" : true,
+                      "requested" : true
+                    },
+                    "requiredCapabilities" : [
+                      "minimal-implementation"
+                    ],
+                    "riskLevel" : "medium",
+                    "schemaVersion" : "1.0.0",
+                    "scope" : {
+                      "excluded" : [ ],
+                      "included" : [
+                        "."
+                      ]
+                    },
+                    "taskId" : "task-<UUID>",
+                    "workUnits" : [
+                      {
+                        "dependencies" : [ ],
+                        "id" : "work",
+                        "objective" : "Change [.] in t-get-convergence-status-ok",
+                        "writeTargets" : [
+                          "."
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "reviews" : [ ],
+              "root" : {
+                "controlDigest" : "sha256:709e7077a869064bc0dfc4e2c4c2d3394c52004b5306c342b64c005e885c343a",
+                "createdAt" : "<TIME>",
+                "currentEpoch" : 1,
+                "frame" : {
+                  "controlArtifacts" : [
+                    {
+                      "artifactId" : "acceptance-criteria",
+                      "digest" : "sha256:98704316a71756ab0814959c0c61f57dbd18b7570f157cd87e0a4f6ab3d0de88",
+                      "locator" : "taskEnvelope.acceptanceCriteria",
+                      "role" : "pass-condition"
+                    }
+                  ],
+                  "operationalSettings" : {
+                    "leaseTtlSeconds" : 300,
+                    "maxAttemptsPerEpoch" : 3,
+                    "maxEpochs" : 2
+                  },
+                  "schemaVersion" : "1.0.0",
+                  "targetArtifacts" : [
+                    {
+                      "artifactId" : "target-1",
+                      "digest" : "sha256:3128cedbd0b6f420e41515ff4abea8aa022ef7499b86eba8ada405b32aee542b",
+                      "locator" : ".",
+                      "role" : "target"
+                    }
+                  ],
+                  "workspace" : {
+                    "locator" : "{WS}/t-get-convergence-status-ok",
+                    "workspaceId" : "t-get-convergence-status-ok"
+                  }
+                },
+                "frameDigest" : "<DIGEST>",
+                "operationalDigest" : "sha256:4134fc3119800fc3767c31be392181685a3748d922a6009058ad8de6288c35fa",
+                "parentRootId" : null,
+                "revision" : 2,
+                "rootId" : "root-<UUID>",
+                "schemaVersion" : "1.0.0",
+                "state" : "OPEN",
+                "targetDigest" : "sha256:b5c8887d4d1f9e4a7fc65a58ca2d577bc4298d4aeb827af97d6f7d5a916a08d7",
+                "taskDigest" : "<DIGEST>",
+                "taskEnvelope" : {
+                  "acceptanceCriteria" : [
+                    "The change works."
+                  ],
+                  "authorization" : {
+                    "allowedActions" : [ ],
+                    "approvalRequired" : [ ],
+                    "prohibitedActions" : [ ]
+                  },
+                  "constraints" : [ ],
+                  "decision" : {
+                    "complexity" : "complex",
+                    "hasConflicts" : false
+                  },
+                  "objective" : "Change [.] in t-get-convergence-status-ok",
+                  "orchestration" : {
+                    "mcpAvailable" : true,
+                    "requested" : true
+                  },
+                  "requiredCapabilities" : [
+                    "minimal-implementation"
+                  ],
+                  "riskLevel" : "medium",
+                  "schemaVersion" : "1.0.0",
+                  "scope" : {
+                    "excluded" : [ ],
+                    "included" : [
+                      "."
+                    ]
+                  },
+                  "taskId" : "task-<UUID>",
+                  "workUnits" : [
+                    {
+                      "dependencies" : [ ],
+                      "id" : "work",
+                      "objective" : "Change [.] in t-get-convergence-status-ok",
+                      "writeTargets" : [
+                        "."
+                      ]
+                    }
+                  ]
+                },
+                "updatedAt" : "<TIME>",
+                "userApprovalRefs" : [ ],
+                "workspaceDigest" : "<DIGEST>"
+              },
+              "schemaVersion" : "1.0.0",
+              "unverifiedClaims" : [ ],
+              "workflowRunIds" : [
+                "run-task-<UUID>"
+              ]
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

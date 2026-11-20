@@ -1,0 +1,134 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+            "exitCode" : 0,
+            "value" : {
+              "error" : null,
+              "ok" : true,
+              "output" : {
+                "acceptanceEvidencePlan" : {
+                  "criteria" : [
+                    {
+                      "criterionId" : "AC-001",
+                      "expectedEvidenceKinds" : [
+                        "file"
+                      ],
+                      "passCondition" : "설치 선행조건과 해당 파일 위치가 결과에 포함된다.",
+                      "statement" : "[AC-001] README의 설치 선행조건을 근거 위치와 함께 반환한다.",
+                      "verificationMethod" : "README에서 설치 절을 읽고 근거 위치를 기록한다."
+                    }
+                  ],
+                  "schemaVersion" : "1.0.0"
+                },
+                "ambiguities" : [ ],
+                "assumptions" : [ ],
+                "authorizationProvenance" : [
+                  {
+                    "action" : "read repository files",
+                    "authority" : "user",
+                    "effect" : "allow",
+                    "envelopeField" : "/authorization/allowedActions",
+                    "sourceLocator" : "user-request"
+                  },
+                  {
+                    "action" : "modify files",
+                    "authority" : "project-instruction",
+                    "effect" : "prohibit",
+                    "envelopeField" : "/authorization/prohibitedActions",
+                    "sourceLocator" : "artifact://instruction-scope-resolution/1"
+                  }
+                ],
+                "contradictions" : [ ],
+                "provenance" : [
+                  {
+                    "basis" : "explicit",
+                    "field" : "/objective",
+                    "sourceLocator" : "user-request",
+                    "valueSummary" : "README 설치 조건 확인"
+                  },
+                  {
+                    "basis" : "explicit",
+                    "field" : "/scope",
+                    "sourceLocator" : "user-request",
+                    "valueSummary" : "README만 읽기"
+                  },
+                  {
+                    "basis" : "verified-inference",
+                    "field" : "/riskLevel",
+                    "sourceLocator" : "user-request",
+                    "valueSummary" : "읽기 전용"
+                  },
+                  {
+                    "basis" : "verified-inference",
+                    "field" : "/authorization",
+                    "sourceLocator" : "user-request",
+                    "valueSummary" : "읽기만 허용"
+                  }
+                ],
+                "schemaVersion" : "1.0.0",
+                "taskEnvelope" : {
+                  "acceptanceCriteria" : [
+                    "[AC-001] README의 설치 선행조건을 근거 위치와 함께 반환한다."
+                  ],
+                  "authorization" : {
+                    "allowedActions" : [
+                      "read repository files"
+                    ],
+                    "approvalRequired" : [ ],
+                    "prohibitedActions" : [
+                      "modify files"
+                    ]
+                  },
+                  "constraints" : [
+                    "파일을 수정하지 않는다."
+                  ],
+                  "decision" : {
+                    "complexity" : "simple",
+                    "hasConflicts" : false
+                  },
+                  "objective" : "README에 기록된 설치 조건을 확인한다.",
+                  "orchestration" : {
+                    "mcpAvailable" : false,
+                    "requested" : false
+                  },
+                  "requiredCapabilities" : [ ],
+                  "riskLevel" : "low",
+                  "schemaVersion" : "1.0.0",
+                  "scope" : {
+                    "excluded" : [
+                      "source files"
+                    ],
+                    "included" : [
+                      "README.md"
+                    ]
+                  },
+                  "taskId" : "task-read-readme",
+                  "workUnits" : [ ]
+                },
+                "verdict" : "PASS"
+              },
+              "schemaVersion" : "1.0.0"
+            }
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

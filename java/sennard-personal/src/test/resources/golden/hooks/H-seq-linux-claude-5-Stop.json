@@ -1,0 +1,10 @@
+{
+  "body" : {
+    "hookSpecificOutput" : {
+      "additionalContext" : "[Sennard save check] This turn has no saved record of what the user said. If the user's message was one the Sennard intake says to checkpoint, save it now: checkpoint_context for this task's state, checkpoint_role_context for what later sessions of your role need. If there is nothing to save, call mark_turn_unchanged. Then finish the turn.",
+      "hookEventName" : "Stop"
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

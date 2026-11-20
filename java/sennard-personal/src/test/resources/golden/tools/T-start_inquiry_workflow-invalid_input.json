@@ -1,0 +1,33 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "INVALID_INPUT",
+              "details" : {
+                "field" : "goal"
+              },
+              "message" : "goal must be a non-empty string.",
+              "messageKey" : "workflow.service.goalNonEmptyString",
+              "params" : { }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

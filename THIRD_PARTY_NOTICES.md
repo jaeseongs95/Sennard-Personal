@@ -1,0 +1,112 @@
+# Third-Party Notices
+
+Sennard is licensed under AGPL-3.0-or-later with the additional terms in ADDITIONAL-TERMS.md. The release archive also contains the components listed below, each under the license named
+for it. Where a component names more than one license, it is offered under any one of them. This file is generated from the dependency metadata of the shipped class path
+(`./gradlew :sennard-personal:generateThirdPartyNotices` in `java/`); do not edit it by hand.
+
+- ch.qos.logback:logback-classic 1.5.38 - Eclipse Public License - v 2.0; GNU LESSER GENERAL PUBLIC LICENSE, Version 2.1 - http://www.qos.ch
+- ch.qos.logback:logback-core 1.5.38 - Eclipse Public License - v 2.0; GNU LESSER GENERAL PUBLIC LICENSE, Version 2.1 - http://www.qos.ch
+- com.ethlo.time:itu 1.14.0 - Apache License, Version 2.0 - https://github.com/ethlo/itu
+- com.fasterxml.jackson.core:jackson-annotations 2.21 - Apache License, Version 2.0 - https://github.com/FasterXML/jackson
+- com.fasterxml:classmate 1.7.3 - Apache License, Version 2.0 - https://github.com/FasterXML/java-classmate
+- com.github.ben-manes.caffeine:caffeine 3.2.4 - Apache License, Version 2.0 - https://github.com/ben-manes/caffeine
+- com.github.victools:jsonschema-generator 5.0.0 - Apache License, Version 2.0 - https://github.com/victools/jsonschema-generator
+- com.github.victools:jsonschema-module-jackson 5.0.0 - Apache License, Version 2.0 - https://github.com/victools/jsonschema-generator
+- com.github.victools:jsonschema-module-swagger-2 5.0.0 - Apache License, Version 2.0
+- com.google.errorprone:error_prone_annotations 2.49.0 - Apache License, Version 2.0 - https://errorprone.info/error_prone_annotations
+- com.h2database:h2 2.4.240 - EPL 1.0; Mozilla Public License, Version 2.0 - https://h2database.com
+- com.knuddels:jtokkit 1.1.0 - MIT License - https://github.com/knuddelsgmbh/jtokkit
+- com.networknt:json-schema-validator 3.0.6 - Apache License, Version 2.0 - https://github.com/networknt/json-schema-validator
+- com.zaxxer:HikariCP 7.0.2 - Apache License, Version 2.0 - https://github.com/brettwooldridge https://github.com/brettwooldridge/HikariCP
+- commons-logging:commons-logging 1.3.6 - Apache License, Version 2.0 - https://commons.apache.org/proper/commons-logging/
+- io.micrometer:context-propagation 1.2.1 - Apache License, Version 2.0 - https://github.com/micrometer-metrics/context-propagation
+- io.micrometer:micrometer-commons 1.17.2 - Apache License, Version 2.0 - https://github.com/micrometer-metrics/micrometer
+- io.micrometer:micrometer-core 1.17.2 - Apache License, Version 2.0 - https://github.com/micrometer-metrics/micrometer
+- io.micrometer:micrometer-jakarta9 1.17.2 - Apache License, Version 2.0 - https://github.com/micrometer-metrics/micrometer
+- io.micrometer:micrometer-observation 1.17.2 - Apache License, Version 2.0 - https://github.com/micrometer-metrics/micrometer
+- io.modelcontextprotocol.sdk:mcp 2.1.0 - MIT License - https://github.com/modelcontextprotocol/java-sdk
+- io.modelcontextprotocol.sdk:mcp-core 2.1.0 - MIT License - https://github.com/modelcontextprotocol/java-sdk
+- io.modelcontextprotocol.sdk:mcp-json-jackson3 2.1.0 - MIT License - https://github.com/modelcontextprotocol/java-sdk
+- io.projectreactor:reactor-core 3.8.8 - Apache License, Version 2.0 - https://github.com/reactor/reactor-core
+- io.swagger.core.v3:swagger-annotations-jakarta 2.2.38 - Apache License, Version 2.0 - https://github.com/swagger-api/swagger-core/modules/swagger-annotations
+- jakarta.annotation:jakarta.annotation-api 3.0.0 - Eclipse Public License - v 2.0; GNU GENERAL PUBLIC LICENSE, Version 2; GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception - https://projects.eclipse.org/projects/ee4j.ca https://www.eclipse.org
+- jakarta.validation:jakarta.validation-api 3.1.1 - Apache License, Version 2.0; Eclipse Public License - v 2.0; GNU GENERAL PUBLIC LICENSE, Version 2; GNU GENERAL PUBLIC LICENSE, Version 2 + Classpath Exception - https://beanvalidation.org https://www.eclipse.org
+- org.antlr:ST4 4.3.4 - The BSD License
+- org.antlr:antlr-runtime 3.5.3 - BSD licence - http://www.antlr.org
+- org.antlr:antlr4-runtime 4.13.1 - The 3-Clause BSD License - https://www.antlr.org/
+- org.apache.logging.log4j:log4j-api 2.25.5 - Apache License, Version 2.0 - https://logging.apache.org/log4j/2.x/
+- org.apache.logging.log4j:log4j-to-slf4j 2.25.5 - Apache License, Version 2.0 - https://logging.apache.org/log4j/2.x/
+- org.apache.tomcat.embed:tomcat-embed-core 11.0.27 - Apache License, Version 2.0; Eclipse Public License - v 2.0 - https://tomcat.apache.org/
+- org.apache.tomcat.embed:tomcat-embed-el 11.0.27 - Apache License, Version 2.0 - https://tomcat.apache.org/
+- org.apache.tomcat.embed:tomcat-embed-websocket 11.0.27 - Apache License, Version 2.0 - https://tomcat.apache.org/
+- org.hdrhistogram:HdrHistogram 2.2.2 - Creative Commons Legal Code; PUBLIC DOMAIN; The 2-Clause BSD License - http://hdrhistogram.github.io/HdrHistogram/
+- org.hibernate.validator:hibernate-validator 9.1.5.Final - Apache License, Version 2.0 - https://hibernate.org/validator
+- org.jboss.logging:jboss-logging 3.6.3.Final - Apache License, Version 2.0 - http://www.jboss.org https://www.jboss.org
+- org.jspecify:jspecify 1.0.1 - Apache License, Version 2.0 - https://jspecify.dev/ https://jspecify.dev/docs/start-here
+- org.reactivestreams:reactive-streams 1.0.4 - MIT-0 - http://reactive-streams.org http://www.reactive-streams.org/
+- org.slf4j:jul-to-slf4j 2.0.20 - MIT License - http://www.slf4j.org
+- org.slf4j:slf4j-api 2.0.20 - MIT License - http://www.slf4j.org
+- org.snakeyaml:snakeyaml-engine 3.0.1 - Apache License, Version 2.0 - https://bitbucket.org/snakeyaml/snakeyaml-engine
+- org.springframework.ai:mcp-spring-webmvc 2.0.2 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-ai
+- org.springframework.ai:spring-ai-autoconfigure-mcp-server-common 2.0.2 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-ai
+- org.springframework.ai:spring-ai-autoconfigure-mcp-server-webmvc 2.0.2 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-ai
+- org.springframework.ai:spring-ai-commons 2.0.2 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-ai
+- org.springframework.ai:spring-ai-mcp 2.0.2 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-ai
+- org.springframework.ai:spring-ai-mcp-annotations 2.0.2 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-ai
+- org.springframework.ai:spring-ai-model 2.0.2 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-ai
+- org.springframework.ai:spring-ai-starter-mcp-server-webmvc 2.0.2 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-ai
+- org.springframework.ai:spring-ai-template-st 2.0.2 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-ai
+- org.springframework.boot:spring-boot 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-actuator 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-actuator-autoconfigure 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-autoconfigure 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-cache 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-data-commons 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-data-jdbc 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-health 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-http-client 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-http-converter 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-jackson 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-jdbc 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-micrometer-metrics 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-micrometer-observation 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-persistence 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-restclient 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-servlet 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-sql 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-actuator 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-cache 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-data-jdbc 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-jackson 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-jdbc 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-logging 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-micrometer-metrics 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-restclient 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-tomcat 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-tomcat-runtime 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-validation 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-starter-web 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-tomcat 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-transaction 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-validation 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-web-server 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.boot:spring-boot-webmvc 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-boot
+- org.springframework.data:spring-data-commons 4.1.2 - Apache License, Version 2.0 - https://spring.io/projects/spring-data
+- org.springframework.data:spring-data-jdbc 4.1.2 - Apache License, Version 2.0 - https://projects.spring.io/spring-data-jdbc
+- org.springframework.data:spring-data-relational 4.1.2 - Apache License, Version 2.0
+- org.springframework:spring-aop 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-beans 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-context 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-context-support 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-core 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-expression 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-jdbc 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-messaging 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-tx 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-web 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.springframework:spring-webmvc 7.0.10 - Apache License, Version 2.0 - https://github.com/spring-projects/spring-framework
+- org.yaml:snakeyaml 2.6 - Apache License, Version 2.0 - https://bitbucket.org/snakeyaml/snakeyaml
+- tools.jackson.core:jackson-core 3.1.7 - Apache License, Version 2.0 - https://github.com/FasterXML/jackson-core
+- tools.jackson.core:jackson-databind 3.1.7 - Apache License, Version 2.0 - https://github.com/FasterXML/jackson
+- tools.jackson.dataformat:jackson-dataformat-yaml 3.1.7 - Apache License, Version 2.0 - https://github.com/FasterXML/jackson-dataformats-text

@@ -1,0 +1,42 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "acceptedAuthorityEffects" : [
+                "none",
+                "restrict-only"
+              ],
+              "acceptedOrigins" : [
+                "peer",
+                "system",
+                "developer",
+                "project",
+                "artifact"
+              ],
+              "authorityIssuance" : false,
+              "directUserInputAttestation" : false,
+              "provenanceRecording" : true,
+              "schemaVersion" : "1.0.0",
+              "scopedDelegation" : false
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

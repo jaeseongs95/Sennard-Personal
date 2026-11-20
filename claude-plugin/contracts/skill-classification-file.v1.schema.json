@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/skill-classification-file.v1.schema.json",
+  "title": "SkillClassificationFile.v1",
+  "description": "The classification.json that every skill folder carries: its taxonomy actions and targets, the cited text that says when it applies, and the one category it belongs to. The category only decides how skills are listed (README, admin page); it changes no selection, check or hook.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taxonomyRevision", "category", "actions", "targets", "constraints", "dependencies", "applicability", "exclusions"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "taxonomyRevision": { "type": "string", "minLength": 1 },
+    "category": { "enum": ["agent-correction", "specialist"] },
+    "actions": { "$ref": "#/$defs/names" },
+    "targets": { "$ref": "#/$defs/names" },
+    "constraints": { "$ref": "#/$defs/names" },
+    "dependencies": { "$ref": "#/$defs/names" },
+    "capabilities": { "$ref": "#/$defs/names" },
+    "applicability": { "$ref": "#/$defs/citations" },
+    "exclusions": { "$ref": "#/$defs/citations" }
+  },
+  "$defs": {
+    "names": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "citations": { "type": "array", "items": { "$ref": "#/$defs/citation" } },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "startLine", "endLine", "digest"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "startByte": { "type": "integer", "minimum": 0 },
+        "endByte": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

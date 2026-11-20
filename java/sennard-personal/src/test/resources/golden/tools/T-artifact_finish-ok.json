@@ -1,0 +1,36 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "attachmentId" : "<UUID>",
+              "files" : [
+                {
+                  "fileName" : "golden.txt",
+                  "mediaType" : "text/plain",
+                  "seq" : 0,
+                  "sha256" : "sha256:de02fd510103eb31b0aa24f24c5dd53f964bb30943d0dd2062ba135c8f835ffd",
+                  "size" : 18
+                }
+              ]
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

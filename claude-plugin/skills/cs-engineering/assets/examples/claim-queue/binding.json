@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "requestRef": {
+    "path": "request.json",
+    "digest": "sha256:69c0e8f31aff6dbebd43e4b65ba42949aa270aba31eb82bc0ed5d5ae92e40ca6"
+  },
+  "requestDigest": "sha256:95e26da4743949733f23d4f5e9c6f99af2514c0ba23f434a443b5919630dd645",
+  "constraintReportRef": {
+    "path": "constraints.json",
+    "digest": "sha256:7adf55385b1fbed8b9be0ca4580ae4bb7ea0fe3bc3ae36d236bf36d776bb1cdd"
+  },
+  "constraintReportDigest": "sha256:84c7cb2fab2a67633a98b54fd056dba13a3d4a809eefc3ed5f0032867893c5fe",
+  "taskDigest": "sha256:060e7a60457e5621a070095e6386c1592aca63193a5bf7acaa153242fe241030",
+  "knowledgePackVersion": "0.1.0",
+  "knowledgePackDigest": "sha256:f269ce3ffd5b31f3820639484dd9cfb587f91a29c29f1fa0dc0c95dbd84b3ca3",
+  "policyId": "REFERENCE-LOCAL",
+  "policyVersion": "1.0.0",
+  "policyDigest": "sha256:fb5c9187f1e7af8e250508f3d1ae84fadc0420813baa3800ef3eb5ca68bc3b33",
+  "mode": "enforce",
+  "requiredObligationIds": [
+    "OB-CLAIM",
+    "OB-FENCE"
+  ]
+}

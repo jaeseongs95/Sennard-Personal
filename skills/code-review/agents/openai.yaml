@@ -1,0 +1,6 @@
+interface:
+  display_name: "code-review"
+  short_description: "고정 변경분과 고정 리비전 기존 코드의 근거 중심 리뷰"
+  default_prompt: "Use $code-review for the requested scope, preserve Sennard ownership, and report unverified items."
+policy:
+  allow_implicit_invocation: true

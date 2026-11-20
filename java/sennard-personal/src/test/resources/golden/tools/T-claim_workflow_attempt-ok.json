@@ -1,0 +1,53 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "actorId" : "codex:session-6408b0e5a4bfd383d5365851",
+              "controlDigest" : "sha256:709e7077a869064bc0dfc4e2c4c2d3394c52004b5306c342b64c005e885c343a",
+              "epoch" : 1,
+              "expiresAt" : "<TIME>",
+              "frameDigest" : "<DIGEST>",
+              "issuedAt" : "<TIME>",
+              "leaseId" : "lease-<UUID>",
+              "operationalDigest" : "sha256:4134fc3119800fc3767c31be392181685a3748d922a6009058ad8de6288c35fa",
+              "ordinal" : 1,
+              "outputTargets" : [
+                "alpha"
+              ],
+              "outputTargetsDigest" : "sha256:15070794f9a7cc24f7e107fc5a4b92426f82cc61ad1cb74d37a80a11437d03b3",
+              "planIntegrityToken" : "<TOKEN>",
+              "priorEvidenceDigests" : [ ],
+              "proposalDigest" : "<DIGEST>",
+              "rootId" : "root-<UUID>",
+              "rootRevision" : 1,
+              "schemaVersion" : "1.0.0",
+              "state" : "ISSUED",
+              "targetDigest" : "sha256:e95a2de8b73457341f76a380cecb961693e6d77823c6c3ad89ae21f9f4e9ac54",
+              "taskDigest" : "sha256:76e0594232924efdfb34e50c29bf3e1775c900935f111488a9ed1d7d7db2d163",
+              "workspaceDigest" : "<DIGEST>"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        },
+        {
+          "text" : "The workflow changed: before the next judgment or action, re-match it against the skill targets and call every match now. A stage's provider is only the contract its result is recorded under; it does not limit the skills used, and another skill needs no plan change.\nUpdate checkpoint_context when a finished step or failure changes goals, remaining work or needed evidence.",
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

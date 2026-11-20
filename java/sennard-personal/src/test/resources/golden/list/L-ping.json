@@ -1,0 +1,9 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : { }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

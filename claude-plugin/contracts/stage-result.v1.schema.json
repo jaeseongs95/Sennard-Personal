@@ -1,0 +1,466 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/stage-result.v1.schema.json",
+  "title": "StageResult.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "stageId",
+    "expectedRevision",
+    "state",
+    "output",
+    "evidence",
+    "findings",
+    "blockers",
+    "error"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "state": {
+      "enum": [
+        "NEEDS_INPUT",
+        "NEEDS_APPROVAL",
+        "NEEDS_REDESIGN",
+        "FAILED",
+        "PASSED",
+        "BLOCKED"
+      ]
+    },
+    "output": {
+      "$ref": "#/$defs/providerResult"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/error"
+        }
+      ]
+    },
+    "executionContext": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/executionContext"
+        }
+      ]
+    },
+    "artifactChecks": {
+      "description": "Server-owned. What the server itself checked when it recorded this result; callers must not send it. Absent means nothing was checked.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "artifactId",
+          "attachmentId",
+          "check"
+        ],
+        "properties": {
+          "source": {
+            "enum": [
+              "ARTIFACT",
+              "EVIDENCE"
+            ]
+          },
+          "artifactId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attachmentId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "seq": {
+            "description": "The file of the attachment the check was made on (its number in artifact_begin files).",
+            "type": "integer",
+            "minimum": 0
+          },
+          "check": {
+            "enum": [
+              "SHA256_MATCHED",
+              "NOT_CHECKED"
+            ]
+          }
+        }
+      }
+    },
+    "recordedBy": {
+      "description": "Server-owned. The observed caller that recorded this result; callers must not send it. provenance HOST_OBSERVED means the host supplied an identity the caller cannot forge.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor",
+        "parentChain",
+        "provenance"
+      ],
+      "properties": {
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parentChain": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "provenance": {
+          "enum": [
+            "HOST_OBSERVED",
+            "UNAVAILABLE"
+          ]
+        }
+      }
+    },
+    "outputFile": {
+      "description": "The attachment holding output.output as a JSON object when it is too large for tool arguments. Upload it with the artifact tools first, as the session that records this result. output.output must then be null; the server reads the attachment, checks that its sha256 is digest and validates it like inline output. The server never reads a path on the caller's computer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attachmentId",
+        "digest"
+      ],
+      "properties": {
+        "attachmentId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "seq": {
+          "description": "Which file of the attachment holds the output: its number in the order of artifact_begin's files; 0 when it is left out.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "digest": {
+          "description": "The sha256 of that file.",
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "providerResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "kind",
+        "output",
+        "artifacts",
+        "error"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0.0"
+        },
+        "kind": {
+          "enum": [
+            "output",
+            "adapter-error"
+          ]
+        },
+        "output": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/providerArtifact"
+          }
+        },
+        "error": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/error"
+            }
+          ]
+        }
+      }
+    },
+    "providerArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "schemaId",
+        "attachmentId",
+        "digest",
+        "targetDigest",
+        "verified"
+      ],
+      "properties": {
+        "artifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schemaId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachmentId": {
+          "description": "The attachment that keeps the bytes of this artifact, uploaded with the artifact tools by the session that records this result. It must exist and be the recording session's. When the sha256 of the file seq is the digest the server records SHA256_MATCHED; when it differs a passing stage is refused and any other stage records NOT_CHECKED.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "seq": {
+          "description": "Which file of the attachment holds this artifact: its number in the order of artifact_begin's files; 0 when it is left out. Several artifacts and evidence items may point at different files of one attachment.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "digest": {
+          "description": "The sha256 the caller declares for the file, bare or as sha256:<hex>.",
+          "type": "string",
+          "pattern": "^(?:sha256:)?[a-f0-9]{64}$"
+        },
+        "targetDigest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verified": {
+          "description": "Provider declaration only. Gate decisions use the server-owned artifactChecks.",
+          "type": "boolean"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "kind",
+        "attachmentId",
+        "digest",
+        "verified",
+        "note"
+      ],
+      "properties": {
+        "artifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "user-input",
+            "file",
+            "test",
+            "document",
+            "tool"
+          ]
+        },
+        "attachmentId": {
+          "description": "The attachment that keeps the bytes of this evidence, uploaded with the artifact tools by the session that records this result. It must exist and be the recording session's, or recording the result fails. Two items may point at the same file, or at different files of the same attachment. When the sha256 of the file seq is digest the server records SHA256_MATCHED; when it differs a passing stage is refused and any other stage records NOT_CHECKED.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "seq": {
+          "description": "Which file of the attachment holds this evidence: its number in the order of artifact_begin's files; 0 when it is left out.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "digest": {
+          "description": "The sha256 the caller declares for the file, as sha256:<hex>.",
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "verified": {
+          "description": "Caller declaration only. Gate decisions use the server-owned artifactChecks.",
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_INPUT",
+            "RUN_NOT_FOUND",
+            "STALE_REVISION",
+            "INVALID_TRANSITION",
+            "MISSING_EVIDENCE",
+            "GATE_FAILED",
+            "MCP_UNAVAILABLE",
+            "LEASE_REQUIRED",
+            "LEASE_CONFLICT",
+            "FRAME_REVIEW_REQUIRED",
+            "ATTEMPT_BUDGET_EXHAUSTED",
+            "NEW_EVIDENCE_REQUIRED",
+            "ROOT_CONFLICT",
+            "CONTINUITY_UNAVAILABLE",
+            "BINDING_REQUIRED",
+            "BINDING_INVALID",
+            "SNAPSHOT_NOT_FOUND",
+            "SNAPSHOT_CONFLICT",
+            "REQUEST_CONFLICT",
+            "INTEGRITY_FAILED"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        }
+      }
+    },
+    "executionContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "model",
+        "modelClass",
+        "reasoningEffort",
+        "source",
+        "observedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0.0"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "modelClass": {
+          "description": "The class of the observed model when the host reports one, otherwise null. Any non-empty string: the value is recorded, not judged.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "reasoningEffort": {
+          "description": "The reasoning effort the host reported for the call, as the host spelled it, otherwise null. Any non-empty string: the value is recorded, not judged.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "policyNotes": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+          }
+        },
+        "source": {
+          "enum": [
+            "runtime",
+            "spawn-result"
+          ]
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "observationId": {
+          "type": "string",
+          "minLength": 16
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "stageId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "actorId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

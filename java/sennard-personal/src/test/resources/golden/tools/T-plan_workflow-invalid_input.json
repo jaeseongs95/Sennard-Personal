@@ -1,0 +1,35 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "INVALID_INPUT",
+              "details" : {
+                "validationErrors" : " must be valid to one and only one schema, but 0 are valid;  required property 'schemaVersion' not found;  required property 'taskId' not found;  required property 'objective' not found;  required property 'scope' not found;  required property 'acceptanceCriteria' not found;  required property 'riskLevel' not found;  required property 'workUnits' not found;  required property 'requiredCapabilities' not found;  required property 'constraints' not found;  required property 'authorization' not found;  required property 'decision' not found;  required property 'orchestration' not found;  required property 'schemaVersion' not found;  required property 'taskEnvelope' not found;  required property 'evaluationAuditPurpose' not found"
+              },
+              "message" : "plan-workflow-request.v1.schema.json does not match its v1 contract.",
+              "messageKey" : "workflow.schema.contractMismatch",
+              "params" : {
+                "name" : "plan-workflow-request.v1.schema.json"
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

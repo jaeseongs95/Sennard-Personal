@@ -1,0 +1,42 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "admissionStatus" : null,
+              "agentSelectedSkillIds" : null,
+              "appliedStatus" : null,
+              "blockedItems" : null,
+              "decision" : null,
+              "discovery" : null,
+              "errors" : [
+                "HOST_TASK_CHANGED_OR_NOT_OBSERVED"
+              ],
+              "independentSelection" : null,
+              "neededSkillIds" : null,
+              "readStatus" : null,
+              "runnableSkillIds" : null,
+              "selectionSource" : null,
+              "valid" : false,
+              "verifiedStatus" : null
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

@@ -1,0 +1,581 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "discovery" : {
+                "scope" : "local-tree",
+                "status" : "COMPLETE"
+              },
+              "inventoryDigest" : "sha256:0b55a786a7c105222434ce79e6dc11962ea95588a007fa53472ae8d72fd6aec6",
+              "issues" : [ ],
+              "skills" : [
+                {
+                  "actions" : [
+                    "validate-acceptance-evidence"
+                  ],
+                  "capabilities" : [
+                    "acceptance-evidence-validation"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Judge each acceptance criterion as met, failed or lacking evidence by matching a frozen work product against actual test and check evidence. Not for implementation, repeated-failure diagnosis, high-risk independent audit or release approval.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "acceptance-evidence-validator",
+                  "targets" : [
+                    "work-products",
+                    "verification-evidence"
+                  ],
+                  "version" : "1.0.0"
+                },
+                {
+                  "actions" : [
+                    "diagnose-repeated-failures"
+                  ],
+                  "capabilities" : [
+                    "blocker-diagnosis"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Split a repeated failure into observed episodes and cause hypotheses and pick the next discriminating check that yields new information. Not for fixes, general design comparison, rerunning the same check or final independent audit.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "blocker-diagnostician",
+                  "targets" : [
+                    "failure-episodes",
+                    "evidence"
+                  ],
+                  "version" : "1.1.0"
+                },
+                {
+                  "actions" : [
+                    "capture-change-baseline",
+                    "verify-change-scope"
+                  ],
+                  "capabilities" : [
+                    "change-scope-baseline-capture",
+                    "change-scope-assurance"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Compare the run's recorded pre-work baseline with the changes recorded since to flag changes under the run's write targets that are outside the plan or in excluded paths; a change outside the write targets is not recorded, so it is not seen. Call only when work overlaps other work or before a default-branch merge or publication. Not for requirement fulfilment or code quality review.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "change-scope-guardian",
+                  "targets" : [
+                    "workspace-changes",
+                    "workspace"
+                  ],
+                  "version" : "1.0.0"
+                },
+                {
+                  "actions" : [
+                    "read-only-code-review"
+                  ],
+                  "capabilities" : [
+                    "change-code-review"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Find defects in a fixed change set (diff, patch, PR) or in existing code at a fixed revision, including a full inspection of named files: confirm review coverage and real failure paths, and separate evidenced defects, recommendations and questions. Read-only by default; does not replace architecture audit, fixes, deep security audit, final acceptance, independent audit or release approval.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "code-review",
+                  "targets" : [
+                    "fixed-diff",
+                    "patch",
+                    "pull-request",
+                    "existing-code-at-fixed-revision"
+                  ],
+                  "version" : "0.1.0"
+                },
+                {
+                  "actions" : [
+                    "delegate-work",
+                    "coordinate-ownership",
+                    "integrate-evidence",
+                    "select-subagent-model-effort"
+                  ],
+                  "capabilities" : [
+                    "subagent-coordination",
+                    "task-decomposition",
+                    "subagent-delegation",
+                    "ownership-coordination",
+                    "evidence-integration",
+                    "subagent-model-selection"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Decide whether to hand work to subagents when a task has a unit that can be completed and verified on its own or a result needs a check by someone other than its author, and when the user asks for subagents, parallel work or an independent auditor; then assign ownership, choose each approved assignment's model and reasoning effort from the models the host lists and name them on every call the host accepts them on (inherit only where it cannot, with the reason recorded), integrate evidence, and separate required high-risk audits on the current host. A brief names goal, scope, forbidden areas, write ownership, chosen skills and completion and verification criteria, and never hands off waiting (watching results, polling). Do not activate for one step that cannot be split, or solely because a task is complex or orchestration is enabled.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "coordinate-subagents",
+                  "targets" : [
+                    "subagents",
+                    "independently-verifiable-work-units",
+                    "review-separate-from-author",
+                    "approved-subagent-assignment",
+                    "host-model-capabilities"
+                  ],
+                  "version" : "2.1.0"
+                },
+                {
+                  "actions" : [
+                    "derive-cs-constraints",
+                    "review-cs-behavior"
+                  ],
+                  "capabilities" : [
+                    "cs-constraint-derivation",
+                    "cs-implementation-review"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Apply CS principles where concurrency, databases, messaging, algorithms, resource lifetime or performance affect correctness in design, implementation or technical review: derive invariants and verification duties and check the final candidate against them. Use when CS review is requested or races, retries, graphs or storage consistency are analysed. No workflow for simple wording fixes or concept explanations; not for operational work such as moving files or ledger entries, or small changes without resource or performance impact. Does not replace implementation, security audit, independent audit or deploy approval.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "cs-engineering",
+                  "targets" : [
+                    "concurrency",
+                    "database",
+                    "messaging",
+                    "algorithms",
+                    "resource-lifetime",
+                    "performance"
+                  ],
+                  "version" : "0.2.0"
+                },
+                {
+                  "actions" : [
+                    "read-only-evaluation-audit"
+                  ],
+                  "capabilities" : [
+                    "evaluation-validity-audit"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Audit, before and after a run, whether a frozen skill or model evaluation's inputs, judging method and aggregation are fair and reproducible. Not for running, scoring or fixing evaluations or general implementation checks.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "evaluation-validity-auditor",
+                  "targets" : [
+                    "frozen-evaluation-inputs",
+                    "judgment-method",
+                    "result-aggregation"
+                  ],
+                  "version" : "1.0.0"
+                },
+                {
+                  "actions" : [
+                    "independent-audit",
+                    "evaluate-completion"
+                  ],
+                  "capabilities" : [
+                    "independent-audit",
+                    "risk-classification",
+                    "evidence-verification",
+                    "release-gate"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Before and after executing or releasing a change that mutation-risk-preflight classifies as high-risk, an auditor separate from the author checks the final change and verification evidence directly and judges whether it can be completed. Not for simple research, low-risk fixes, general code review or design talk without implementation.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "independent-audit-gate",
+                  "targets" : [
+                    "high-risk-changes",
+                    "release-evidence"
+                  ],
+                  "version" : "1.0.0"
+                },
+                {
+                  "actions" : [
+                    "independent-deliberation",
+                    "cross-examination",
+                    "evidence-resolution"
+                  ],
+                  "capabilities" : [
+                    "independent-deliberation",
+                    "independent-review",
+                    "cross-examination",
+                    "evidence-resolution",
+                    "consensus-decision"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Before a complex or costly decision is made, work out its options through independent viewpoints, conditional rebuttal, evidence checks and a separate verdict. Not for judging whether a finished change can be completed (independent-audit-gate), simple lookups, summaries or format conversion.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "independent-deliberation-panel",
+                  "targets" : [
+                    "complex-decisions",
+                    "high-cost-failure-design"
+                  ],
+                  "version" : "2.0.0"
+                },
+                {
+                  "actions" : [
+                    "resolve-instruction-scope"
+                  ],
+                  "capabilities" : [
+                    "instruction-scope-resolution"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Resolve the chain, precedence and conflict evidence of AGENTS.md and non-empty AGENTS.override.md for a given workspace path. Not for writing instruction files or general policy review.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "instruction-scope-resolver",
+                  "targets" : [
+                    "workspace-paths",
+                    "AGENTS.md",
+                    "AGENTS.override.md"
+                  ],
+                  "version" : "1.0.0"
+                },
+                {
+                  "actions" : [
+                    "read-only-iteration-frame-audit"
+                  ],
+                  "capabilities" : [
+                    "iteration-frame-audit"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Compare an iterated task's invariant contract with its frame changes in a fresh context and judge meaning preservation and the next convergence path. Not for fixes, low-level root-cause diagnosis or approving changes to user values.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "iteration-frame-auditor",
+                  "targets" : [
+                    "invariant-contract",
+                    "iteration-frame"
+                  ],
+                  "version" : "1.0.0"
+                },
+                {
+                  "actions" : [
+                    "select-prose-edits",
+                    "edit-prose",
+                    "verify-prose",
+                    "finalize-prose"
+                  ],
+                  "capabilities" : [
+                    "korean-prose-selection",
+                    "korean-prose-editing",
+                    "korean-prose-verification",
+                    "korean-prose-finalization"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Edit Korean READMEs, notices, reports and multi-paragraph prose to read naturally while preserving facts, numbers, quotes, links, code and claim strength, when separate verification and deterministic finalization are needed. Not for general questions, short answers or English-only editing.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "korean-prose-editor",
+                  "targets" : [
+                    "korean-prose"
+                  ],
+                  "version" : "0.1.0"
+                },
+                {
+                  "actions" : [
+                    "implement-minimal-deliverable",
+                    "design-minimal-deliverable",
+                    "choose-dependencies"
+                  ],
+                  "capabilities" : [
+                    "minimal-implementation"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Use when making or changing any output (code, docs, data, config, procedures) and in the workflow `minimal-implementation` stage. Ask whether it is needed at all, then look for what exists, standards, platform features and installed tools in that order, and pick the smallest complete result meeting every requirement and needed check. Never substitute mocks, fixed values, placeholders, silent fallbacks or swallowed errors for the real path. Not for reviews, audits, verification, completion judgments, or explanation or research only.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "minimal-implementation",
+                  "targets" : [
+                    "deliverables",
+                    "documents",
+                    "data",
+                    "configuration",
+                    "procedures",
+                    "dependencies"
+                  ],
+                  "version" : "1.0.0"
+                },
+                {
+                  "actions" : [
+                    "read-only-mutation-preflight"
+                  ],
+                  "capabilities" : [
+                    "mutation-risk-preflight"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Right before a hard-to-reverse change or one affecting others (permanent delete or overwrite, production data change or migration, deploy or publish, permission, payment or global setting change), check target, approval, impact and recovery read-only. Judge heaviness by scale, reversibility, real data, shared resources and public-state impact, not the action's name. Same-disk moves and renames, reversible local edits and checks, and test or work-branch pushes are just done, without this skill; not for performing the change or post-change audit.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "mutation-risk-preflight",
+                  "targets" : [
+                    "deletion",
+                    "deployment",
+                    "publication",
+                    "migration",
+                    "permission",
+                    "payment",
+                    "global-settings"
+                  ],
+                  "version" : "1.0.3"
+                },
+                {
+                  "actions" : [
+                    "classify-request",
+                    "connect-specialist-results"
+                  ],
+                  "capabilities" : [
+                    "skill-orchestration"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Decide which governance specialist skills a request needs, or chain several specialist results' order, inputs and outputs and gates. If one specialist skill suffices, use it directly; not for requests needing no specialist skill or for the specialist judgment or audit itself.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "orchestrator",
+                  "targets" : [
+                    "skill-selection",
+                    "execution-order",
+                    "input-output-contract",
+                    "gates"
+                  ],
+                  "version" : "1.2.0"
+                },
+                {
+                  "actions" : [
+                    "design-llm-prompts",
+                    "review-prompt-failures",
+                    "improve-prompt-contracts",
+                    "design-prompt-comparisons"
+                  ],
+                  "capabilities" : [
+                    "prompt-engineering"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Design, diagnose and improve real LLM prompts, agent instructions, tool descriptions and input templates, and make verification cases against a baseline. Use when prompt work is explicitly requested or allowed work must actually change the instructions, context, examples or output contract given to a model. Not automatically for general questions, plain prose editing or translation, code or logs that merely contain the word prompt, or incidents, model settings or audits unrelated to prompt changes.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "prompt-engineering",
+                  "targets" : [
+                    "llm-prompt",
+                    "agent-instruction",
+                    "tool-description",
+                    "model-input-template"
+                  ],
+                  "version" : "0.1.0"
+                },
+                {
+                  "actions" : [
+                    "compare-recovery-strategies",
+                    "prepare-recovery-handoff"
+                  ],
+                  "capabilities" : [
+                    "recovery-strategy-selection"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "After a repeated failure's cause is confirmed, compare executable recovery strategies and produce a RecoveryHandoff.v1 to pass safely to a new task contract. Not for unconfirmed-cause diagnosis, fixes or changing existing runs.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "recovery-strategy-selector",
+                  "targets" : [
+                    "confirmed-repeated-failure-cause"
+                  ],
+                  "version" : "0.2.0"
+                },
+                {
+                  "actions" : [
+                    "update-session-status",
+                    "read-session-status"
+                  ],
+                  "capabilities" : [
+                    "local-session-coordination"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Use when several sessions on one computer handle the same work folder (for example a repository) or plugin install. Each session writes its current work in one line on the local board, reads the board before shared-state actions such as main merge, push, tag, release or install or when others' work matters, and updates the line when its work or next external action changes. Never write request text, secrets or personal data.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "session-board",
+                  "targets" : [
+                    "same-computer-concurrent-sessions"
+                  ],
+                  "version" : "1.0.0"
+                },
+                {
+                  "actions" : [
+                    "read-only-security-audit"
+                  ],
+                  "capabilities" : [
+                    "software-security-audit"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Audit attack paths and defensive controls of web, API, CLI and MCP from source, config and allowed local reproduction, and report vulnerabilities, evidence and coverage gaps. Not for general code review, automatic fixes, active probing of production services or release approval.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "software-security-auditor",
+                  "targets" : [
+                    "source-code",
+                    "configuration",
+                    "web",
+                    "api",
+                    "cli",
+                    "mcp"
+                  ],
+                  "version" : "0.1.0"
+                },
+                {
+                  "actions" : [
+                    "assess-solid-design-boundaries"
+                  ],
+                  "capabilities" : [
+                    "solid-design-assessment"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Judge responsibility split, confirmed extension points, implementation substitutability, consumer-specific interfaces and policy-to-detail dependency direction in current code or design. Use when SOLID review is requested or allowed development must choose real module, public contract or host adapter boundaries. Not automatically for simple wording or constant fixes, concept explanations, implementations needing no boundary decision, or requests needing only full code review, tests, security audit, final acceptance or deploy approval.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "solid-design",
+                  "targets" : [
+                    "module-responsibility",
+                    "extension-point",
+                    "behavioral-contract",
+                    "consumer-interface",
+                    "dependency-direction"
+                  ],
+                  "version" : "0.1.0"
+                },
+                {
+                  "actions" : [
+                    "define-task-contract"
+                  ],
+                  "capabilities" : [
+                    "task-contract-definition"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Turn requests open to interpretation or with high failure impact into a TaskEnvelope.v1 tracing goal, scope, acceptance criteria, work units, risk, permissions and verification evidence. Not for clear small tasks, implementation, execution planning or completion judgment.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "task-contract",
+                  "targets" : [
+                    "user-request",
+                    "instructions",
+                    "acceptance-criteria"
+                  ],
+                  "version" : "1.1.0"
+                },
+                {
+                  "actions" : [
+                    "design-tests",
+                    "implement-tests",
+                    "verify-test-sensitivity"
+                  ],
+                  "capabilities" : [
+                    "test-plan-validation",
+                    "test-sensitivity-review"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Use when writing or strengthening tests or checking that regression tests catch defects: design cases at real requirement and code boundaries and gather red/green or targeted mutation evidence. Not for cause diagnosis, owning product implementation, final acceptance, independent audit or release approval.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "test-engineering",
+                  "targets" : [
+                    "tests",
+                    "regression-tests"
+                  ],
+                  "version" : "0.1.0"
+                },
+                {
+                  "actions" : [
+                    "design-user-experiences",
+                    "review-user-flows",
+                    "diagnose-usability-problems",
+                    "improve-accessibility",
+                    "verify-audience-fit",
+                    "plan-ui-implementation"
+                  ],
+                  "capabilities" : [
+                    "ui-ux-design"
+                  ],
+                  "constraints" : [ ],
+                  "dependencies" : [ ],
+                  "description" : "Design and review user flow, information hierarchy, calls to action, accessibility and exceptions of things people see, understand and act on (screens, print and ads, video, spaces and signage, products, service procedures, documents and forms), and confirm they work for the intended users. Use when UI/UX design or review is requested or allowed work must actually handle such outputs' flow, layout, wording, input, accessibility or states. Not automatically for general questions, pure backend or non-visual CLI work, logs merely mentioning UI, icon or image generation alone, or independent audit or release approval alone.",
+                  "enabled" : true,
+                  "hostSupported" : true,
+                  "installed" : true,
+                  "skillId" : "ui-ux-design",
+                  "targets" : [
+                    "user-flow",
+                    "information-hierarchy",
+                    "interaction-state",
+                    "web-interface",
+                    "desktop-interface",
+                    "mobile-interface",
+                    "responsive-layout",
+                    "large-list-rendering",
+                    "print-and-advertising",
+                    "video",
+                    "physical-space-and-signage",
+                    "physical-product",
+                    "service-process",
+                    "document-and-form"
+                  ],
+                  "version" : "0.1.0"
+                }
+              ],
+              "taxonomyRevision" : "1.0.0",
+              "view" : "summary"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

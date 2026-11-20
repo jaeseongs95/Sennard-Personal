@@ -1,0 +1,32 @@
+{
+  "normal": [
+    {
+      "id": "normal-01",
+      "expected": "a plan that needs minimal-implementation routes it to the Sennard minimal-implementation skill in the implementation phase, after the scope baseline and before the pre-mutation gate and scope verification"
+    },
+    {
+      "id": "normal-02",
+      "expected": "an actual failed run is recorded as failed with GATE_FAILED and missing evidence as blocked with MISSING_EVIDENCE"
+    }
+  ],
+  "boundary": [
+    {
+      "id": "boundary-01",
+      "expected": "a plan without minimal-implementation does not add a minimal-implementation stage"
+    }
+  ],
+  "failure": [
+    {
+      "id": "failure-01",
+      "expected": "packaging guard: the internal skill carries only its instructions, version file, license, Codex agent metadata and classification, with no upstream pin and no always-on hooks; ponytail is gone"
+    },
+    {
+      "id": "failure-02",
+      "expected": "a failed run cannot be recorded as passed"
+    },
+    {
+      "id": "failure-03",
+      "expected": "mocks, fixed values, placeholders and silent fallbacks are not built in place of the real path and errors are not swallowed; whether a pass they produce counts as completion evidence is judged by acceptance-evidence-validator alone, and remaining substitutes are reported with their location"
+    }
+  ]
+}

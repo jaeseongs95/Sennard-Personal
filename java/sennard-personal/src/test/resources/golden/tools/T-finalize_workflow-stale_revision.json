@@ -1,0 +1,34 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "STALE_REVISION",
+              "details" : {
+                "actualRevision" : 0,
+                "expectedRevision" : 7
+              },
+              "message" : "expectedRevision does not match the current run revision.",
+              "messageKey" : "workflow.service.expectedRevisionMatchCurrentRunRevision",
+              "params" : { }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

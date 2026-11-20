@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sennard.local/subagent-model-request.v1.schema.json",
+  "title": "SubagentModelRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "assignment", "host"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "assignment": { "$ref": "#/$defs/assignment" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "provider", "capabilityReference", "supported"],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "provider": { "$ref": "#/$defs/text" },
+        "capabilityReference": { "$ref": "#/$defs/text" },
+        "supported": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["model", "modelClass", "efforts"],
+            "properties": {
+              "model": { "$ref": "#/$defs/text" },
+              "modelClass": {
+                "anyOf": [{ "$ref": "#/$defs/modelClass" }, { "type": "null" }]
+              },
+              "efforts": {
+                "description": "The effort labels the host accepts for this model, exactly as the host names them, from the shallowest to the deepest.",
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "$ref": "#/$defs/text" }
+              }
+            }
+          }
+        },
+        "inherited": { "$ref": "#/$defs/setting" },
+        "inheritanceSupported": { "type": "boolean" },
+        "inheritOnly": { "type": "boolean" }
+      }
+    },
+    "judgment": {
+      "description": "The delegating agent's own judgment of what this assignment needs, as an abstract model class and reasoning depth. The host's listing decides which model and effort label that is. Required whenever the host lists models, unless the host forbids overrides (host.inheritOnly) or the user named both the model and the effort.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelClass", "effortDepth"],
+      "properties": {
+        "modelClass": { "$ref": "#/$defs/modelClass" },
+        "effortDepth": { "$ref": "#/$defs/effortDepth" }
+      }
+    },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "model": { "$ref": "#/$defs/text" },
+        "effort": { "$ref": "#/$defs/text" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "description": "A host that lists models takes a model on every call, so the call is named from a judgment (or from a user who named both the model and the effort). Only a host that forbids overrides inherits without one.",
+      "if": {
+        "required": ["host"],
+        "properties": {
+          "host": {
+            "properties": { "supported": { "minItems": 1 } },
+            "not": { "required": ["inheritOnly"], "properties": { "inheritOnly": { "const": true } } }
+          }
+        }
+      },
+      "then": {
+        "anyOf": [
+          { "required": ["judgment"] },
+          { "required": ["user"], "properties": { "user": { "required": ["model", "effort"] } } }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "modelClass": { "enum": ["lightweight", "general", "deep", "frontier"] },
+    "effortDepth": { "enum": ["shallow", "standard", "deep", "deepest"] },
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "effort"],
+      "properties": {
+        "model": { "$ref": "#/$defs/text" },
+        "effort": { "$ref": "#/$defs/text" }
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "difficulty", "riskLevel", "verification", "signals"],
+      "properties": {
+        "role": { "enum": ["discovery", "general-implementation", "independent-audit"] },
+        "difficulty": { "enum": ["routine", "substantial", "complex", "frontier"] },
+        "riskLevel": { "enum": ["low", "medium", "high", "critical"] },
+        "verification": { "enum": ["direct", "indirect", "limited"] },
+        "signals": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } }
+      }
+    }
+  }
+}

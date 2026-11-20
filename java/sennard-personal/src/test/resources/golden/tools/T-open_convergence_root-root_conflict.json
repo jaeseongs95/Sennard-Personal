@@ -1,0 +1,82 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "ROOT_CONFLICT",
+              "details" : {
+                "blockerState" : "OPEN",
+                "conservativeExpansion" : [ ],
+                "existingEntry" : ".",
+                "existingPath" : "{WS}/t-open-convergence-root-root-conflict",
+                "latestRun" : {
+                  "runId" : "run-task-<UUID>",
+                  "state" : "RUNNING",
+                  "updatedAt" : "<TIME>"
+                },
+                "nextActions" : [
+                  {
+                    "action" : "restart-with-disjoint-writeTargets",
+                    "tool" : "open_convergence_root"
+                  },
+                  {
+                    "action" : "release-with-user-approval",
+                    "arguments" : {
+                      "expectedRevision" : 2,
+                      "rootId" : "root-<UUID>"
+                    },
+                    "requires" : [
+                      "userApprovalRefs"
+                    ],
+                    "tool" : "release_convergence_root"
+                  }
+                ],
+                "ownedBySession" : false,
+                "ownerPresence" : {
+                  "observedAt" : "<TIME>",
+                  "ownerBound" : true,
+                  "self" : false,
+                  "sessions" : [ ],
+                  "state" : "unknown",
+                  "unavailable" : null
+                },
+                "requestedEntry" : ".",
+                "rootCreatedAt" : "<TIME>",
+                "rootId" : "root-<UUID>",
+                "rootRevision" : 2,
+                "rootUpdatedAt" : "<TIME>",
+                "scope" : [
+                  "."
+                ],
+                "workspaceId" : "t-open-convergence-root-root-conflict"
+              },
+              "message" : "An active convergence root already covers this workspace scope: root root-<UUID> (OPEN) writes {WS}/t-open-convergence-root-root-conflict. For reference only: the root was created at <TIME> and last changed at <TIME>; its latest run run-task-<UUID> is RUNNING (changed at <TIME>); its owner session is unknown. Its owner session is not online: if the user decides the root is no longer needed, call release_convergence_root, ask the user to approve on the admin page, and repeat the same call; otherwise open the new root on a scope that does not overlap.",
+              "messageKey" : "workflow.service.activeConvergenceRootCoversWorkspace",
+              "params" : {
+                "context" : "For reference only: the root was created at <TIME> and last changed at <TIME>; its latest run run-task-<UUID> is RUNNING (changed at <TIME>); its owner session is unknown.",
+                "existing" : "{WS}/t-open-convergence-root-root-conflict",
+                "release" : "approval",
+                "rootId" : "root-<UUID>",
+                "state" : "OPEN"
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

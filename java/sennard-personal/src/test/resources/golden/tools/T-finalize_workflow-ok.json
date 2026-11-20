@@ -1,0 +1,218 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "blockers" : [ ],
+              "error" : null,
+              "plan" : {
+                "bootstrapExecution" : {
+                  "context" : {
+                    "actorId" : "codex:session-c044a5faed671d3b8abefe37",
+                    "model" : "gpt-6.1-sol",
+                    "modelClass" : null,
+                    "observationId" : "neaJjXG24aUxqo0IOd-O0y_QWMpfWdQ5smW2Y2Dl0DA",
+                    "observedAt" : "<TIME>",
+                    "policyNotes" : [
+                      "MODEL_NOT_IN_CATALOG"
+                    ],
+                    "reasoningEffort" : "low",
+                    "revision" : null,
+                    "runId" : null,
+                    "schemaVersion" : "1.0.0",
+                    "source" : "runtime",
+                    "stageId" : null,
+                    "taskId" : "task-<UUID>"
+                  },
+                  "requirement" : {
+                    "kind" : "semantic",
+                    "observationRequired" : true,
+                    "policyId" : "semantic-execution-assurance-v1"
+                  }
+                },
+                "currentStageId" : null,
+                "errors" : [ ],
+                "executionMode" : "orchestrated",
+                "integrityToken" : "<TOKEN>",
+                "nextStageId" : null,
+                "schemaVersion" : "1.0.0",
+                "selectedSkills" : [
+                  "minimal-implementation"
+                ],
+                "stages" : [
+                  {
+                    "executionClass" : "workflow",
+                    "executionRequirement" : {
+                      "kind" : "semantic",
+                      "observationRequired" : true,
+                      "policyId" : "semantic-execution-assurance-v1"
+                    },
+                    "gate" : {
+                      "kind" : "none",
+                      "policy" : "none",
+                      "validator" : null,
+                      "validatorSchema" : null
+                    },
+                    "inputBindings" : [ ],
+                    "order" : 1,
+                    "outputSchema" : {
+                      "digest" : "sha256:623de96ffedcfd5fd0084b524832e7d5072645f82264be3e706e0977201f1386",
+                      "path" : "contracts/freeform-output.v1.schema.json"
+                    },
+                    "phase" : "implementation",
+                    "phaseOrder" : 44,
+                    "producedArtifacts" : [ ],
+                    "providerKey" : "minimal-implementation:implementation:1",
+                    "requiredArtifacts" : [ ],
+                    "requiredCapability" : "minimal-implementation",
+                    "requiredInputArtifacts" : [ ],
+                    "resultSchema" : {
+                      "digest" : "sha256:bb8fefad354b7e61f5de8f5c535227f45b4f441765558e66d1765a7883d85927",
+                      "path" : "contracts/provider-result.v1.schema.json"
+                    },
+                    "riskGate" : "none",
+                    "satisfiedCapabilities" : [
+                      "minimal-implementation"
+                    ],
+                    "selectionReason" : "Selected 'minimal-implementation' because provider 'minimal-implementation:implementation:1' supplies 'minimal-implementation' at priority 50.",
+                    "skillId" : "minimal-implementation",
+                    "stageId" : "stage-01-minimal-implementation",
+                    "state" : "PASSED",
+                    "stateMapping" : {
+                      "adapterErrors" : [
+                        "INVALID_INPUT",
+                        "MISSING_EVIDENCE"
+                      ],
+                      "default" : "reject",
+                      "selector" : "/output/status",
+                      "values" : {
+                        "blocked" : {
+                          "allowedErrorCodes" : [
+                            "MISSING_EVIDENCE"
+                          ],
+                          "errorRequired" : true,
+                          "state" : "BLOCKED"
+                        },
+                        "failed" : {
+                          "allowedErrorCodes" : [
+                            "GATE_FAILED"
+                          ],
+                          "errorRequired" : true,
+                          "state" : "FAILED"
+                        },
+                        "passed" : {
+                          "errorRequired" : false,
+                          "state" : "PASSED"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "state" : "PASSED",
+                "taskDigest" : "<DIGEST>",
+                "taskId" : "task-<UUID>"
+              },
+              "revision" : 2,
+              "runId" : "run-task-<UUID>",
+              "schemaVersion" : "1.0.0",
+              "skillDeclaration" : {
+                "advice" : null,
+                "callsNotObserved" : [
+                  "minimal-implementation"
+                ],
+                "skills" : [
+                  {
+                    "reason" : "test",
+                    "skillId" : "minimal-implementation"
+                  }
+                ]
+              },
+              "stageResults" : [
+                {
+                  "artifactChecks" : [
+                    {
+                      "artifactId" : "observed",
+                      "attachmentId" : "<UUID>",
+                      "check" : "SHA256_MATCHED",
+                      "source" : "EVIDENCE"
+                    }
+                  ],
+                  "blockers" : [ ],
+                  "error" : null,
+                  "evidence" : [
+                    {
+                      "artifactId" : "observed",
+                      "attachmentId" : "<UUID>",
+                      "digest" : "sha256:de02fd510103eb31b0aa24f24c5dd53f964bb30943d0dd2062ba135c8f835ffd",
+                      "kind" : "test",
+                      "note" : "Synthetic fixture.",
+                      "verified" : true
+                    }
+                  ],
+                  "executionContext" : {
+                    "actorId" : "codex:session-c044a5faed671d3b8abefe37",
+                    "model" : "gpt-6.1-sol",
+                    "modelClass" : null,
+                    "observationId" : "<TOKEN>",
+                    "observedAt" : "<TIME>",
+                    "policyNotes" : [
+                      "MODEL_NOT_IN_CATALOG"
+                    ],
+                    "reasoningEffort" : "low",
+                    "revision" : 0,
+                    "runId" : "run-task-<UUID>",
+                    "schemaVersion" : "1.0.0",
+                    "source" : "runtime",
+                    "stageId" : "stage-01-minimal-implementation",
+                    "taskId" : "task-<UUID>"
+                  },
+                  "expectedRevision" : 0,
+                  "findings" : [ ],
+                  "output" : {
+                    "artifacts" : [ ],
+                    "error" : null,
+                    "kind" : "output",
+                    "output" : {
+                      "status" : "passed"
+                    },
+                    "schemaVersion" : "1.0.0"
+                  },
+                  "recordedBy" : {
+                    "actor" : "codex:session-c044a5faed671d3b8abefe37",
+                    "parentChain" : [ ],
+                    "provenance" : "UNAVAILABLE"
+                  },
+                  "runId" : "run-task-<UUID>",
+                  "schemaVersion" : "1.0.0",
+                  "stageId" : "stage-01-minimal-implementation",
+                  "state" : "PASSED"
+                }
+              ],
+              "state" : "PASSED",
+              "unresolved" : [ ],
+              "unverifiedClaims" : [ ]
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        },
+        {
+          "text" : "Run run-task-<UUID> is completed (PASSED); its root is COMPLETED and its work scope is released. No resume is needed.",
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

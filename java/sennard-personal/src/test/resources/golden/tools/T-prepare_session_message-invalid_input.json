@@ -1,0 +1,35 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "INVALID_INPUT",
+              "details" : {
+                "reasonCode" : "MESSAGE_BODY_SIZE"
+              },
+              "message" : "body must contain 1-4,096 UTF-8 bytes.",
+              "messageKey" : "services.sessionMessage.message.bodySize",
+              "params" : {
+                "maxBytes" : 4096
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

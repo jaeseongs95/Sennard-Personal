@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/record-turn-recap-request.v1.schema.json",
+  "title": "RecordTurnRecapRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operationKey", "recap"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "operationKey": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{16,128}$", "description": "Your key for this operation: make a new random one for each call (a UUID, for example), 16 to 128 characters of A-Z a-z 0-9 _ . : -. The same key with the same content answers the first result without doing the work again; the same key with other content is REQUEST_CONFLICT. The key belongs to this session, and the result is kept for 24 hours." },
+    "recap": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 250,
+      "description": "What you did this turn after hearing the user's latest message, as a short summary: at most 100 Korean, Chinese or Japanese characters, or 250 characters of any other kind (a mix is weighed 5 and 2 per character, at most 500). Do not write out the answer itself."
+    }
+  }
+}

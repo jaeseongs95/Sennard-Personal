@@ -1,0 +1,50 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "closedRun" : {
+                "revision" : 1,
+                "runId" : "run-task-<UUID>",
+                "state" : "BLOCKED"
+              },
+              "release" : {
+                "closedRunId" : "run-task-<UUID>",
+                "ownerActors" : [ ],
+                "ownerPresence" : null,
+                "previousState" : "OPEN",
+                "reason" : "The work moved elsewhere.",
+                "releasedAt" : "<TIME>",
+                "releasedBy" : "codex:session-21f386edad32e99525792962",
+                "releasedByOwner" : true,
+                "userApprovalRefs" : [ ]
+              },
+              "revision" : 3,
+              "rootId" : "root-<UUID>",
+              "schemaVersion" : "1.0.0",
+              "state" : "ABANDONED"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        },
+        {
+          "text" : "Root root-<UUID> is cancelled (ABANDONED); its work scope is released. It cannot be resumed.",
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

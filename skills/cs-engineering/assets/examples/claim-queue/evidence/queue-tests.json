@@ -1,0 +1,26 @@
+{
+  "scope": "local PostgreSQL reference candidate; not Sennard product integration",
+  "jdk": "25.0.5+8-LTS (Eclipse Adoptium)",
+  "database": "PostgreSQL 18.6",
+  "driver": "PostgreSQL JDBC Driver 42.7.14",
+  "concurrency": "claimants are threads with one JDBC connection each; the crash case is a JVM of its own halted inside a transaction",
+  "testsRun": 9,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "status": "PASS",
+  "candidateRawDigest": "sha256:34b89e2595349109e3f6685505bf1e421bd450569bcada259346826bff97bc64",
+  "candidateUnchangedDuringRun": true,
+  "testScriptDigest": "sha256:1dce93e2f1bc81e3832c9f714e832561b2bbc18c63d133274616d6016fcb8dee",
+  "caseIds": [
+    "CONC-CLAIM-001 aReadFollowedByAnUnconditionalWriteHasTwoWinners",
+    "CONC-CLAIM-001 sixConcurrentClaimantsHaveOneWinner",
+    "CONC-FENCE-002 aReassignedOwnerCannotPublish",
+    "CONC-FENCE-002 anExpiredLeaseThatWasNotReassignedIsRejected",
+    "DB-BOUNDARY-001 aCrashedWriterLeavesNoUncommittedState",
+    "DB-CONSTRAINT-003 thePrimaryKeyAndTheCheckConstraintRejectInvalidRows",
+    "DB-ISOLATION-002 aRepeatableReadTransactionKeepsItsSnapshot",
+    "DB-MIGRATION-004 aRolledBackMigrationLeavesTheTableAndARepeatedOneChangesNothingMore",
+    "OS-LIFETIME-001 anInvalidClaimLeavesTheQueueUsable"
+  ]
+}

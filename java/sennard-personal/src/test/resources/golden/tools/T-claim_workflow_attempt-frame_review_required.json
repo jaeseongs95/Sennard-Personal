@@ -1,0 +1,47 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "FRAME_REVIEW_REQUIRED",
+              "details" : {
+                "expected" : {
+                  "controlDigest" : "sha256:709e7077a869064bc0dfc4e2c4c2d3394c52004b5306c342b64c005e885c343a",
+                  "operationalDigest" : "sha256:4134fc3119800fc3767c31be392181685a3748d922a6009058ad8de6288c35fa",
+                  "taskDigest" : "<DIGEST>",
+                  "workspaceDigest" : "<DIGEST>"
+                },
+                "proposed" : {
+                  "controlDigest" : "sha256:709e7077a869064bc0dfc4e2c4c2d3394c52004b5306c342b64c005e885c343a",
+                  "frameDigest" : "<DIGEST>",
+                  "operationalDigest" : "sha256:4134fc3119800fc3767c31be392181685a3748d922a6009058ad8de6288c35fa",
+                  "targetDigest" : "sha256:439ed90db7e00f756a2aff000502728032f50298c2da970afd7508f4437ac0d0",
+                  "taskDigest" : "<DIGEST>",
+                  "workspaceDigest" : "<DIGEST>"
+                },
+                "rootId" : "root-<UUID>"
+              },
+              "message" : "Task, control, workspace, operational, or artifact-role changes require independent review.",
+              "messageKey" : "workflow.service.taskControlWorkspaceOperationalArtifact",
+              "params" : { }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

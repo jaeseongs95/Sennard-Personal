@@ -1,0 +1,39 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "INVALID_INPUT",
+              "details" : {
+                "actualBytes" : 4001,
+                "maxBytes" : 4000,
+                "reasonCode" : "CONTEXT_LAYER_TOO_LARGE"
+              },
+              "message" : "The global context body is 4,001 UTF-8 bytes; the limit is 4,000. Rebuild it shorter: merge duplicates and drop finished or obsolete items.",
+              "messageKey" : "continuity.layers.tooLarge",
+              "params" : {
+                "bytes" : 4001,
+                "layer" : "global",
+                "limit" : 4000
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

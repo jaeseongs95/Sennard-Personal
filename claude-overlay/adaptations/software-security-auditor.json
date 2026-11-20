@@ -1,0 +1,4 @@
+{
+  "description": "Audit attack paths and defensive controls of web, API, CLI and MCP from source, config and allowed local reproduction, and report vulnerabilities, evidence and coverage gaps. Not for automatic fixes, active probing of production services or release approval.",
+  "replacements": []
+}

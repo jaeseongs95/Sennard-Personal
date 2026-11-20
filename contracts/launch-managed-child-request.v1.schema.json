@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/launch-managed-child-request.v1.schema.json",
+  "title": "LaunchManagedChildRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operationKey", "model", "effort"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "operationKey": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{16,128}$", "description": "Use a new random key for each launch. Reuse it with the same inputs after an uncertain reply. The receipt is kept for 24 hours by default." },
+    "model": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*\\S[^\\u0000-\\u001f\\u007f-\\u009f]*$", "description": "The exact model identifier supported by this host." },
+    "effort": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*\\S[^\\u0000-\\u001f\\u007f-\\u009f]*$", "description": "The exact reasoning effort supported for the selected model by this host." }
+  }
+}

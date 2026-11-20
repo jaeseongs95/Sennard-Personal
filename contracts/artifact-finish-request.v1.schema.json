@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/artifact-finish-request.v1.schema.json",
+  "title": "ArtifactFinishRequest.v1",
+  "description": "Finishes the attachment artifact_begin made: every file is checked (size, sha256, every segment) and the attachment is made only when all of them pass, in one step. Takes no operationKey: the attachmentId is the idempotency key. Finishing again with the same attachmentId returns the same attachment. It needs no session: it is bound to the upload by the attachmentId alone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "attachmentId"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "attachmentId": { "type": "string", "minLength": 1, "maxLength": 64 }
+  }
+}

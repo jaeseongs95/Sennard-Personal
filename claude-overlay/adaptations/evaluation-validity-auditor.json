@@ -1,0 +1,3 @@
+{
+  "description": "Use when submitting skill or model evaluation results as quality or release evidence, before designing and running an evaluation, or when an evaluation's fairness is in doubt. Audits, before and after the run, whether inputs, judging method and aggregation are fair and reproducible. Does not run, score or fix evaluations or verify general work results."
+}

@@ -1,0 +1,3 @@
+{
+  "description": "Use after blocker-diagnostician has confirmed a cause and a recovery must be chosen among workaround, rollback or redesign. Compares executable recovery strategies and produces a RecoveryHandoff.v1 to pass to a new task contract. Not for diagnosing an unconfirmed cause, fixes or changing existing runs."
+}

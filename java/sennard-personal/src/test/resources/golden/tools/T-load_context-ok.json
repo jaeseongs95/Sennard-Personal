@@ -1,0 +1,49 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "createdAt" : "<TIME>",
+              "epoch" : 1,
+              "memory" : {
+                "core" : {
+                  "blockers" : [ ],
+                  "completionCriteria" : [
+                    "c"
+                  ],
+                  "constraints" : [ ],
+                  "decisions" : [ ],
+                  "nextActions" : [ ],
+                  "objective" : "golden objective",
+                  "progress" : [ ]
+                },
+                "evidenceRefs" : [ ],
+                "status" : "ACTIVE"
+              },
+              "memoryDigest" : "sha256:2f03b1f36a1a9d70ef41b160cc0f2defcac47c7f7720b0e08037695b50f52ae4",
+              "schemaVersion" : "1.0.0",
+              "source" : "DIRECT",
+              "stateToken" : "<TOKEN>",
+              "taskCorrelation" : "<HMAC>",
+              "updatedAt" : "<TIME>"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

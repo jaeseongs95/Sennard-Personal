@@ -1,0 +1,38 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "goal" : "Handle INQUIRY in t-resume-workflow-ok",
+              "kind" : "INQUIRY",
+              "phase" : "ANSWERING",
+              "revision" : 0,
+              "rootId" : "root-<UUID>",
+              "runId" : "run-task-<UUID>",
+              "schemaVersion" : "1.0.0",
+              "state" : "RUNNING"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        },
+        {
+          "text" : "All planned stages are passed or this workflow has no stages. Explicitly call finalize_workflow with runId=run-task-<UUID>, expectedRevision=0, and a fresh operationKey to complete the workflow and release its scope.",
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

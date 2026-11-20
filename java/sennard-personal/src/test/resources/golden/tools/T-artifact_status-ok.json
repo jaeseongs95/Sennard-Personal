@@ -1,0 +1,38 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "attachmentId" : "<UUID>",
+              "expiresAt" : "<TIME>",
+              "fileName" : "golden.txt",
+              "kind" : "upload",
+              "mediaType" : "text/plain",
+              "received" : 0,
+              "seq" : 0,
+              "sequence" : 0,
+              "sha256" : "sha256:de02fd510103eb31b0aa24f24c5dd53f964bb30943d0dd2062ba135c8f835ffd",
+              "size" : 18,
+              "state" : "STAGING",
+              "uploadId" : "<UUID>"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

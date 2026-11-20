@@ -1,0 +1,49 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "INVALID_TRANSITION",
+              "details" : {
+                "reason" : "ROOT_NOT_ACTIVE",
+                "release" : {
+                  "closedRunId" : "run-task-<UUID>",
+                  "ownerActors" : [ ],
+                  "ownerPresence" : null,
+                  "previousState" : "OPEN",
+                  "reason" : "The work moved elsewhere.",
+                  "releasedAt" : "<TIME>",
+                  "releasedBy" : "codex:session-2a9940b28fda1ac346316f27",
+                  "releasedByOwner" : true,
+                  "userApprovalRefs" : [ ]
+                },
+                "rootId" : "root-<UUID>",
+                "state" : "ABANDONED"
+              },
+              "message" : "Root root-<UUID> is ABANDONED, so there is nothing to release.",
+              "messageKey" : "workflow.service.releaseRootNotActive",
+              "params" : {
+                "rootId" : "root-<UUID>",
+                "state" : "ABANDONED"
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

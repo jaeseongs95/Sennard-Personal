@@ -1,0 +1,15 @@
+# What the server reads of Antigravity's hook input (AntigravityHookInput): the names as the host writes them. Of the workspace paths only the first.
+# HostInputFieldsTest (sennard-personal) holds this file to the record, field for field.
+conversationId
+workspacePaths first-text
+transcriptPath
+artifactDirectoryPath
+modelName
+lastUserInput
+invocationNum
+toolCall/name
+toolCall/args
+error
+terminationReason
+fullyIdle
+executionNum

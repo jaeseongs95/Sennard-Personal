@@ -1,0 +1,1 @@
+This is an authored example for CS Engineering, not a description of an existing Sennard bug. The example environment uses Java 25, JDBC, a PostgreSQL schema of its own and one connection per concurrent claimant. Injected integer times keep lease tests deterministic.

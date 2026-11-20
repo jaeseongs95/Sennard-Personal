@@ -1,0 +1,6 @@
+{
+  "instructions.intake.frame": "{intake}",
+  "instructions.intake.pointer": "Sennard intake ({path}): if its text from the MCP instructions or a successful full read of this revision is not in context (e.g. after compaction), read that section before task work and follow it.",
+  "instructions.intake.skills": "Skill targets. Match each message by the judgment you will make, not names or keywords; an earlier skill''s guidance covers only what it was called for.\n{targets}",
+  "instructions.sessionMessage.guide": "After send: autoWake available → no extra wake; no-live-relay → if needed now, wake once via host and tell the user confirmed delivery and that auto-wake is unavailable. Report only confirmed queueing/delivery, not autoWake. Empty wakes/messages don''t stop work; don''t guess unreceived bodies."
+}

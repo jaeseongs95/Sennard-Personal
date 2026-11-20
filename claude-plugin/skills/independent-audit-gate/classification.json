@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "agent-correction",
+  "actions": [
+    "independent-audit",
+    "evaluate-completion"
+  ],
+  "targets": [
+    "high-risk-changes",
+    "release-evidence"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "applicability": [
+    {
+      "path": "skills/independent-audit-gate/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:9bef79142cc80f0031630487ba8a094748722c1fefae28ec70e9d20385cae0f3",
+      "startByte": 0,
+      "endByte": 251
+    },
+    {
+      "path": "skills/independent-audit-gate/SKILL.md",
+      "startLine": 11,
+      "endLine": 20,
+      "digest": "sha256:9bef79142cc80f0031630487ba8a094748722c1fefae28ec70e9d20385cae0f3",
+      "startByte": 0,
+      "endByte": 782
+    },
+    {
+      "path": "skills/independent-audit-gate/references/entry-details.md",
+      "startLine": 1,
+      "endLine": 1,
+      "digest": "sha256:beb09fa535e0b2d7e868f74147e729704dedb9730b06d09833d44706d0d669b9",
+      "startByte": 0,
+      "endByte": 26
+    },
+    {
+      "path": "skills/independent-audit-gate/references/entry-details.md",
+      "startLine": 4,
+      "endLine": 4,
+      "digest": "sha256:beb09fa535e0b2d7e868f74147e729704dedb9730b06d09833d44706d0d669b9",
+      "startByte": 0,
+      "endByte": 101
+    },
+    {
+      "path": "skills/independent-audit-gate/references/entry-details.md",
+      "startLine": 7,
+      "endLine": 7,
+      "digest": "sha256:beb09fa535e0b2d7e868f74147e729704dedb9730b06d09833d44706d0d669b9",
+      "startByte": 0,
+      "endByte": 161
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/independent-audit-gate/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:9bef79142cc80f0031630487ba8a094748722c1fefae28ec70e9d20385cae0f3",
+      "startByte": 252,
+      "endByte": 351
+    },
+    {
+      "path": "skills/independent-audit-gate/SKILL.md",
+      "startLine": 22,
+      "endLine": 22,
+      "digest": "sha256:9bef79142cc80f0031630487ba8a094748722c1fefae28ec70e9d20385cae0f3",
+      "startByte": 0,
+      "endByte": 417
+    },
+    {
+      "path": "skills/independent-audit-gate/references/entry-details.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:beb09fa535e0b2d7e868f74147e729704dedb9730b06d09833d44706d0d669b9",
+      "startByte": 0,
+      "endByte": 140
+    },
+    {
+      "path": "skills/independent-audit-gate/references/entry-details.md",
+      "startLine": 5,
+      "endLine": 5,
+      "digest": "sha256:beb09fa535e0b2d7e868f74147e729704dedb9730b06d09833d44706d0d669b9",
+      "startByte": 0,
+      "endByte": 194
+    },
+    {
+      "path": "skills/independent-audit-gate/references/entry-details.md",
+      "startLine": 6,
+      "endLine": 6,
+      "digest": "sha256:beb09fa535e0b2d7e868f74147e729704dedb9730b06d09833d44706d0d669b9",
+      "startByte": 0,
+      "endByte": 308
+    },
+    {
+      "path": "skills/independent-audit-gate/references/entry-details.md",
+      "startLine": 8,
+      "endLine": 8,
+      "digest": "sha256:beb09fa535e0b2d7e868f74147e729704dedb9730b06d09833d44706d0d669b9",
+      "startByte": 0,
+      "endByte": 180
+    },
+    {
+      "path": "skills/independent-audit-gate/references/entry-details.md",
+      "startLine": 19,
+      "endLine": 19,
+      "digest": "sha256:beb09fa535e0b2d7e868f74147e729704dedb9730b06d09833d44706d0d669b9",
+      "startByte": 0,
+      "endByte": 231
+    }
+  ]
+}

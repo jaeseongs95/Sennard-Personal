@@ -1,0 +1,38 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "INVALID_INPUT",
+              "details" : {
+                "validationErrors" : [
+                  "required property 'schemaVersion' not found",
+                  "required property 'messageId' not found"
+                ]
+              },
+              "message" : "recallSessionMessageRequest does not match its v1 contract.",
+              "messageKey" : "workflow.schema.contractMismatch",
+              "params" : {
+                "name" : "recallSessionMessageRequest"
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

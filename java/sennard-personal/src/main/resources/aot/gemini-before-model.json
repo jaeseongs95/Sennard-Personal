@@ -1,0 +1,25 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "/home/user/.gemini/tmp/project/chats/session.json",
+  "cwd": "/home/user/project",
+  "hook_event_name": "BeforeModel",
+  "timestamp": "2026-01-01T00:00:00.000Z",
+  "llm_request": {
+    "model": "example-model",
+    "messages": [
+      {"role": "user", "content": "List the files in the project and tell me which one holds the entry point."},
+      {"role": "model", "content": "I will list the files first."},
+      {"role": "user", "content": "Then open the entry point and summarize what it does in two sentences."}
+    ],
+    "config": {
+      "temperature": 0.7,
+      "maxOutputTokens": 8192,
+      "topP": 0.95
+    },
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "AUTO"
+      }
+    }
+  }
+}

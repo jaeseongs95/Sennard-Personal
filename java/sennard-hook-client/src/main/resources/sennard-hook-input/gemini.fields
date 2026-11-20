@@ -1,0 +1,16 @@
+# What the server reads of Gemini CLI's hook input (GeminiHookInput): the names as the host writes them. Of a model request only the model, not the conversation or the config.
+# HostInputFieldsTest (sennard-personal) holds this file to the record, field for field.
+session_id
+cwd
+transcript_path
+source
+reason
+prompt
+stop_hook_active
+llm_request/model
+tool_name
+tool_input
+mcp_context/server_name
+mcp_context/tool_name
+tool_response/llmContent
+tool_response/error

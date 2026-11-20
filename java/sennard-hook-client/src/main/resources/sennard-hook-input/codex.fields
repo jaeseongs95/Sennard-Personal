@@ -1,0 +1,19 @@
+# What the server reads of Codex's hook input (CodexHookInput): the names as the host writes them.
+# HostInputFieldsTest (sennard-personal) holds this file to the record, field for field.
+session_id
+transcript_path
+cwd
+workspace_id
+model
+agent_id
+turn_id
+prompt
+source
+reason
+tool_name
+tool_use_id
+tool_input
+tool_response
+error
+stop_hook_active
+status

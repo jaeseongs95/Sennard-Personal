@@ -1,0 +1,19 @@
+{
+  "skillCheck.unknownSkill": "알 수 없는 skill: {skill}.",
+  "skillCheck.unknownCommand": "skill {skill}에는 command {command}이(가) 없다.",
+  "skillCheck.argumentRequired": "argument {name}이(가) 필요하다.",
+  "skillCheck.argumentMustBeString": "argument {name}은(는) 문자열이어야 한다.",
+  "skillCheck.argumentMustBeInteger": "argument {name}은(는) 정수여야 한다.",
+  "skillCheck.argumentMustBeArray": "argument {name}은(는) 배열이어야 한다.",
+  "skillCheck.argumentMustBeBoolean": "argument {name}은(는) 불리언이어야 합니다.",
+  "skillCheck.inputTooLarge": "입력이 이 검사가 받는 크기를 넘습니다.",
+  "skillCheck.invalidSubagentModelRequest": "서브에이전트 모델 요청이 계약을 만족하지 않습니다.",
+  "skillCheck.invalidSubagentModelAdvice": "서브에이전트 모델 조언이 계약을 만족하지 않습니다.",
+  "skillCheck.argumentMustBeObjectOfStrings": "argument {name}은(는) 값이 모두 문자열인 객체여야 한다.",
+  "skillCheck.argumentFileMustBeString": "파일 argument는 절대 경로를 가리켜야 한다.",
+  "skillCheck.invalidJson": "문서가 올바른 UTF-8 JSON이 아니다.",
+  "skillCheck.malformedArgument": "argument가 이 검사가 요구하는 JSON 형태가 아니다.",
+  "skillCheck.jobReferenceInvalid": "jobRef가 job 참조가 아니다.",
+  "skillCheck.jobNotFound": "이 참조를 가진 job이 없다.",
+  "skillCheck.processesNotAvailable": "이 에디션은 이 검사를 위한 command를 실행할 수 없다."
+}

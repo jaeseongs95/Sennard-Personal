@@ -1,0 +1,21 @@
+{
+  "name": "sennard",
+  "interface": {
+    "displayName": "Sennard"
+  },
+  "plugins": [
+    {
+      "name": "sennard",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/jaeseongs95/Sennard-Personal.git",
+        "ref": "v1.0.0"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

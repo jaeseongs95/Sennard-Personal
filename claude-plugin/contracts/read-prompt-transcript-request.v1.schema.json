@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/read-prompt-transcript-request.v1.schema.json",
+  "title": "ReadPromptTranscriptRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "promptId"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "promptId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 36,
+      "description": "The promptId of one of this session's own messages, as recall_user_prompts returned it. The transcript of a message said in another session is refused."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "The most entries to answer, in the order they were written. The default is 20."
+    },
+    "after": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The key of the last entry of an earlier answer for the same promptId: the read goes on with the entry that follows it. Without it the read starts at the message. A key that is not an entry of this message's turn is refused."
+    }
+  }
+}

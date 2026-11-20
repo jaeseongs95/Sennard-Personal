@@ -1,0 +1,3 @@
+{
+  "description": "Use when the same task has been iterated with changing instructions or frames, when the original contract may have silently changed during iteration, or when the next iteration's direction must be chosen. Compares the invariant contract with frame changes in a fresh context and judges meaning preservation and the convergence path. Does not fix, diagnose causes or approve changes to user values."
+}

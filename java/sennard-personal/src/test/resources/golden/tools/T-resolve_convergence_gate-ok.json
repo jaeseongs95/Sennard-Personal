@@ -1,0 +1,421 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "attemptsRemainingInEpoch" : 2,
+              "attemptsUsedInEpoch" : 1,
+              "currentEpoch" : 1,
+              "gateError" : {
+                "code" : "FRAME_REVIEW_REQUIRED",
+                "details" : {
+                  "epoch" : 1,
+                  "rootId" : "root-<UUID>"
+                },
+                "message" : "The proposed change requires a new user contract.",
+                "messageKey" : "workflow.service.proposedChangeRequiresNewUser",
+                "params" : { }
+              },
+              "leases" : [
+                {
+                  "actorId" : "codex:session-6e0dcdcd35df5c21e2cca488",
+                  "controlDigest" : "sha256:709e7077a869064bc0dfc4e2c4c2d3394c52004b5306c342b64c005e885c343a",
+                  "epoch" : 1,
+                  "expiresAt" : "<TIME>",
+                  "frameDigest" : "<DIGEST>",
+                  "issuedAt" : "<TIME>",
+                  "leaseId" : "lease-<UUID>",
+                  "operationalDigest" : "sha256:4134fc3119800fc3767c31be392181685a3748d922a6009058ad8de6288c35fa",
+                  "ordinal" : 1,
+                  "outputTargets" : [
+                    "alpha"
+                  ],
+                  "outputTargetsDigest" : "sha256:15070794f9a7cc24f7e107fc5a4b92426f82cc61ad1cb74d37a80a11437d03b3",
+                  "planIntegrityToken" : "<TOKEN>",
+                  "priorEvidenceDigests" : [ ],
+                  "proposalDigest" : "<DIGEST>",
+                  "rootId" : "root-<UUID>",
+                  "rootRevision" : 1,
+                  "schemaVersion" : "1.0.0",
+                  "state" : "CONSUMED",
+                  "targetDigest" : "sha256:451dc881e1e93b1ef308492512919bec1f6202154c2e742538355e774012ade8",
+                  "taskDigest" : "<DIGEST>",
+                  "workspaceDigest" : "<DIGEST>"
+                }
+              ],
+              "maxAttemptsPerEpoch" : 3,
+              "maxEpochs" : 2,
+              "outcomes" : [ ],
+              "proposals" : [
+                {
+                  "expectedRevision" : 0,
+                  "frame" : {
+                    "controlArtifacts" : [
+                      {
+                        "artifactId" : "acceptance-criteria",
+                        "digest" : "sha256:98704316a71756ab0814959c0c61f57dbd18b7570f157cd87e0a4f6ab3d0de88",
+                        "locator" : "taskEnvelope.acceptanceCriteria",
+                        "role" : "pass-condition"
+                      }
+                    ],
+                    "operationalSettings" : {
+                      "leaseTtlSeconds" : 300,
+                      "maxAttemptsPerEpoch" : 3,
+                      "maxEpochs" : 2
+                    },
+                    "schemaVersion" : "1.0.0",
+                    "targetArtifacts" : [
+                      {
+                        "artifactId" : "target-1",
+                        "digest" : "sha256:2e5d60fadd0690cce92074d191da80f5ce5b0e13f62f3bafdfaabfe598ee96c2",
+                        "locator" : "alpha",
+                        "role" : "target"
+                      }
+                    ],
+                    "workspace" : {
+                      "locator" : "{WS}/t-resolve-convergence-gate-ok",
+                      "workspaceId" : "t-resolve-convergence-gate-ok"
+                    }
+                  },
+                  "outputTargets" : [
+                    "alpha"
+                  ],
+                  "plan" : {
+                    "bootstrapExecution" : {
+                      "context" : {
+                        "actorId" : "codex:session-6e0dcdcd35df5c21e2cca488",
+                        "model" : "gpt-6.1-sol",
+                        "modelClass" : null,
+                        "observationId" : "ezh1tajd6eGuBTGzdOybribavcQFOcUfOn31VtP0Zhc",
+                        "observedAt" : "<TIME>",
+                        "policyNotes" : [
+                          "MODEL_NOT_IN_CATALOG"
+                        ],
+                        "reasoningEffort" : "low",
+                        "revision" : null,
+                        "runId" : null,
+                        "schemaVersion" : "1.0.0",
+                        "source" : "runtime",
+                        "stageId" : null,
+                        "taskId" : "task-<UUID>"
+                      },
+                      "requirement" : {
+                        "kind" : "semantic",
+                        "observationRequired" : true,
+                        "policyId" : "semantic-execution-assurance-v1"
+                      }
+                    },
+                    "currentStageId" : null,
+                    "errors" : [ ],
+                    "executionMode" : "orchestrated",
+                    "integrityToken" : "<TOKEN>",
+                    "nextStageId" : "stage-01-minimal-implementation",
+                    "schemaVersion" : "1.0.0",
+                    "selectedSkills" : [
+                      "minimal-implementation"
+                    ],
+                    "stages" : [
+                      {
+                        "executionClass" : "workflow",
+                        "executionRequirement" : {
+                          "kind" : "semantic",
+                          "observationRequired" : true,
+                          "policyId" : "semantic-execution-assurance-v1"
+                        },
+                        "gate" : {
+                          "kind" : "none",
+                          "policy" : "none",
+                          "validator" : null,
+                          "validatorSchema" : null
+                        },
+                        "inputBindings" : [ ],
+                        "order" : 1,
+                        "outputSchema" : {
+                          "digest" : "sha256:623de96ffedcfd5fd0084b524832e7d5072645f82264be3e706e0977201f1386",
+                          "path" : "contracts/freeform-output.v1.schema.json"
+                        },
+                        "phase" : "implementation",
+                        "phaseOrder" : 44,
+                        "producedArtifacts" : [ ],
+                        "providerKey" : "minimal-implementation:implementation:1",
+                        "requiredArtifacts" : [ ],
+                        "requiredCapability" : "minimal-implementation",
+                        "requiredInputArtifacts" : [ ],
+                        "resultSchema" : {
+                          "digest" : "sha256:bb8fefad354b7e61f5de8f5c535227f45b4f441765558e66d1765a7883d85927",
+                          "path" : "contracts/provider-result.v1.schema.json"
+                        },
+                        "riskGate" : "none",
+                        "satisfiedCapabilities" : [
+                          "minimal-implementation"
+                        ],
+                        "selectionReason" : "Selected 'minimal-implementation' because provider 'minimal-implementation:implementation:1' supplies 'minimal-implementation' at priority 50.",
+                        "skillId" : "minimal-implementation",
+                        "stageId" : "stage-01-minimal-implementation",
+                        "state" : "READY",
+                        "stateMapping" : {
+                          "adapterErrors" : [
+                            "INVALID_INPUT",
+                            "MISSING_EVIDENCE"
+                          ],
+                          "default" : "reject",
+                          "selector" : "/output/status",
+                          "values" : {
+                            "blocked" : {
+                              "allowedErrorCodes" : [
+                                "MISSING_EVIDENCE"
+                              ],
+                              "errorRequired" : true,
+                              "state" : "BLOCKED"
+                            },
+                            "failed" : {
+                              "allowedErrorCodes" : [
+                                "GATE_FAILED"
+                              ],
+                              "errorRequired" : true,
+                              "state" : "FAILED"
+                            },
+                            "passed" : {
+                              "errorRequired" : false,
+                              "state" : "PASSED"
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "state" : "READY",
+                    "taskDigest" : "<DIGEST>",
+                    "taskId" : "task-<UUID>"
+                  },
+                  "priorFailure" : null,
+                  "rootId" : "root-<UUID>",
+                  "schemaVersion" : "1.0.0",
+                  "taskEnvelope" : {
+                    "acceptanceCriteria" : [
+                      "The change works."
+                    ],
+                    "authorization" : {
+                      "allowedActions" : [ ],
+                      "approvalRequired" : [ ],
+                      "prohibitedActions" : [ ]
+                    },
+                    "constraints" : [ ],
+                    "decision" : {
+                      "complexity" : "complex",
+                      "hasConflicts" : false
+                    },
+                    "objective" : "Change [alpha] in t-resolve-convergence-gate-ok",
+                    "orchestration" : {
+                      "mcpAvailable" : true,
+                      "requested" : true
+                    },
+                    "requiredCapabilities" : [
+                      "minimal-implementation"
+                    ],
+                    "riskLevel" : "medium",
+                    "schemaVersion" : "1.0.0",
+                    "scope" : {
+                      "excluded" : [ ],
+                      "included" : [
+                        "alpha"
+                      ]
+                    },
+                    "taskId" : "task-<UUID>",
+                    "workUnits" : [
+                      {
+                        "dependencies" : [ ],
+                        "id" : "work",
+                        "objective" : "Change [alpha] in t-resolve-convergence-gate-ok",
+                        "writeTargets" : [
+                          "alpha"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "reviews" : [
+                {
+                  "classification" : "semantics-changing",
+                  "comparability" : {
+                    "comparable" : false,
+                    "rationale" : "The evaluation meaning is changed or unresolved."
+                  },
+                  "epoch" : 1,
+                  "evidenceRefs" : [
+                    "review-evidence:1"
+                  ],
+                  "freshContext" : {
+                    "confirmed" : true,
+                    "evidenceRef" : "review-evidence:1"
+                  },
+                  "observedReviewer" : {
+                    "actor" : "codex:session-6e0dcdcd35df5c21e2cca488",
+                    "independence" : "UNOBSERVED",
+                    "parentChain" : [ ],
+                    "provenance" : "UNAVAILABLE"
+                  },
+                  "proposedFrame" : {
+                    "controlArtifacts" : [
+                      {
+                        "artifactId" : "acceptance-criteria",
+                        "digest" : "sha256:98704316a71756ab0814959c0c61f57dbd18b7570f157cd87e0a4f6ab3d0de88",
+                        "locator" : "taskEnvelope.acceptanceCriteria",
+                        "role" : "pass-condition"
+                      }
+                    ],
+                    "operationalSettings" : {
+                      "leaseTtlSeconds" : 300,
+                      "maxAttemptsPerEpoch" : 3,
+                      "maxEpochs" : 2
+                    },
+                    "schemaVersion" : "1.0.0",
+                    "targetArtifacts" : [
+                      {
+                        "artifactId" : "target-1",
+                        "digest" : "sha256:2e5d60fadd0690cce92074d191da80f5ce5b0e13f62f3bafdfaabfe598ee96c2",
+                        "locator" : "alpha",
+                        "role" : "target"
+                      }
+                    ],
+                    "workspace" : {
+                      "locator" : "{WS}/t-resolve-convergence-gate-ok",
+                      "workspaceId" : "t-resolve-convergence-gate-ok"
+                    }
+                  },
+                  "reviewId" : "review-golden",
+                  "reviewedAt" : "2026-01-01T00:00:00Z",
+                  "reviewerActorId" : "fresh-frame-auditor",
+                  "rootId" : "root-<UUID>",
+                  "rootRevision" : 3,
+                  "route" : "needs-user",
+                  "schemaVersion" : "1.0.0",
+                  "userApprovalRefs" : [ ]
+                }
+              ],
+              "root" : {
+                "controlDigest" : "sha256:709e7077a869064bc0dfc4e2c4c2d3394c52004b5306c342b64c005e885c343a",
+                "createdAt" : "<TIME>",
+                "currentEpoch" : 1,
+                "frame" : {
+                  "controlArtifacts" : [
+                    {
+                      "artifactId" : "acceptance-criteria",
+                      "digest" : "sha256:98704316a71756ab0814959c0c61f57dbd18b7570f157cd87e0a4f6ab3d0de88",
+                      "locator" : "taskEnvelope.acceptanceCriteria",
+                      "role" : "pass-condition"
+                    }
+                  ],
+                  "operationalSettings" : {
+                    "leaseTtlSeconds" : 300,
+                    "maxAttemptsPerEpoch" : 3,
+                    "maxEpochs" : 2
+                  },
+                  "schemaVersion" : "1.0.0",
+                  "targetArtifacts" : [
+                    {
+                      "artifactId" : "target-1",
+                      "digest" : "sha256:2e5d60fadd0690cce92074d191da80f5ce5b0e13f62f3bafdfaabfe598ee96c2",
+                      "locator" : "alpha",
+                      "role" : "target"
+                    }
+                  ],
+                  "workspace" : {
+                    "locator" : "{WS}/t-resolve-convergence-gate-ok",
+                    "workspaceId" : "t-resolve-convergence-gate-ok"
+                  }
+                },
+                "frameDigest" : "<DIGEST>",
+                "operationalDigest" : "sha256:4134fc3119800fc3767c31be392181685a3748d922a6009058ad8de6288c35fa",
+                "parentRootId" : null,
+                "revision" : 4,
+                "rootId" : "root-<UUID>",
+                "schemaVersion" : "1.0.0",
+                "state" : "NEEDS_USER",
+                "targetDigest" : "sha256:451dc881e1e93b1ef308492512919bec1f6202154c2e742538355e774012ade8",
+                "taskDigest" : "<DIGEST>",
+                "taskEnvelope" : {
+                  "acceptanceCriteria" : [
+                    "The change works."
+                  ],
+                  "authorization" : {
+                    "allowedActions" : [ ],
+                    "approvalRequired" : [ ],
+                    "prohibitedActions" : [ ]
+                  },
+                  "constraints" : [ ],
+                  "decision" : {
+                    "complexity" : "complex",
+                    "hasConflicts" : false
+                  },
+                  "objective" : "Change [alpha] in t-resolve-convergence-gate-ok",
+                  "orchestration" : {
+                    "mcpAvailable" : true,
+                    "requested" : true
+                  },
+                  "requiredCapabilities" : [
+                    "minimal-implementation"
+                  ],
+                  "riskLevel" : "medium",
+                  "schemaVersion" : "1.0.0",
+                  "scope" : {
+                    "excluded" : [ ],
+                    "included" : [
+                      "alpha"
+                    ]
+                  },
+                  "taskId" : "task-<UUID>",
+                  "workUnits" : [
+                    {
+                      "dependencies" : [ ],
+                      "id" : "work",
+                      "objective" : "Change [alpha] in t-resolve-convergence-gate-ok",
+                      "writeTargets" : [
+                        "alpha"
+                      ]
+                    }
+                  ]
+                },
+                "updatedAt" : "2026-01-01T00:00:00Z",
+                "userApprovalRefs" : [ ],
+                "workspaceDigest" : "<DIGEST>"
+              },
+              "schemaVersion" : "1.0.0",
+              "unverifiedClaims" : [
+                {
+                  "claim" : "REVIEWER_INDEPENDENCE",
+                  "stageId" : null
+                },
+                {
+                  "claim" : "FRESH_CONTEXT",
+                  "stageId" : null
+                }
+              ],
+              "workflowRunIds" : [
+                "run-task-<UUID>"
+              ]
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        },
+        {
+          "text" : "Root root-<UUID> is NEEDS_USER; automatic pause/resume or retry is not allowed. Read get_convergence_status and resolve the required review or user decision before continuing.\nThe workflow changed: before the next judgment or action, re-match it against the skill targets and call every match now. A stage's provider is only the contract its result is recorded under; it does not limit the skills used, and another skill needs no plan change.\nUpdate checkpoint_context when a finished step or failure changes goals, remaining work or needed evidence.",
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

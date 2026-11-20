@@ -1,0 +1,35 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "STALE_REVISION",
+              "details" : {
+                "actualRevision" : 3,
+                "expectedRevision" : 4,
+                "reviewRevision" : 3
+              },
+              "message" : "The convergence review does not target the current root revision.",
+              "messageKey" : "workflow.service.convergenceReviewTargetCurrentRoot",
+              "params" : { }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

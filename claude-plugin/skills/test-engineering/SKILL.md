@@ -1,0 +1,42 @@
+---
+name: test-engineering
+description: "Use when writing or strengthening tests or checking that regression tests catch defects: design cases at real requirement and code boundaries and gather red/green or targeted mutation evidence. Not for cause diagnosis, owning product implementation, final acceptance, independent audit or release approval."
+license: AGPL-3.0-or-later
+metadata:
+  version: "0.1.0"
+---
+
+# Test Engineering
+
+## 적용과 입력
+테스트 설계·구현·회귀 보호가 요청되면 사용한다. 단순 개념 설명·문구 수정이나 추가 테스트 설계가 필요 없는 제품 구현에 이 전문 절차를 강제하지 않는다. 구현에 필요한 기존 검증은 유지한다. 적용 지침, 작업 계약, 테스트 대상 코드, 기존 runner와 허용된 실행 범위를 먼저 읽는다.
+
+## 실행
+1. 현재 코드와 테스트 설정에서 실제 공개 경계와 검증 가능한 요구를 식별한다. 기존 `cs-engineering` 보고서가 있으면 rule/obligation ID를 참조하고 재정의하지 않는다.
+2. [test-design](references/test-design.md)을 읽고 `engineering-test-plan`으로 요구·case·oracle·테스트 수준·제외 범위를 연결한다. 계획을 작성·저장하고 `check-plan`을 확인한 뒤 테스트를 구현·실행한다. 기존 승인이 있는 요구에 대해 형식적인 추가 승인을 반복하지 않는다.
+   여러 곳이 읽는 공유 산출물(고정값·해시·계약·형식·공개 문구·시험이 기대하는 값)을 바꾸는 작업이면, 구현·실행 전에 그것을 읽는 시험·소비자를 저장소 검색과 의존 관계로 먼저 찾아 영향 집합으로 plan에 적는다. 기대값이 바뀌어야 하는 시험은 같은 변경에서 함께 맞추고, 넓은 시험(전체·통합)은 영향 집합을 확인하는 최종 검증으로 둔다. 읽는 곳을 찾으려고 전체 시험을 돌려 실패를 하나씩 고치는 순환을 하지 않으며, 같은 변경 뒤 실패가 계속 바뀌면 원인을 묶어 영향 집합을 다시 정한다.
+3. 허용된 범위에서 해당 runner로 테스트를 작성한다. runner 추가·외부 서비스 호출·비용 발생은 기존 권한 경계를 따른다. 제품 구현은 `minimal-implementation` 책임을 유지한다.
+4. 결함 탐지 능력을 검증할 때 [test-proof](references/test-proof.md)를 읽는다. 원본 작업 트리가 아닌 격리 사본에서 같은 테스트로 red/green 또는 mutation을 실행한다. 사용자의 코드를 TDD 형식에 맞추기 위해 삭제하거나 reset하지 않는다.
+5. 실행 뒤에는 아래 CLI로 receipt 참조·후보·테스트 동일성을 검사한다. 사후에 만든 계획을 선작성 근거로 보고하지 않는다. 미실행·실행기 오류·시간초과·범위 공백은 통과로 바꾸지 않는다.
+6. 계획·코드·원시 근거·미확인 범위를 `acceptance-evidence-validator`에 전달한다. 로컬 consistency 검사를 독립 감사나 전체 정확성 보장으로 표현하지 않는다.
+
+## 실패를 통과로 바꾸지 않는 보정
+
+- 첫 예상 밖 실패의 원시 출력·실행 조건을 보존하고 assertion 실패, 실행기·환경 오류, timeout을 구분한다. 원인이 다른 실패를 같은 재현으로 합치지 않는다.
+- 성공시키기 위한 기대값·snapshot 교체, skip, 예외 삼키기, 무조건 재시도는 하지 않는다. 요구 변경이나 잘못된 oracle을 확인했을 때만 근거를 남겨 시험을 수정하며, 그 전후 기록을 같은 red/green 쌍으로 포장하지 않는다.
+- 시간·동시성 문제는 기다리는 조건과 deadline, 해당 조건을 진행시키는 실행 흐름을 확인한다. 같은 이벤트루프를 막는 호출이나 고정 sleep을 그대로 둔 채 제한 시간만 늘려 해결됐다고 하지 않는다. flaky 실패는 성공한 재실행으로 덮지 않는다.
+- 사용자가 지정한 시험 호스트와 격리 범위를 사용한다. 실행할 수 없으면 해당 항목의 NOT_RUN을 유지하고 가능한 설계·코드 작업을 이어 간다.
+
+## 출력과 실패
+`engineering-test-plan`, `engineering-test-proof`, 계산된 `engineering-test-result`를 출력한다. 실행 불가 항목은 NOT_RUN, 불필요한 기계적 red/green은 사전 계획의 근거 있는 예외로 기록한다. invalid input이나 digest 불일치면 중단하고 수정할 참조를 알린다. 새로운 workflow·PEER·세션·승인 규칙을 만들지 않는다.
+
+## CLI
+```text
+# 요구·case·입력·기대값·판정 조건을 plan.json으로 저장한다.
+run_skill_check {"skill":"test-engineering","command":"check-plan","arguments":{"root":"/absolute/artifacts","plan":"plan.json"}}
+# 통과한 계획에 맞춰 첫 시험을 구현한다.
+# 동일한 시험 bytes·case·입력·기대값·argv·설정으로 before(RED), fixed(GREEN)를 실행한다.
+# 실제 실행된 사례 집합과 assertion 결과를 대조해 proof.json에 기록한다.
+run_skill_check {"skill":"test-engineering","command":"check-proof","arguments":{"root":"/absolute/artifacts","plan":"plan.json","proof":"proof.json"}}
+```
+명령 캡처·snapshot·예제는 [공통 CLI](references/cli.md)를 읽는다.

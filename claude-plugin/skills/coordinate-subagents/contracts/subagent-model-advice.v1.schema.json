@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sennard.local/subagent-model-advice.v1.schema.json",
+  "title": "SubagentModelAdvice.v1",
+  "description": "Pre-dispatch advice only. No status grants delegation or establishes effective model settings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "authorityEffect", "assignment", "capabilitySource", "routingOptions", "selectionPlan"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "status": { "enum": ["READY", "INHERIT_UNVERIFIED", "BLOCKED"] },
+    "authorityEffect": { "const": "none" },
+    "assignment": { "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/$defs/assignment" },
+    "capabilitySource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostId", "reference"],
+      "properties": { "hostId": { "type": "string", "minLength": 1 }, "reference": { "type": "string", "minLength": 1 } }
+    },
+    "routingOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "role", "highRisk", "supported"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "role": { "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/$defs/assignment/properties/role" },
+        "highRisk": { "type": "boolean" },
+        "supported": { "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/properties/host/properties/supported" },
+        "inherited": { "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/$defs/setting" },
+        "inheritanceSupported": { "type": "boolean" },
+        "inheritOnly": { "type": "boolean" },
+        "judgment": { "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/properties/judgment" },
+        "user": { "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/properties/user" }
+      }
+    },
+    "selectionPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "selection", "delivery", "fallbackReason"],
+      "properties": {
+        "requested": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false, "required": ["model", "effort"],
+              "properties": {
+                "model": { "type": ["string", "null"], "minLength": 1 },
+                "modelClass": { "anyOf": [{ "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/$defs/modelClass" }, { "type": "null" }] },
+                "effortDepth": { "anyOf": [{ "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/$defs/effortDepth" }, { "type": "null" }] },
+                "effort": { "type": ["string", "null"], "minLength": 1 }
+              }
+            }
+          ]
+        },
+        "selection": {
+          "description": "The model and the effort label to pass on the call. The effort is left out when the host takes the model without an effort: pass the model alone, never an effort the host does not list.",
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["model"],
+              "properties": {
+                "model": { "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/$defs/text" },
+                "effort": { "$ref": "https://sennard.local/subagent-model-request.v1.schema.json#/$defs/text" }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "delivery": { "description": "explicit: pass the selection on the call. inherited: pass no model or effort; fallbackReason says why the host cannot take them. blocked: no usable combination.", "enum": ["explicit", "inherited", "blocked"] },
+        "fallbackReason": { "type": ["string", "null"], "minLength": 1 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "READY" } } },
+      "then": { "properties": { "selectionPlan": { "properties": { "selection": { "type": "object" }, "delivery": { "enum": ["explicit", "inherited"] } } } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "INHERIT_UNVERIFIED" } } },
+      "then": { "properties": { "selectionPlan": { "properties": { "selection": { "type": "null" }, "delivery": { "const": "inherited" } } } } }
+    },
+    {
+      "description": "A call that inherits always carries the reason the host could not take a model and an effort.",
+      "if": { "properties": { "selectionPlan": { "properties": { "delivery": { "const": "inherited" } } } } },
+      "then": { "properties": { "selectionPlan": { "properties": { "fallbackReason": { "type": "string" } } } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "BLOCKED" } } },
+      "then": { "properties": { "selectionPlan": { "properties": { "selection": { "type": "null" }, "delivery": { "const": "blocked" } } } } }
+    }
+  ]
+}

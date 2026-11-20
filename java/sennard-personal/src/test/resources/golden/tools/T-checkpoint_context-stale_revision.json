@@ -1,0 +1,35 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "STALE_REVISION",
+              "details" : {
+                "actualStateToken" : "<TOKEN>",
+                "expectedStateToken" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "reasonCode" : "CONTINUITY_STATE_STALE"
+              },
+              "message" : "Current memory changed. Use load_context to read the latest current state and stateToken, then rebuild the content.",
+              "messageKey" : "continuity.checkpoint.stateChanged",
+              "params" : { }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

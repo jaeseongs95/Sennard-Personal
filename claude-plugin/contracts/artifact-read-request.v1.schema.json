@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/artifact-read-request.v1.schema.json",
+  "title": "ArtifactReadRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "attachmentId"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "attachmentId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "seq": { "type": "integer", "minimum": 0, "description": "Which file of the attachment is read: its number in the order of artifact_begin's files; 0 when it is left out." },
+    "offsetBytes": { "type": "integer", "minimum": 0, "description": "Where the page starts in the file's bytes; 0 when it is left out." },
+    "maxBytes": { "type": "integer", "minimum": 1, "maximum": 262144, "description": "The most bytes of the page; 262144 when it is left out." }
+  }
+}

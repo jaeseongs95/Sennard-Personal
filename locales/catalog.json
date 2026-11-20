@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0.0",
+  "rootLocale": "en",
+  "locales": [
+    "en",
+    "ko"
+  ],
+  "domains": {
+    "hooks": {
+      "sourceLocale": "ko"
+    },
+    "server": {
+      "sourceLocale": "en"
+    },
+    "admin": {
+      "sourceLocale": "en"
+    },
+    "workflow": {
+      "sourceLocale": "en"
+    },
+    "workflowRecord": {
+      "sourceLocale": "ko"
+    },
+    "services": {
+      "sourceLocale": "en"
+    },
+    "error": {
+      "sourceLocale": "en"
+    },
+    "tools": {
+      "sourceLocale": "en"
+    },
+    "schema": {
+      "sourceLocale": "en"
+    },
+    "instructions": {
+      "sourceLocale": "ko"
+    },
+    "continuity": {
+      "sourceLocale": "en"
+    },
+    "peer": {
+      "sourceLocale": "en"
+    },
+    "connector": {
+      "sourceLocale": "en"
+    },
+    "practices": {
+      "sourceLocale": "en"
+    },
+    "skillScripts": {
+      "sourceLocale": "en"
+    },
+    "skillTools": {
+      "sourceLocale": "en"
+    },
+    "skillReports": {
+      "sourceLocale": "en"
+    },
+    "skillReportsKo": {
+      "sourceLocale": "ko"
+    },
+    "skillChecks": {
+      "sourceLocale": "en"
+    },
+    "skillChecksKo": {
+      "sourceLocale": "ko"
+    },
+    "skillCheck": {
+      "sourceLocale": "en"
+    },
+    "cli": {
+      "sourceLocale": "en"
+    }
+  }
+}

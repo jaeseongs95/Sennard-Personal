@@ -1,0 +1,13 @@
+# Explicitly exposed by the target Codex hook; no server-inherited values.
+CODEX_MANAGED_PACKAGE_ROOT
+PATH
+Path
+PLUGIN_DATA
+AGENT_GOVERNANCE_CODEX_QUEUE_WAKE
+CODEX_HOME
+HOME
+USERPROFILE
+SystemRoot
+TEMP
+TMP
+LANG

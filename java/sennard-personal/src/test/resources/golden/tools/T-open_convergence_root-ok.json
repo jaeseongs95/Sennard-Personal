@@ -1,0 +1,115 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "controlDigest" : "sha256:709e7077a869064bc0dfc4e2c4c2d3394c52004b5306c342b64c005e885c343a",
+              "createdAt" : "<TIME>",
+              "currentEpoch" : 1,
+              "frame" : {
+                "controlArtifacts" : [
+                  {
+                    "artifactId" : "acceptance-criteria",
+                    "digest" : "sha256:98704316a71756ab0814959c0c61f57dbd18b7570f157cd87e0a4f6ab3d0de88",
+                    "locator" : "taskEnvelope.acceptanceCriteria",
+                    "role" : "pass-condition"
+                  }
+                ],
+                "operationalSettings" : {
+                  "leaseTtlSeconds" : 300,
+                  "maxAttemptsPerEpoch" : 3,
+                  "maxEpochs" : 2
+                },
+                "schemaVersion" : "1.0.0",
+                "targetArtifacts" : [
+                  {
+                    "artifactId" : "target-1",
+                    "digest" : "sha256:192d44fc8ad0e261c5f37ab9369c29f1a9f6c2a23a9084fc311d609e09f0fd38",
+                    "locator" : "alpha",
+                    "role" : "target"
+                  }
+                ],
+                "workspace" : {
+                  "locator" : "{WS}/t-open-convergence-root-ok",
+                  "workspaceId" : "t-open-convergence-root-ok"
+                }
+              },
+              "frameDigest" : "<DIGEST>",
+              "operationalDigest" : "sha256:4134fc3119800fc3767c31be392181685a3748d922a6009058ad8de6288c35fa",
+              "parentRootId" : null,
+              "revision" : 0,
+              "rootId" : "root-<UUID>",
+              "schemaVersion" : "1.0.0",
+              "state" : "OPEN",
+              "targetDigest" : "sha256:3d0d8213d8b4d8a53d539cec93aada147209698a0ce7a0291441d24b0165b7f6",
+              "taskDigest" : "sha256:267d0b8c9f2a5a27687d3e5ed0018446380fec9d8da6378204da12a068736180",
+              "taskEnvelope" : {
+                "acceptanceCriteria" : [
+                  "The change works."
+                ],
+                "authorization" : {
+                  "allowedActions" : [ ],
+                  "approvalRequired" : [ ],
+                  "prohibitedActions" : [ ]
+                },
+                "constraints" : [ ],
+                "decision" : {
+                  "complexity" : "complex",
+                  "hasConflicts" : false
+                },
+                "objective" : "Change [alpha] in t-open-convergence-root-ok",
+                "orchestration" : {
+                  "mcpAvailable" : true,
+                  "requested" : true
+                },
+                "requiredCapabilities" : [
+                  "minimal-implementation"
+                ],
+                "riskLevel" : "medium",
+                "schemaVersion" : "1.0.0",
+                "scope" : {
+                  "excluded" : [ ],
+                  "included" : [
+                    "alpha"
+                  ]
+                },
+                "taskId" : "task-golden-open",
+                "workUnits" : [
+                  {
+                    "dependencies" : [ ],
+                    "id" : "work",
+                    "objective" : "Change [alpha] in t-open-convergence-root-ok",
+                    "writeTargets" : [
+                      "alpha"
+                    ]
+                  }
+                ]
+              },
+              "updatedAt" : "<TIME>",
+              "userApprovalRefs" : [ ],
+              "workspaceDigest" : "<DIGEST>"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        },
+        {
+          "text" : "Session workflow capacity: 1/5 open; 4 more can be opened.\nFor additions, corrections or status questions about this work, resume this workflow and update its working plan and completion criteria; revise its files with submit_change_plan inside the existing write scope. Open a separate workflow only for independent work. Existing scope and approval requirements still apply.\nThe workflow changed: before the next judgment or action, re-match it against the skill targets and call every match now. A stage's provider is only the contract its result is recorded under; it does not limit the skills used, and another skill needs no plan change.\nUpdate checkpoint_context when a finished step or failure changes goals, remaining work or needed evidence.",
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

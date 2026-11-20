@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "agent-correction",
+  "actions": [
+    "implement-minimal-deliverable",
+    "design-minimal-deliverable",
+    "choose-dependencies"
+  ],
+  "targets": [
+    "deliverables",
+    "documents",
+    "data",
+    "configuration",
+    "procedures",
+    "dependencies"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "applicability": [
+    {
+      "path": "skills/minimal-implementation/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:fb20c764552e374998588f25f6ec2905afe0129df620e00ada2163f53ad6bd73",
+      "startByte": 0,
+      "endByte": 457
+    },
+    {
+      "path": "skills/minimal-implementation/SKILL.md",
+      "startLine": 11,
+      "endLine": 11,
+      "digest": "sha256:fb20c764552e374998588f25f6ec2905afe0129df620e00ada2163f53ad6bd73"
+    },
+    {
+      "path": "skills/minimal-implementation/SKILL.md",
+      "startLine": 16,
+      "endLine": 16,
+      "digest": "sha256:fb20c764552e374998588f25f6ec2905afe0129df620e00ada2163f53ad6bd73",
+      "startByte": 0,
+      "endByte": 92
+    },
+    {
+      "path": "skills/minimal-implementation/SKILL.md",
+      "startLine": 20,
+      "endLine": 28,
+      "digest": "sha256:fb20c764552e374998588f25f6ec2905afe0129df620e00ada2163f53ad6bd73"
+    },
+    {
+      "path": "skills/minimal-implementation/SKILL.md",
+      "startLine": 32,
+      "endLine": 37,
+      "digest": "sha256:fb20c764552e374998588f25f6ec2905afe0129df620e00ada2163f53ad6bd73"
+    },
+    {
+      "path": "skills/minimal-implementation/SKILL.md",
+      "startLine": 68,
+      "endLine": 68,
+      "digest": "sha256:fb20c764552e374998588f25f6ec2905afe0129df620e00ada2163f53ad6bd73",
+      "startByte": 0,
+      "endByte": 61
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/minimal-implementation/SKILL.md",
+      "startLine": 68,
+      "endLine": 68,
+      "digest": "sha256:fb20c764552e374998588f25f6ec2905afe0129df620e00ada2163f53ad6bd73",
+      "startByte": 61,
+      "endByte": 159
+    },
+    {
+      "path": "skills/minimal-implementation/SKILL.md",
+      "startLine": 70,
+      "endLine": 70,
+      "digest": "sha256:fb20c764552e374998588f25f6ec2905afe0129df620e00ada2163f53ad6bd73",
+      "startByte": 135,
+      "endByte": 251
+    }
+  ]
+}

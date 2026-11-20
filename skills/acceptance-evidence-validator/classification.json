@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "agent-correction",
+  "actions": [
+    "validate-acceptance-evidence"
+  ],
+  "targets": [
+    "work-products",
+    "verification-evidence"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "applicability": [
+    {
+      "path": "skills/acceptance-evidence-validator/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:0247c8ed5723f4e4891ae439ac1fc1a080d420653c8f30856736354e81f57586",
+      "startByte": 0,
+      "endByte": 154
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/SKILL.md",
+      "startLine": 11,
+      "endLine": 11,
+      "digest": "sha256:0247c8ed5723f4e4891ae439ac1fc1a080d420653c8f30856736354e81f57586",
+      "startByte": 0,
+      "endByte": 84
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/SKILL.md",
+      "startLine": 20,
+      "endLine": 23,
+      "digest": "sha256:0247c8ed5723f4e4891ae439ac1fc1a080d420653c8f30856736354e81f57586",
+      "startByte": 0,
+      "endByte": 259
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/references/entry-details.md",
+      "startLine": 24,
+      "endLine": 24,
+      "digest": "sha256:ecfaba24055d3c0a797c6cbf65db7871eba95d3c0acf76bbba204f27a35f98a5",
+      "startByte": 0,
+      "endByte": 19
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/acceptance-evidence-validator/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:0247c8ed5723f4e4891ae439ac1fc1a080d420653c8f30856736354e81f57586",
+      "startByte": 155,
+      "endByte": 255
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/SKILL.md",
+      "startLine": 11,
+      "endLine": 11,
+      "digest": "sha256:0247c8ed5723f4e4891ae439ac1fc1a080d420653c8f30856736354e81f57586",
+      "startByte": 85,
+      "endByte": 233
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/SKILL.md",
+      "startLine": 24,
+      "endLine": 24,
+      "digest": "sha256:0247c8ed5723f4e4891ae439ac1fc1a080d420653c8f30856736354e81f57586",
+      "startByte": 0,
+      "endByte": 89
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/SKILL.md",
+      "startLine": 25,
+      "endLine": 25,
+      "digest": "sha256:0247c8ed5723f4e4891ae439ac1fc1a080d420653c8f30856736354e81f57586",
+      "startByte": 0,
+      "endByte": 127
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/references/entry-details.md",
+      "startLine": 26,
+      "endLine": 26,
+      "digest": "sha256:ecfaba24055d3c0a797c6cbf65db7871eba95d3c0acf76bbba204f27a35f98a5",
+      "startByte": 0,
+      "endByte": 106
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/references/entry-details.md",
+      "startLine": 27,
+      "endLine": 27,
+      "digest": "sha256:ecfaba24055d3c0a797c6cbf65db7871eba95d3c0acf76bbba204f27a35f98a5",
+      "startByte": 0,
+      "endByte": 82
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/references/entry-details.md",
+      "startLine": 28,
+      "endLine": 28,
+      "digest": "sha256:ecfaba24055d3c0a797c6cbf65db7871eba95d3c0acf76bbba204f27a35f98a5",
+      "startByte": 0,
+      "endByte": 89
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/references/entry-details.md",
+      "startLine": 29,
+      "endLine": 29,
+      "digest": "sha256:ecfaba24055d3c0a797c6cbf65db7871eba95d3c0acf76bbba204f27a35f98a5",
+      "startByte": 0,
+      "endByte": 179
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/references/entry-details.md",
+      "startLine": 30,
+      "endLine": 30,
+      "digest": "sha256:ecfaba24055d3c0a797c6cbf65db7871eba95d3c0acf76bbba204f27a35f98a5",
+      "startByte": 0,
+      "endByte": 106
+    },
+    {
+      "path": "skills/acceptance-evidence-validator/SKILL.md",
+      "startLine": 23,
+      "endLine": 23,
+      "digest": "sha256:0247c8ed5723f4e4891ae439ac1fc1a080d420653c8f30856736354e81f57586",
+      "startByte": 145,
+      "endByte": 254
+    }
+  ]
+}

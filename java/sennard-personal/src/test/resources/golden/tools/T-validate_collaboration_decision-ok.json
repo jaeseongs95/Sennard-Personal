@@ -1,0 +1,46 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "authorityCapabilities" : {
+                "authorityIssuance" : false,
+                "directUserInputAttestation" : false,
+                "scopedDelegation" : false
+              },
+              "callerBindingAssurance" : "observational",
+              "callerObservation" : {
+                "actorKind" : "main",
+                "assurance" : "observed",
+                "host" : "codex",
+                "observedBy" : "host-observed",
+                "sessionId" : "0aaa55ef-a978-3bcf-b0d0-bd6d618b6e50"
+              },
+              "receiptBoundToCaller" : null,
+              "receiptFound" : false,
+              "receiptFreshness" : null,
+              "receiptIntegrity" : null,
+              "sourceClaimMatch" : null,
+              "structuralErrors" : [ ],
+              "structuralValidity" : "valid"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

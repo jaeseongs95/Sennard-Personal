@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "agent-correction",
+  "actions": [
+    "read-only-evaluation-audit"
+  ],
+  "targets": [
+    "frozen-evaluation-inputs",
+    "judgment-method",
+    "result-aggregation"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "applicability": [
+    {
+      "path": "skills/evaluation-validity-auditor/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:f833a9c6a81b830a5e4bfada946837731602c3160b0cf461ad391b8f15429d59",
+      "startByte": 0,
+      "endByte": 155
+    },
+    {
+      "path": "skills/evaluation-validity-auditor/SKILL.md",
+      "startLine": 11,
+      "endLine": 11,
+      "digest": "sha256:f833a9c6a81b830a5e4bfada946837731602c3160b0cf461ad391b8f15429d59",
+      "startByte": 0,
+      "endByte": 150
+    },
+    {
+      "path": "skills/evaluation-validity-auditor/references/entry-details.md",
+      "startLine": 1,
+      "endLine": 16,
+      "digest": "sha256:f1b48e70b18a43b465404ef84ca0482712c8582b11af55fcb9d6b3cbd8acadeb",
+      "startByte": 0,
+      "endByte": 1260
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/evaluation-validity-auditor/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:f833a9c6a81b830a5e4bfada946837731602c3160b0cf461ad391b8f15429d59",
+      "startByte": 156,
+      "endByte": 236
+    },
+    {
+      "path": "skills/evaluation-validity-auditor/SKILL.md",
+      "startLine": 11,
+      "endLine": 11,
+      "digest": "sha256:f833a9c6a81b830a5e4bfada946837731602c3160b0cf461ad391b8f15429d59",
+      "startByte": 151,
+      "endByte": 277
+    }
+  ]
+}

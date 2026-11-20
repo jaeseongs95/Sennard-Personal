@@ -1,0 +1,33 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "LEASE_CONFLICT",
+              "details" : {
+                "leaseId" : "lease-golden-missing"
+              },
+              "message" : "The attempt lease is missing, already consumed, or superseded by a newer claim; read the convergence status and claim again.",
+              "messageKey" : "workflow.service.attemptLeaseMissingConsumedSuperseded",
+              "params" : { }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

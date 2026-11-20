@@ -1,0 +1,111 @@
+name: Server package
+
+# Builds the one release jar (:sennard-personal:releaseJar), checks its name against the tag and the version, and attaches the jar and its checksum to the release once the
+# checks have passed. workflow_dispatch with a tag rebuilds and replaces the assets of that release; without a tag it builds the selected ref and leaves the jar as a build
+# artifact only.
+# Why one runner and no OS matrix: the release is a single jar and the JVM absorbs the difference between operating systems, so the jar a Linux runner builds is the jar every OS
+# runs, and a runner per OS or CPU would only build the same file again. The build is reproducible (fixed timestamps and file order), and when a release is published the sha256 of
+# this jar is compared with the sha256 of the jar built on the maintainer's computer: a difference stops the release.
+# The jobs that build and check hold a read-only token and call only ./gradlew: the name and checksum checks are Gradle tasks (java/sennard-repo-tools), in Java. They hand the jar
+# and its checksum over as a workflow artifact. The only job that can write to the release checks out nothing and runs no code of the repository: it downloads the artifact and
+# uploads it with the GitHub CLI of the runner (the structure rule ci-run-not-gradlew). ./gradlew is the CI standard, the one external program the build needs to start.
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to package and attach (for example v6.0.0). Empty builds the selected ref and attaches nothing.
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+# A release in a private repository starts nothing: every job below runs for a release only where the repository is public, and a manual run (workflow_dispatch) is always allowed.
+jobs:
+  package:
+    name: Build the jar
+    if: ${{ github.event_name != 'release' || !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out the release tag or the selected ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - name: Set up JDK 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Build the jar
+        shell: bash
+        working-directory: java
+        run: ./gradlew --no-daemon --console=plain :sennard-personal:releaseJar
+      # The name the README promises: sennard-<version>.jar. The tag must be v<version>, the version the build stamps.
+      - name: Check the name and write the checksum
+        shell: bash
+        working-directory: java
+        run: ./gradlew --no-daemon --console=plain :sennard-repo-tools:checkReleaseArchive -Ptool="--tag $TAG --dir java/sennard-personal/build/release"
+      - name: Upload the jar and its checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sennard-jar
+          # The folder holds the jar and its checksum file and nothing else (checkReleaseArchive).
+          path: java/sennard-personal/build/release
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  # Read-only: checks the jar against its checksum. The artifacts of one run cannot be replaced, so the attach job below uploads the files checked here.
+  check:
+    name: Check the jar
+    needs: package
+    if: ${{ github.event_name != 'release' || !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the release tag or the selected ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - name: Set up JDK 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Download the jar and its checksum
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sennard-jar
+          path: assets
+      - name: Check the jar against its checksum
+        shell: bash
+        working-directory: java
+        run: ./gradlew --no-daemon --console=plain :sennard-repo-tools:checkReleaseChecksums -Ptool="--dir assets"
+
+  # Holds the token that can write to the release, so no code of the repository runs here: no checkout, no Gradle, no third-party action. A run without a tag attaches nothing.
+  attach:
+    name: Attach to the release
+    needs: check
+    if: ${{ (github.event_name != 'release' || !github.event.repository.private) && (github.event.release.tag_name != '' || inputs.tag != '') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the jar and its checksum
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sennard-jar
+          path: assets
+      - name: Attach the jar and its checksum
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" assets/* --clobber --repo "$GITHUB_REPOSITORY"

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "requestId", "operationKey","originalPrompt", "confirmedContext", "contextSources", "explicitSkillIds", "ruleRequiredSkillIds", "vendorContext", "publicSynthetic"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "requestId": { "type": "string", "minLength": 1 },
+    "operationKey": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{16,128}$" },
+    "originalPrompt": { "type": "string" },
+    "confirmedContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskRevision", "objective", "actions", "targets", "constraints", "prohibitedActions", "background"],
+      "properties": {
+        "taskRevision": { "type": ["string", "null"] },
+        "objective": { "type": ["string", "null"] },
+        "actions": { "$ref": "#/$defs/nullableIds" },
+        "targets": { "$ref": "#/$defs/nullableIds" },
+        "constraints": { "$ref": "#/$defs/nullableIds" },
+        "prohibitedActions": { "$ref": "#/$defs/nullableIds" },
+        "background": { "type": ["string", "null"] }
+      }
+    },
+    "contextSources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "reference"],
+        "properties": {
+          "field": { "type": "string", "minLength": 1 },
+          "reference": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "explicitSkillIds": { "$ref": "#/$defs/ids" },
+    "ruleRequiredSkillIds": { "$ref": "#/$defs/ids" },
+    "vendorContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vendorId", "reference"],
+      "properties": {
+        "vendorId": { "type": "string", "minLength": 1 },
+        "reference": { "type": "string", "minLength": 1 }
+      }
+    },
+    "publicSynthetic": { "type": "boolean" },
+    "sessionRef": { "type": "string", "minLength": 1, "description": "The server-issued address of this session, for a host that cannot attach its session to a call" }
+  },
+  "$defs": {
+    "ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "nullableIds": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "specialist",
+  "actions": [
+    "design-tests",
+    "implement-tests",
+    "verify-test-sensitivity"
+  ],
+  "targets": [
+    "tests",
+    "regression-tests"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "applicability": [
+    {
+      "path": "skills/test-engineering/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:89c1a32c9351d74b04814123b5d9f7e4be14306b0167f25b86ae18d69d716086",
+      "startByte": 0,
+      "endByte": 207
+    },
+    {
+      "path": "skills/test-engineering/SKILL.md",
+      "startLine": 12,
+      "endLine": 12,
+      "digest": "sha256:89c1a32c9351d74b04814123b5d9f7e4be14306b0167f25b86ae18d69d716086",
+      "startByte": 0,
+      "endByte": 69
+    },
+    {
+      "path": "skills/test-engineering/SKILL.md",
+      "startLine": 11,
+      "endLine": 12,
+      "digest": "sha256:89c1a32c9351d74b04814123b5d9f7e4be14306b0167f25b86ae18d69d716086",
+      "startByte": 0,
+      "endByte": 89
+    },
+    {
+      "path": "skills/test-engineering/SKILL.md",
+      "startLine": 12,
+      "endLine": 12,
+      "digest": "sha256:89c1a32c9351d74b04814123b5d9f7e4be14306b0167f25b86ae18d69d716086",
+      "startByte": 266,
+      "endByte": 382
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/test-engineering/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:89c1a32c9351d74b04814123b5d9f7e4be14306b0167f25b86ae18d69d716086",
+      "startByte": 208,
+      "endByte": 320
+    },
+    {
+      "path": "skills/test-engineering/SKILL.md",
+      "startLine": 12,
+      "endLine": 12,
+      "digest": "sha256:89c1a32c9351d74b04814123b5d9f7e4be14306b0167f25b86ae18d69d716086",
+      "startByte": 70,
+      "endByte": 265
+    }
+  ]
+}

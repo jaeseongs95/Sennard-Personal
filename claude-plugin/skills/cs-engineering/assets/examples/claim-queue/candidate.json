@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "scopeSummary": "Only candidate/ClaimQueue.java. Deliberate reference example, not an entire Sennard tree.",
+  "files": [
+    {
+      "path": "candidate/ClaimQueue.java",
+      "digest": "sha256:34b89e2595349109e3f6685505bf1e421bd450569bcada259346826bff97bc64"
+    }
+  ]
+}

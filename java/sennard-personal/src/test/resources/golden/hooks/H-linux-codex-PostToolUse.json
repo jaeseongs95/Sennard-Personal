@@ -1,0 +1,10 @@
+{
+  "body" : {
+    "hookSpecificOutput" : {
+      "additionalContext" : "[Sennard session summary] This session has no summary on the session board. Write one line about what you are working on now with update_session_status (summary). Do not put the request text or any secret on the board. This is asked again until there is a summary.",
+      "hookEventName" : "PostToolUse"
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

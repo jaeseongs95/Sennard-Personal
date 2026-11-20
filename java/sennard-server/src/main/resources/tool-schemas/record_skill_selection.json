@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operationKey", "decision"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "operationKey": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{16,128}$" },
+    "selectionSource": { "const": "independent-agent-after-helper-failure" },
+    "sessionRef": { "type": "string", "minLength": 1, "description": "The server-issued address of this session, for a host that cannot attach its session to a call" },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "classificationResponseRef", "requestDigest", "inventoryDigest", "taskRevision", "configRevision", "profileRevision", "explicitSkillIds", "ruleRequiredSkillIds",
+        "agentSelectedSkillIds", "selectionReasons", "applicabilityChecks", "unresolvedSkillReferences", "selectionStatus", "adviceApplied", "hostReceipt"],
+      "properties": {
+        "schemaVersion": { "const": "1.0.0" },
+        "classificationResponseRef": { "$ref": "#/$defs/digest" },
+        "requestDigest": { "$ref": "#/$defs/digest" },
+        "inventoryDigest": { "$ref": "#/$defs/digest" },
+        "taskRevision": { "type": ["string", "null"], "minLength": 1 },
+        "configRevision": { "$ref": "#/$defs/text" },
+        "profileRevision": { "$ref": "#/$defs/text" },
+        "explicitSkillIds": { "$ref": "#/$defs/ids" },
+        "ruleRequiredSkillIds": { "$ref": "#/$defs/ids" },
+        "agentSelectedSkillIds": { "type": ["array", "null"], "items": { "$ref": "#/$defs/text" } },
+        "selectionReasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["skillId", "reason"],
+            "properties": { "skillId": { "$ref": "#/$defs/text" }, "reason": { "$ref": "#/$defs/text" } }
+          }
+        },
+        "applicabilityChecks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["skillId", "applies", "excluded", "reasonRefs"],
+            "properties": {
+              "skillId": { "$ref": "#/$defs/text" },
+              "applies": { "type": ["boolean", "null"] },
+              "excluded": { "type": ["boolean", "null"] },
+              "reasonRefs": { "$ref": "#/$defs/ids" }
+            }
+          }
+        },
+        "unresolvedSkillReferences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reference", "reason"],
+            "properties": { "reference": { "$ref": "#/$defs/text" }, "reason": { "$ref": "#/$defs/text" } }
+          }
+        },
+        "selectionStatus": { "enum": ["PROPOSED", "SELECTED", "PARTIAL", "NEEDS_INPUT"] },
+        "adviceApplied": { "type": "boolean" },
+        "hostReceipt": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["receiptId", "host", "requestDigest", "inventoryDigest", "agentSelectedSkillIds", "acceptedAt"],
+          "properties": {
+            "receiptId": { "$ref": "#/$defs/text" },
+            "host": { "$ref": "#/$defs/text" },
+            "requestDigest": { "$ref": "#/$defs/digest" },
+            "inventoryDigest": { "$ref": "#/$defs/digest" },
+            "agentSelectedSkillIds": { "$ref": "#/$defs/ids" },
+            "acceptedAt": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "ids": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

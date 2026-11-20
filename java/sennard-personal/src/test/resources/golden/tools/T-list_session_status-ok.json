@@ -1,0 +1,50 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "board" : {
+                "status" : "ok",
+                "step" : null
+              },
+              "sessions" : [
+                {
+                  "current" : true,
+                  "cwd" : "C:\\ags-tests\\hp-v600-probe-r1\\cases\\codex-a\\proj",
+                  "host" : "codex",
+                  "lastPromptAt" : null,
+                  "lastSeenAt" : "<TIME>",
+                  "presence" : "online",
+                  "repo" : null,
+                  "role" : null,
+                  "roleSource" : null,
+                  "sessionId" : "c91957c2-2721-3b63-ba30-d0aa6e944d3b",
+                  "startedAt" : "<TIME>",
+                  "summary" : null,
+                  "summaryAt" : null,
+                  "summaryStale" : null,
+                  "wake" : null
+                }
+              ],
+              "truncated" : 0
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

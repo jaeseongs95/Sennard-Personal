@@ -1,0 +1,35 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "MCP_UNAVAILABLE",
+              "details" : {
+                "reasonCode" : "SEND_REJECTED"
+              },
+              "message" : "Issued message ID is unavailable; delivery may be unknown. Compare saved receipts/status; prepare only a new intent. Retry only the known prepared ID or compare saved receipts/status; do not prepare again for the same uncertain delivery.",
+              "messageKey" : "services.sessionMessage.send.retryAfterRejection",
+              "params" : {
+                "reason" : "Issued message ID is unavailable; delivery may be unknown. Compare saved receipts/status; prepare only a new intent."
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

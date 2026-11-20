@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/workflow-receipt.v1.schema.json",
+  "title": "WorkflowReceipt.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "revision", "state", "plan", "stageResults", "blockers", "unresolved", "error", "unverifiedClaims"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "runId": { "type": "string", "minLength": 1 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "state": { "enum": ["READY", "RUNNING", "PAUSED", "NEEDS_INPUT", "NEEDS_APPROVAL", "NEEDS_REDESIGN", "FAILED", "PASSED", "BLOCKED"] },
+    "pause": {
+      "type": "object", "additionalProperties": false, "required": ["reason", "resumeCondition", "pausedAt"],
+      "properties": {
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "resumeCondition": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "pausedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "plan": { "$ref": "https://skill-suite.local/contracts/workflow-plan.v1.schema.json" },
+    "stageResults": { "type": "array", "items": { "$ref": "https://skill-suite.local/contracts/stage-result.v1.schema.json" } },
+    "blockers": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "unresolved": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "error": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/error" }] },
+    "unverifiedClaims": {
+      "description": "Server-computed. Properties the recorded passes rely on that Sennard did not observe; a passed receipt with entries is a record of declarations, not verification.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/unverifiedClaim" }
+    },
+    "skillDeclaration": {
+      "description": "The skills this attempt was started with, how they compare with the advice the caller named, and at finalize which had no call seen. Absent on a run started before skills were required.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skills", "advice"],
+      "properties": {
+        "skills": {
+          "type": "array", "minItems": 1, "maxItems": 32,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["skillId", "reason"],
+            "properties": { "skillId": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "advice": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false, "required": ["operationKey", "available"],
+              "properties": {
+                "operationKey": { "type": "string", "minLength": 1 },
+                "available": { "type": "boolean" },
+                "adviser": { "type": ["string", "null"] },
+                "adopted": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "added": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "notAdopted": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+              }
+            }
+          ]
+        },
+        "callsNotObserved": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  },
+  "$defs": {
+    "unverifiedClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stageId", "claim"],
+      "properties": {
+        "stageId": { "type": ["string", "null"], "minLength": 1 },
+        "claim": { "enum": ["ACTOR_INDEPENDENCE", "FRESH_CONTEXT", "NO_REDELEGATION", "POST_EXECUTION_STATE", "PANEL_INDEPENDENCE", "CONDITIONS_VERIFIED", "WORKER_EXECUTION_PROFILE", "EXECUTION_PROFILE", "EVIDENCE_CONTENT", "EVIDENCE_RELEVANCE", "USER_APPROVAL", "REVIEWER_INDEPENDENCE"] },
+        "artifactId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "details"],
+      "properties": {
+        "code": { "enum": ["INVALID_INPUT", "RUN_NOT_FOUND", "STALE_REVISION", "INVALID_TRANSITION", "MISSING_EVIDENCE", "GATE_FAILED", "MCP_UNAVAILABLE", "LEASE_REQUIRED", "LEASE_CONFLICT", "FRAME_REVIEW_REQUIRED", "ATTEMPT_BUDGET_EXHAUSTED", "NEW_EVIDENCE_REQUIRED", "ROOT_CONFLICT", "CONTINUITY_UNAVAILABLE", "BINDING_REQUIRED", "BINDING_INVALID", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_CONFLICT", "REQUEST_CONFLICT", "INTEGRITY_FAILED"] },
+        "message": { "type": "string", "minLength": 1 },
+        "messageKey": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*([.][A-Za-z0-9_-]+)+$" },
+        "params": { "type": "object" },
+        "details": { "type": ["object", "null"], "additionalProperties": true }
+      }
+    }
+  },
+  "allOf": [{
+    "if": { "properties": { "state": { "const": "PAUSED" } } },
+    "then": { "required": ["pause"] },
+    "else": { "not": { "required": ["pause"] } }
+  }]
+}

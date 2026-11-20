@@ -1,0 +1,19 @@
+{
+  "name": "sennard-claude",
+  "description": "Claude Code distribution of Sennard, generated in claude-plugin/ and isolated from the Codex plugin.",
+  "owner": {
+    "name": "jaeseongs95",
+    "url": "https://github.com/jaeseongs95"
+  },
+  "plugins": [
+    {
+      "name": "sennard",
+      "source": "./claude-plugin",
+      "description": "Governance specialists, a local MCP workflow guard, and opt-in task continuity for Claude Code.",
+      "category": "development",
+      "version": "1.0.0",
+      "ref": "v1.0.0"
+    }
+  ],
+  "version": "1.0.0"
+}

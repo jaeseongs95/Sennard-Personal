@@ -1,0 +1,13 @@
+{
+  "body" : {
+    "injectSteps" : [
+      {
+        "systemMessage" : {
+          "systemMessage" : "[Sennard parent link] This host's hooks do not say which conversation started this one, so Sennard cannot tell whether this is the main conversation or a subagent. If you are a subagent, call any Sennard tool once now: that call names this conversation and its parent, and from the next step Sennard gives you the parent's role context. If you are the main conversation, ignore this."
+        }
+      }
+    ]
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

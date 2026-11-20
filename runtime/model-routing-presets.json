@@ -1,0 +1,82 @@
+{
+  "schema_version": 4,
+  "policy_revision": "2026-11-10.r03",
+  "roles": [
+    "discovery",
+    "general-implementation",
+    "independent-audit"
+  ],
+  "model_class_order": [
+    "lightweight",
+    "general",
+    "deep",
+    "frontier"
+  ],
+  "depth_order": [
+    "shallow",
+    "standard",
+    "deep",
+    "deepest"
+  ],
+  "invariants": {
+    "controls_delegation": false,
+    "controls_agent_count": false,
+    "controls_batching": false,
+    "user_override_precedence": true,
+    "capability_check_required": true
+  },
+  "hosts": {
+    "codex": {
+      "providers": ["openai-codex", "anthropic-claude-code", "google-gemini"]
+    },
+    "claude-code": {
+      "providers": ["anthropic-claude-code", "openai-codex", "google-gemini"]
+    },
+    "gemini": {
+      "providers": ["google-gemini", "anthropic-claude-code", "openai-codex"]
+    },
+    "antigravity": {
+      "providers": ["google-gemini", "anthropic-claude-code", "openai-codex"]
+    }
+  },
+  "providers": {
+    "openai-codex": {
+      "host": "codex",
+      "hosts": ["codex", "claude-code", "gemini", "antigravity"],
+      "application": {
+        "full_history_overrides": false,
+        "context_field": "fork_turns",
+        "default_context": "all",
+        "full_history_value": "all",
+        "limited_context_value": "none",
+        "model_field": "model",
+        "effort_field": "reasoning_effort",
+        "model_delivery": ["spawn-argument"],
+        "effort_delivery": ["spawn-argument"],
+        "verification": "spawn-result"
+      }
+    },
+    "anthropic-claude-code": {
+      "host": "claude-code",
+      "hosts": ["claude-code", "codex", "gemini", "antigravity"],
+      "application": {
+        "model_field": "model",
+        "effort_field": "effort",
+        "model_delivery": ["per-invocation-argument", "subagent-frontmatter"],
+        "effort_delivery": ["subagent-frontmatter", "cli-agent-definition"],
+        "verification": "tasks-view"
+      }
+    },
+    "google-gemini": {
+      "host": "gemini",
+      "hosts": ["gemini", "antigravity", "claude-code", "codex"],
+      "application": {
+        "model_field": "model",
+        "effort_field": "effort",
+        "model_delivery": ["invoke-argument", "subagent-frontmatter"],
+        "effort_delivery": ["subagent-frontmatter"],
+        "verification": "host-task-view"
+      }
+    }
+  }
+}

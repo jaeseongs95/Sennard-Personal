@@ -1,0 +1,72 @@
+name: Antigravity package
+
+# Attach the Antigravity (agy) install copy to every published release.
+# workflow_dispatch rebuilds and replaces it for an existing release tag.
+# The build runs with a read-only token and keeps no credentials in the checkout. The only job that can write to the release checks out nothing and runs no code of the
+# repository: it downloads the package the build handed over and uploads it with the GitHub CLI of the runner (the structure rule ci-run-not-gradlew).
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to package (for example v3.2.1)
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+# A release in a private repository starts nothing: every job below runs for a release only where the repository is public, and a manual run (workflow_dispatch) is always allowed.
+jobs:
+  package:
+    if: ${{ github.event_name != 'release' || !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up JDK 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Build the package
+        shell: bash
+        working-directory: java
+        run: ./gradlew --no-daemon --console=plain :sennard-repo-tools:antigravityPackage -Ptool="--ref refs/tags/$TAG --out $RUNNER_TEMP/agy/sennard-antigravity-$TAG.zip"
+      - name: Upload the package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agy-package
+          path: ${{ runner.temp }}/agy/sennard-antigravity-${{ env.TAG }}.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  attach:
+    name: Attach to the release
+    needs: package
+    if: ${{ github.event_name != 'release' || !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # No checkout, no Gradle, no third-party action: this job holds the token that can write to the release, so no code of the repository runs here. The artifact holds the
+      # one file the build job made, and the upload names that file.
+      - name: Download the package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agy-package
+          path: assets
+      - name: Attach the package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "assets/sennard-antigravity-$TAG.zip" --clobber --repo "$GITHUB_REPOSITORY"

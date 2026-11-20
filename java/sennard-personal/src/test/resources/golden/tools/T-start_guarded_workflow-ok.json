@@ -1,0 +1,155 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "blockers" : [ ],
+              "error" : null,
+              "plan" : {
+                "bootstrapExecution" : {
+                  "context" : {
+                    "actorId" : "codex:session-bbac2896abc4222cc914e979",
+                    "model" : "gpt-6.1-sol",
+                    "modelClass" : null,
+                    "observationId" : "0WcYJwc7TQx2lZnbMMtYo8OC0Z49597bXkush0MIRaE",
+                    "observedAt" : "<TIME>",
+                    "policyNotes" : [
+                      "MODEL_NOT_IN_CATALOG"
+                    ],
+                    "reasoningEffort" : "low",
+                    "revision" : null,
+                    "runId" : null,
+                    "schemaVersion" : "1.0.0",
+                    "source" : "runtime",
+                    "stageId" : null,
+                    "taskId" : "task-t-start-guarded-workflow-ok"
+                  },
+                  "requirement" : {
+                    "kind" : "semantic",
+                    "observationRequired" : true,
+                    "policyId" : "semantic-execution-assurance-v1"
+                  }
+                },
+                "currentStageId" : "stage-01-minimal-implementation",
+                "errors" : [ ],
+                "executionMode" : "orchestrated",
+                "integrityToken" : "<TOKEN>",
+                "nextStageId" : null,
+                "schemaVersion" : "1.0.0",
+                "selectedSkills" : [
+                  "minimal-implementation"
+                ],
+                "stages" : [
+                  {
+                    "executionClass" : "workflow",
+                    "executionRequirement" : {
+                      "kind" : "semantic",
+                      "observationRequired" : true,
+                      "policyId" : "semantic-execution-assurance-v1"
+                    },
+                    "gate" : {
+                      "kind" : "none",
+                      "policy" : "none",
+                      "validator" : null,
+                      "validatorSchema" : null
+                    },
+                    "inputBindings" : [ ],
+                    "order" : 1,
+                    "outputSchema" : {
+                      "digest" : "sha256:623de96ffedcfd5fd0084b524832e7d5072645f82264be3e706e0977201f1386",
+                      "path" : "contracts/freeform-output.v1.schema.json"
+                    },
+                    "phase" : "implementation",
+                    "phaseOrder" : 44,
+                    "producedArtifacts" : [ ],
+                    "providerKey" : "minimal-implementation:implementation:1",
+                    "requiredArtifacts" : [ ],
+                    "requiredCapability" : "minimal-implementation",
+                    "requiredInputArtifacts" : [ ],
+                    "resultSchema" : {
+                      "digest" : "sha256:bb8fefad354b7e61f5de8f5c535227f45b4f441765558e66d1765a7883d85927",
+                      "path" : "contracts/provider-result.v1.schema.json"
+                    },
+                    "riskGate" : "none",
+                    "satisfiedCapabilities" : [
+                      "minimal-implementation"
+                    ],
+                    "selectionReason" : "Selected 'minimal-implementation' because provider 'minimal-implementation:implementation:1' supplies 'minimal-implementation' at priority 50.",
+                    "skillId" : "minimal-implementation",
+                    "stageId" : "stage-01-minimal-implementation",
+                    "state" : "READY",
+                    "stateMapping" : {
+                      "adapterErrors" : [
+                        "INVALID_INPUT",
+                        "MISSING_EVIDENCE"
+                      ],
+                      "default" : "reject",
+                      "selector" : "/output/status",
+                      "values" : {
+                        "blocked" : {
+                          "allowedErrorCodes" : [
+                            "MISSING_EVIDENCE"
+                          ],
+                          "errorRequired" : true,
+                          "state" : "BLOCKED"
+                        },
+                        "failed" : {
+                          "allowedErrorCodes" : [
+                            "GATE_FAILED"
+                          ],
+                          "errorRequired" : true,
+                          "state" : "FAILED"
+                        },
+                        "passed" : {
+                          "errorRequired" : false,
+                          "state" : "PASSED"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "state" : "RUNNING",
+                "taskDigest" : "sha256:bc0bce15fdb0a793c28688f97020b25e40b408e095d5bd409f09154c01a73641",
+                "taskId" : "task-t-start-guarded-workflow-ok"
+              },
+              "revision" : 0,
+              "runId" : "run-task-t-start-guarded-workflow-ok-20",
+              "schemaVersion" : "1.0.0",
+              "skillDeclaration" : {
+                "advice" : null,
+                "skills" : [
+                  {
+                    "reason" : "test",
+                    "skillId" : "minimal-implementation"
+                  }
+                ]
+              },
+              "stageResults" : [ ],
+              "state" : "RUNNING",
+              "unresolved" : [ ],
+              "unverifiedClaims" : [ ]
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        },
+        {
+          "text" : "Session workflow capacity: 1/5 open; 4 more can be opened.\nFor additions, corrections or status questions about this work, resume this workflow and update its working plan and completion criteria; revise its files with submit_change_plan inside the existing write scope. Open a separate workflow only for independent work. Existing scope and approval requirements still apply.\n[Sennard workflow change] Next stage: stage-01-minimal-implementation (capability minimal-implementation); record its result under the minimal-implementation provider contract.\nThe workflow changed: before the next judgment or action, re-match it against the skill targets and call every match now. A stage's provider is only the contract its result is recorded under; it does not limit the skills used, and another skill needs no plan change.\nUpdate checkpoint_context when a finished step or failure changes goals, remaining work or needed evidence.\nBefore first running a test, install or external tool in an environment, read that environment's guide and the script of its last successful run and set every condition the run needs at once. Before a full verification of a change to something many places read (fixed values, hashes, contracts, formats, public text), find its readers first and fix them in one pass. If failures keep changing under the same change, stop fixing one at a time and regroup the causes. Read every verification runner's result before reporting.",
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

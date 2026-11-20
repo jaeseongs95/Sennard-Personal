@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/engineering-run-receipt.v2.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "argv",
+    "snapshot",
+    "afterDigest",
+    "startedAt",
+    "finishedAt",
+    "status",
+    "exitCode",
+    "stdout",
+    "stderr",
+    "stdoutDigest",
+    "stderrDigest",
+    "timeoutMs",
+    "executable",
+    "recorderRuntime",
+    "platform",
+    "environmentNote",
+    "digest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0.0"
+    },
+    "kind": {
+      "const": "engineering-run-receipt"
+    },
+    "argv": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 8192
+      },
+      "minItems": 1,
+      "maxItems": 128
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "kind",
+        "files",
+        "digest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0.0"
+        },
+        "kind": {
+          "const": "engineering-snapshot"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "digest",
+              "size",
+              "lineCount"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "lineCount": {
+                "type": "integer"
+              }
+            }
+          },
+          "minItems": 1,
+          "maxItems": 10000
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "afterDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "startedAt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "finishedAt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "TIMED_OUT",
+        "SPAWN_ERROR",
+        "INPUT_CHANGED"
+      ],
+      "description": "PASS: the command ended by itself with exit code 0 and the captured inputs are unchanged. FAIL: it ended by itself with another exit code. TIMED_OUT: it was still running at timeoutMs and it and the processes it started were killed. SPAWN_ERROR: it could not be started, was stopped before it ended (the server stopped), or wrote more than the recorder keeps (1 MiB each of stdout and stderr; one that was still running is killed). INPUT_CHANGED retains priority when captured inputs changed."
+    },
+    "exitCode": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "The exit code of a command that ended by itself; null when it did not (TIMED_OUT, a command that was killed or could not be started)."
+    },
+    "stdout": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 2097152
+    },
+    "stderr": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 2097152
+    },
+    "stdoutDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "stderrDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "description": "The limit the command was given, in milliseconds (1 to 300000). At the limit the command and the processes it started that are still alive are killed. It is not a sandbox."
+    },
+    "executable": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "recorderRuntime": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "description": "The Java runtime of the process that recorded the run, as Runtime.version().toString() writes it in full."
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "environmentNote": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

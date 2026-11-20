@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0.0",
+  "reportId": "CS-EXAMPLE-CONSTRAINT",
+  "requestDigest": "sha256:95e26da4743949733f23d4f5e9c6f99af2514c0ba23f434a443b5919630dd645",
+  "sourceSnapshotDigest": "sha256:12eac8590d46e9a02b0e18905163c88c7d88c5a3acae1c860f06e3201ec9e53a",
+  "knowledgePackVersion": "0.1.0",
+  "knowledgePackDigest": "sha256:f269ce3ffd5b31f3820639484dd9cfb587f91a29c29f1fa0dc0c95dbd84b3ca3",
+  "draftUse": {
+    "allowed": false,
+    "basis": "사용한 두 규칙은 로컬 참조 검증을 마친 핵심 풀에 있다."
+  },
+  "applicability": "applicable",
+  "applicabilityReason": "실제 예제에서 복수 프로세스 경합과 소유권 교체를 다룬다.",
+  "selectedRules": [
+    {
+      "ruleId": "CONC-CLAIM-001",
+      "ruleDigest": "sha256:cec564b4015f086bd71025215051162fb1915216304a05b96f4b8a24dfc126f0",
+      "applicabilityReason": "예제의 claim/소유권 요구에 직접 적용된다."
+    },
+    {
+      "ruleId": "CONC-FENCE-002",
+      "ruleDigest": "sha256:d8433bb33cc38bf3e83c32f5aa1baf96372899ca36b23194bfb43e075b891e74",
+      "applicabilityReason": "예제의 claim/소유권 요구에 직접 적용된다."
+    }
+  ],
+  "facts": [
+    {
+      "id": "FACT-CLAIM",
+      "statement": "예제 요구는 복수 프로세스의 작업 claim이다.",
+      "evidenceRefs": [
+        "SRC-REQUEST"
+      ]
+    },
+    {
+      "id": "FACT-LEASE",
+      "statement": "예제 요구는 만료/재할당된 owner의 DB 쓰기를 거부하는 것이다.",
+      "evidenceRefs": [
+        "SRC-REQUEST",
+        "SRC-ENV"
+      ]
+    }
+  ],
+  "assumptions": [],
+  "invariants": [
+    {
+      "id": "INV-CLAIM",
+      "statement": "동일 작업·동일 소유권 세대의 claim 성공자는 최대 하나다.",
+      "scope": "PostgreSQL reference queue DB",
+      "basisRefs": [
+        "FACT-CLAIM"
+      ],
+      "requirementLevel": "required-invariant",
+      "ruleIds": [
+        "CONC-CLAIM-001"
+      ]
+    },
+    {
+      "id": "INV-FENCE",
+      "statement": "만료되거나 재할당된 소유자는 DB의 결과를 확정할 수 없다.",
+      "scope": "PostgreSQL result publication; not external API effects",
+      "basisRefs": [
+        "FACT-LEASE"
+      ],
+      "requirementLevel": "required-invariant",
+      "ruleIds": [
+        "CONC-FENCE-002"
+      ]
+    }
+  ],
+  "designChoices": [
+    {
+      "id": "CHOICE-LOCAL",
+      "statement": "단일 DB 서버의 트랜잭션과 조건부 UPDATE를 사용한다.",
+      "rationale": "요구 범위가 로컬 DB이며 별도 분산 락 서비스가 필요하지 않다.",
+      "basisRefs": [
+        "FACT-CLAIM",
+        "FACT-LEASE"
+      ]
+    }
+  ],
+  "verificationObligations": [
+    {
+      "id": "OB-CLAIM",
+      "invariantIds": [
+        "INV-CLAIM"
+      ],
+      "method": "dynamic-test",
+      "requiredEnvironment": "jdk25-postgresql-jdbc-concurrent-connections",
+      "failureOracle": "동시 claim 성공자가 같은 세대에 둘 이상이면 실패.",
+      "requirementLevel": "required"
+    },
+    {
+      "id": "OB-FENCE",
+      "invariantIds": [
+        "INV-FENCE"
+      ],
+      "method": "dynamic-test",
+      "requiredEnvironment": "jdk25-postgresql-jdbc-concurrent-connections",
+      "failureOracle": "오래되거나 만료된 token으로 완료 UPDATE가 성공하면 실패.",
+      "requirementLevel": "required"
+    }
+  ],
+  "requiredCapabilities": [
+    "cs-constraint-derivation",
+    "cs-implementation-review"
+  ],
+  "verdict": "READY"
+}

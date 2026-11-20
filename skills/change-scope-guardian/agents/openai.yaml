@@ -1,0 +1,6 @@
+interface:
+  display_name: "Change Scope Guardian"
+  short_description: "다른 작업과 겹치거나 병합·발행 전, 범위 이탈을 변경 기록으로 점검"
+  default_prompt: "$change-scope-guardian로 run의 변경 기록이 합의된 범위를 침범했는지 확인해 주세요."
+policy:
+  allow_implicit_invocation: true

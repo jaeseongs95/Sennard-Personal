@@ -1,0 +1,57 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "backupRetention" : "manual-deletion-only",
+              "candidateDigest" : "sha256:37cca38aff3bf78ca32c50c2d17750c894313a1759bfba79bfd6a2e047d74d31",
+              "databases" : {
+                "continuity" : {
+                  "backupPath" : null,
+                  "deletedSnapshots" : 0,
+                  "deletedTasks" : 0,
+                  "error" : null,
+                  "status" : "skipped"
+                },
+                "workflow" : {
+                  "backupPath" : null,
+                  "deletedRoots" : 0,
+                  "deletedRuns" : 0,
+                  "error" : null,
+                  "status" : "skipped"
+                }
+              },
+              "executedAt" : "<TIME>",
+              "planId" : "<UUID>",
+              "protection" : "os-managed-unverified",
+              "rootProtection" : {
+                "activeRoots" : 18,
+                "linkedMissingReceiptRoots" : 0,
+                "linkedNonTerminalRoots" : 0,
+                "linkedRecentRoots" : 0,
+                "previewCreatedAt" : "<TIME>",
+                "totalProtectedRoots" : 18
+              },
+              "schemaVersion" : "1.0.0",
+              "status" : "no-op"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

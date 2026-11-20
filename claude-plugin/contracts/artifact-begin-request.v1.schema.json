@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/artifact-begin-request.v1.schema.json",
+  "title": "ArtifactBeginRequest.v1",
+  "description": "Begins the upload of one attachment, which is a bundle of one or more files (up to 64). The answer carries the id of the attachment the finish makes and one uploadId per file, in the order of files.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operationKey", "files"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "operationKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{16,128}$",
+      "description": "Names the whole upload of the bundle. Repeating the same operationKey with the same author and ordered file metadata returns the same attachmentId and uploadIds. Different metadata returns ARTIFACT_OPERATION_CONFLICT. Send each file as multipart form data to POST /attachments/upload with its uploadId in X-Sennard-Upload-Id and its bytes in the file part. Finish the bundle with artifact_finish and the attachmentId."
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "description": "The files of the attachment, numbered 0, 1, 2 ... in this order: that number (seq) is how a record points at one file of the attachment. Every file is checked by size and sha256 when the attachment is finished, and the attachment is made only when all of them pass.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fileName", "mediaType", "size", "sha256"],
+        "properties": {
+          "fileName": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "mediaType": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "size": { "type": "integer", "minimum": 0, "description": "The number of bytes of the whole file." },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "The sha256 of the whole file, as sha256: and 64 lower-case hex digits. The server compares it with the bytes it received when the attachment is finished." }
+        }
+      }
+    },
+    "purpose": { "enum": ["upload", "staged", "evidence"], "description": "What the attachment is for. This server keeps evidence only, which is also what no purpose means; the other two are refused." }
+  }
+}

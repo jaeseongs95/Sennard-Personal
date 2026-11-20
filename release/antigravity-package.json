@@ -1,0 +1,19 @@
+{
+  "paths": [
+    "plugin.json",
+    ".gemini-plugin",
+    "hooks.json",
+    "mcp_config.json",
+    "antigravity-connector",
+    "contracts",
+    "skills",
+    "rules",
+    "release/version.json",
+    "LICENSE",
+    "ADDITIONAL-TERMS.md",
+    "ADDITIONAL-TERMS.ko.md",
+    "README.md",
+    "README.ko.md"
+  ],
+  "exclude": []
+}

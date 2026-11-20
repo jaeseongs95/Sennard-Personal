@@ -1,0 +1,7 @@
+{
+  "body" : {
+    "decision" : "allow"
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

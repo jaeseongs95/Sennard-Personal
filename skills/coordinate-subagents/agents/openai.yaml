@@ -1,0 +1,7 @@
+interface:
+  display_name: "Coordinate Subagents"
+  short_description: "Delegate independent units unless a net-benefit condition fails"
+  default_prompt: "Use $coordinate-subagents to decide which independent units to delegate, assign them safely, and integrate verified results."
+
+policy:
+  allow_implicit_invocation: true

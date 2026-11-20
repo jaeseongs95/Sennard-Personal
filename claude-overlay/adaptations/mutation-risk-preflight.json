@@ -1,0 +1,3 @@
+{
+  "description": "Use right before running a hard-to-reverse rm, permanent delete or overwrite, deploy or publish, production DB migration, permission, payment or global setting change, or another irreversible command. Checks exact target, approval, impact and recovery conditions read-only. Judge heaviness by scale, reversibility, real data, shared resources and public-state impact, not the action's name. Same-disk moves and renames, reversible local edits and checks, and test or work-branch pushes are just done, without this skill; not for performing the change or post-change audit."
+}

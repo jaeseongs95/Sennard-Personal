@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/source-lock.v4.schema.json",
+  "title": "SourceLock.v4",
+  "description": "Package integrity of the skills kept in this repository: each skill's version and the checksum of its files. v4 drops the v3 external-source variant and the updatePolicy and versionSource fields: every skill is kept here, and the version is read from the skill itself.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sources"],
+  "properties": {
+    "schemaVersion": { "const": "4.0.0" },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skillId", "path", "version", "integratedChecksum", "checksumScope"],
+      "properties": {
+        "skillId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "path": { "type": "string", "pattern": "^skills/[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "integratedChecksum": { "$ref": "#/$defs/sha256" },
+        "checksumScope": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

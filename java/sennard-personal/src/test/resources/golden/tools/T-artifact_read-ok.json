@@ -1,0 +1,34 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : {
+              "attachmentId" : "<UUID>",
+              "bytes" : 18,
+              "data" : "Z29sZGVuIGF0dGFjaG1lbnQK",
+              "end" : true,
+              "offsetBytes" : 0,
+              "seq" : 0,
+              "size" : 18,
+              "text" : "golden attachment\n"
+            },
+            "error" : null,
+            "ok" : true,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : false
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

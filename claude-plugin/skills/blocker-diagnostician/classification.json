@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0.0",
+  "taxonomyRevision": "1.0.0",
+  "category": "agent-correction",
+  "actions": [
+    "diagnose-repeated-failures"
+  ],
+  "targets": [
+    "failure-episodes",
+    "evidence"
+  ],
+  "constraints": [],
+  "dependencies": [],
+  "applicability": [
+    {
+      "path": "skills/blocker-diagnostician/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:9e6736e1af2bfefd784fbb97d79dbb42a456716ba861c3c4707905bc3da43fc6",
+      "startByte": 0,
+      "endByte": 150
+    },
+    {
+      "path": "skills/blocker-diagnostician/SKILL.md",
+      "startLine": 19,
+      "endLine": 22,
+      "digest": "sha256:9e6736e1af2bfefd784fbb97d79dbb42a456716ba861c3c4707905bc3da43fc6",
+      "startByte": 0,
+      "endByte": 576
+    },
+    {
+      "path": "skills/blocker-diagnostician/references/entry-details.md",
+      "startLine": 31,
+      "endLine": 31,
+      "digest": "sha256:3cb7d873dd724e7e04210bd2b12b25792ce60699e5c904c75ce82ad53c281630",
+      "startByte": 0,
+      "endByte": 9
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "skills/blocker-diagnostician/SKILL.md",
+      "startLine": 3,
+      "endLine": 3,
+      "digest": "sha256:9e6736e1af2bfefd784fbb97d79dbb42a456716ba861c3c4707905bc3da43fc6",
+      "startByte": 151,
+      "endByte": 245
+    },
+    {
+      "path": "skills/blocker-diagnostician/SKILL.md",
+      "startLine": 23,
+      "endLine": 23,
+      "digest": "sha256:9e6736e1af2bfefd784fbb97d79dbb42a456716ba861c3c4707905bc3da43fc6",
+      "startByte": 0,
+      "endByte": 120
+    },
+    {
+      "path": "skills/blocker-diagnostician/SKILL.md",
+      "startLine": 24,
+      "endLine": 24,
+      "digest": "sha256:9e6736e1af2bfefd784fbb97d79dbb42a456716ba861c3c4707905bc3da43fc6",
+      "startByte": 0,
+      "endByte": 121
+    },
+    {
+      "path": "skills/blocker-diagnostician/references/entry-details.md",
+      "startLine": 28,
+      "endLine": 28,
+      "digest": "sha256:3cb7d873dd724e7e04210bd2b12b25792ce60699e5c904c75ce82ad53c281630",
+      "startByte": 0,
+      "endByte": 833
+    },
+    {
+      "path": "skills/blocker-diagnostician/references/entry-details.md",
+      "startLine": 33,
+      "endLine": 33,
+      "digest": "sha256:3cb7d873dd724e7e04210bd2b12b25792ce60699e5c904c75ce82ad53c281630",
+      "startByte": 0,
+      "endByte": 85
+    },
+    {
+      "path": "skills/blocker-diagnostician/references/entry-details.md",
+      "startLine": 34,
+      "endLine": 34,
+      "digest": "sha256:3cb7d873dd724e7e04210bd2b12b25792ce60699e5c904c75ce82ad53c281630",
+      "startByte": 0,
+      "endByte": 106
+    },
+    {
+      "path": "skills/blocker-diagnostician/references/entry-details.md",
+      "startLine": 35,
+      "endLine": 35,
+      "digest": "sha256:3cb7d873dd724e7e04210bd2b12b25792ce60699e5c904c75ce82ad53c281630",
+      "startByte": 0,
+      "endByte": 78
+    },
+    {
+      "path": "skills/blocker-diagnostician/references/entry-details.md",
+      "startLine": 36,
+      "endLine": 36,
+      "digest": "sha256:3cb7d873dd724e7e04210bd2b12b25792ce60699e5c904c75ce82ad53c281630",
+      "startByte": 0,
+      "endByte": 405
+    }
+  ]
+}

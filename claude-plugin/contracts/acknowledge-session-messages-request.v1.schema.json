@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/acknowledge-session-messages-request.v1.schema.json",
+  "title": "AcknowledgeSessionMessagesRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "operationKey",
+    "messageIds"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "operationKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{16,128}$",
+      "description": "Your key for this operation: make a new random one for each call (a UUID, for example), 16 to 128 characters of A-Z a-z 0-9 _ . : -. The same key with the same content answers the first result without doing the work again; the same key with other content is REQUEST_CONFLICT. The key belongs to this session, and the result is kept for 24 hours."
+    },
+    "messageIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "receipts": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "messageId",
+          "claimReceipt"
+        ],
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "claimReceipt": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,15}:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        }
+      }
+    }
+  }
+}

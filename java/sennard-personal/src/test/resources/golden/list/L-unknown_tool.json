@@ -1,0 +1,13 @@
+{
+  "body" : {
+    "error" : {
+      "code" : -32602,
+      "data" : "Tool not found: no_such_tool",
+      "message" : "Unknown tool: invalid_tool_name"
+    },
+    "id" : 1,
+    "jsonrpc" : "2.0"
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

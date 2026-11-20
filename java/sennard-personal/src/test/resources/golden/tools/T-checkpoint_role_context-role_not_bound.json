@@ -1,0 +1,36 @@
+{
+  "body" : {
+    "id" : 1,
+    "jsonrpc" : "2.0",
+    "result" : {
+      "_meta" : {
+        "io.modelcontextprotocol/contentLanguage" : "en"
+      },
+      "content" : [
+        {
+          "text" : {
+            "data" : null,
+            "error" : {
+              "code" : "BINDING_REQUIRED",
+              "details" : {
+                "adminUrl" : "http://localhost:{ADMIN_PORT}",
+                "reasonCode" : "ROLE_NOT_BOUND"
+              },
+              "message" : "This session is not bound to a role. The user approves a binding with a passkey on the local admin page (http://localhost:{ADMIN_PORT}). Leave a request with bind_session_role and tell the user.",
+              "messageKey" : "continuity.layers.roleUnbound",
+              "params" : {
+                "adminUrl" : "http://localhost:{ADMIN_PORT}"
+              }
+            },
+            "ok" : false,
+            "schemaVersion" : "1.0.0"
+          },
+          "type" : "text"
+        }
+      ],
+      "isError" : true
+    }
+  },
+  "contentType" : "application/json",
+  "status" : 200
+}

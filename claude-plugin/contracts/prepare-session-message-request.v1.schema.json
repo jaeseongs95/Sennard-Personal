@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-suite.local/contracts/prepare-session-message-request.v1.schema.json",
+  "title": "PrepareSessionMessageRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "operationKey", "targetHost", "targetSessionId", "body"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "operationKey": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{16,128}$", "description": "Your key for this operation: make a new random one for each call (a UUID, for example), 16 to 128 characters of A-Z a-z 0-9 _ . : -. The same key with the same content answers the first result without doing the work again; the same key with other content is REQUEST_CONFLICT. The key belongs to this session, and the result is kept for 24 hours." },
+    "targetHost": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "targetSessionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "targetActorId": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*\\S[^\\u0000-\\u001f\\u007f-\\u009f]*$", "description": "The host's child agent identifier within targetSessionId. Omit this field to address the session's root agent." },
+    "body": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "ttlSeconds": { "type": "integer", "minimum": 30, "maximum": 86400, "default": 3600 }
+  }
+}
