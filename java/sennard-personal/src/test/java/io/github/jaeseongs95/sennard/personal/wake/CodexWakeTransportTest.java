@@ -15,6 +15,7 @@ import java.nio.file.attribute.AclEntryType;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.UserPrincipal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import io.github.jaeseongs95.sennard.protocol.ToolProcess;
 import io.github.jaeseongs95.sennard.server.messaging.WakeTransport;
+import io.github.jaeseongs95.sennard.service.secret.ProcessUser;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Injected process boundary: checks policy and argv, and never claims that a fixture file is a working native host. */
@@ -83,7 +85,9 @@ class CodexWakeTransportTest {
         if (acl != null) {
             List<AclEntry> original = List.copyOf(acl.getAcl());
             List<AclEntry> restricted = new ArrayList<>(original);
-            restricted.addFirst(AclEntry.newBuilder().setType(AclEntryType.DENY).setPrincipal(acl.getOwner())
+            // An elevated runner can create this directory with Administrators as its owner.
+            UserPrincipal runner = ProcessUser.current().principal(managed, denied.getFileSystem().getUserPrincipalLookupService());
+            restricted.addFirst(AclEntry.newBuilder().setType(AclEntryType.DENY).setPrincipal(runner)
                     .setPermissions(AclEntryPermission.LIST_DIRECTORY).build());
             try {
                 // Restrict only this fixture directory; retaining WRITE_ACL permits exact restoration in finally.
