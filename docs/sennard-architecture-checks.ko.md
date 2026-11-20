@@ -1,7 +1,7 @@
 # Sennard 기계 검사
 
 빌드가 아키텍처 규칙을 검사합니다. 규칙마다 현재 코드의 위반 수를 세어 그 값을 상한으로 두고, 상한을 넘으면 빌드가 실패하므로 새 위반이 들어올 수 없습니다.
-[영문판](sennard60-architecture-checks.md)
+[영문판](sennard-architecture-checks.md)
 
 ## 실행 위치
 

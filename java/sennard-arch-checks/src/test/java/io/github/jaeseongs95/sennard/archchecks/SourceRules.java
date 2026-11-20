@@ -44,7 +44,7 @@ import com.sun.source.util.TreePathScanner;
 import com.sun.source.util.TreeScanner;
 
 /**
- * The rules that read Java source (docs/sennard60-architecture-checks.md). Each rule is a function from a parsed file to the places where it is broken;
+ * The rules that read Java source (docs/sennard-architecture-checks.md). Each rule is a function from a parsed file to the places where it is broken;
  * what it recognises is spelled out where it is written, and what it cannot see (a name resolved only by the compiler) is listed in the document.
  */
 final class SourceRules {

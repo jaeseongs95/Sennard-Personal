@@ -1,7 +1,7 @@
 # Sennard architecture checks
 
 The build enforces the architecture rules. Each rule counts violations in the current code and uses that number as its ceiling.
-A count above the ceiling fails the build (Korean: `sennard60-architecture-checks.ko.md`).
+A count above the ceiling fails the build. [한국어판](sennard-architecture-checks.ko.md)
 
 ## Where they run
 

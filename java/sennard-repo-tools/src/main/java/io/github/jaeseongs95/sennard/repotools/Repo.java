@@ -27,14 +27,18 @@ import org.eclipse.jgit.dircache.DirCacheEntry;
 import org.eclipse.jgit.lib.CommitBuilder;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.FileMode;
+import org.eclipse.jgit.lib.GpgConfig;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ObjectInserter;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.lib.Signer;
+import org.eclipse.jgit.lib.Signers;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.CredentialsProvider;
 import org.eclipse.jgit.treewalk.TreeWalk;
 
 import tools.jackson.core.JacksonException;
@@ -240,7 +244,7 @@ public final class Repo {
 
     /**
      * Creates the branch {@code branch} (a full ref name that must not exist yet) with one commit on top of {@code base} whose tree is exactly {@code files}: the files
-     * of the parent are not carried over. Author and committer are the repository's configured identity. Nothing is pushed.
+     * of the parent are not carried over. Uses the repository's configured identity and signing key. The branch requires a signed commit. Nothing is pushed.
      *
      * @return the id of the commit
      */
@@ -263,6 +267,7 @@ public final class Repo {
                 commit.setAuthor(identity);
                 commit.setCommitter(identity);
                 commit.setMessage(message);
+                signSnapshot(repository, commit, identity);
                 ObjectId id = inserter.insert(commit);
                 inserter.flush();
                 RefUpdate update = repository.updateRef(branch);
@@ -276,6 +281,19 @@ public final class Repo {
                 return id.name();
             }
         });
+    }
+
+    private static void signSnapshot(Repository repository, CommitBuilder commit, PersonIdent identity) {
+        GpgConfig config = repository.getConfig().get(GpgConfig::new);
+        Signer signer = Signers.get(config.getKeyFormat());
+        if (signer == null) {
+            throw new GitFailure("No snapshot signer for gpg.format=" + config.getKeyFormat().toConfigValue() + "; configure SSH signing in the public clone");
+        }
+        try {
+            signer.signObject(repository, config, commit, identity, config.getSigningKey(), CredentialsProvider.getDefault());
+        } catch (GitAPIException | IOException e) {
+            throw new GitFailure("Snapshot signing failed: " + e.getMessage(), e);
+        }
     }
 
     /** Work in this repository's git. */

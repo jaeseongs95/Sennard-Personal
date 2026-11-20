@@ -1,4 +1,4 @@
-// The machine checks of the 6.0.0 design rules (docs/sennard60-architecture-checks.md). Test sources only: nothing depends on this module and it ships nothing.
+// The machine checks of the architecture rules (docs/sennard-architecture-checks.md). Test sources only: nothing depends on this module and it ships nothing.
 // It lives in its own module because the checks read every module's sources and compiled classes, and none of the product modules should have to
 // build the app image or start PostgreSQL to run them. Run one check class alone: ./gradlew :sennard-arch-checks:test --tests '*ArchitectureRulesTest'
 plugins {

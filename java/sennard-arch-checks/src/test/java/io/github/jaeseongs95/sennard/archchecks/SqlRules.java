@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 
 /**
  * The rules that read SQL: the migration scripts, and the SQL strings the code hands to {@code JdbcClient.sql(...)} or {@code @Query}
- * (docs/sennard60-architecture-checks.md). The database only declares: tables, columns, keys, checks and indexes. Logic objects, row level
+ * (docs/sennard-architecture-checks.md). The database only declares: tables, columns, keys, checks and indexes. Logic objects, row level
  * security and advisory locks go away, and what remains is ANSI SQL. SQL is read as text with the comments and the contents of string literals
  * blanked out, so a word inside a literal or a comment is never counted.
  */

@@ -117,6 +117,7 @@ subprojects {
         "implementation"(platform("org.springframework.ai:spring-ai-bom:$springAiVersion"))
         constraints {
             add("implementation", "org.eclipse.jgit:org.eclipse.jgit:$jgitVersion")
+            add("runtimeOnly", "org.eclipse.jgit:org.eclipse.jgit.ssh.apache:$jgitVersion")
         }
         "testImplementation"("org.junit.jupiter:junit-jupiter")
         "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")

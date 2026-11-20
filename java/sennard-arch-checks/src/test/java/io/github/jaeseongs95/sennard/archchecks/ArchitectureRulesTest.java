@@ -30,7 +30,7 @@ import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.TestInstance;
 
 /**
- * The 6.0.0 design rules checked against the repository's own sources, SQL and build scripts (docs/sennard60-architecture-checks.md). One test per rule;
+ * The architecture rules checked against the repository's own sources, SQL and build scripts (docs/sennard-architecture-checks.md). One test per rule;
  * each one fails with the file:line list when the count differs from its ceiling in ceilings.properties.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

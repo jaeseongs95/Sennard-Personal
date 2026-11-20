@@ -83,7 +83,7 @@ Where the bytes of one file are: one row per stored copy of the file. It is a re
 
 The primary key is the triple `(attachment_id, seq, rev)`; there is no surrogate key. The current copy of a file is the row with the highest `rev` (`created_at` does not decide the order, because two rows can carry the same time). `artifact_finish` inserts `rev` 0 of every file. A re-encryption inserts the highest `rev` of the file read in its own transaction plus one; if two re-encryptions read the same highest number, the second ends in the translated duplicate-key conflict and nothing is run again.
 
-The architecture check `w-sql-write-verb` allows only `INSERT` on `attachment`, `attachment_file` and `attachment_storage` ([Architecture checks](../sennard60-architecture-checks.md)).
+The architecture check `w-sql-write-verb` allows only `INSERT` on `attachment`, `attachment_file` and `attachment_storage` ([Architecture checks](../sennard-architecture-checks.md)).
 
 ## Storage Format
 

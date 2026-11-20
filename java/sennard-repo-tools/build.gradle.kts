@@ -10,6 +10,9 @@ dependencies {
     implementation("tools.jackson.core:jackson-databind")
     // Git without the git program. The version is the root build's (jgitVersion).
     implementation("org.eclipse.jgit:org.eclipse.jgit")
+    runtimeOnly("org.eclipse.jgit:org.eclipse.jgit.ssh.apache")
+    // Apache SSHD uses this optional provider to read and sign with Ed25519 keys.
+    runtimeOnly("org.bouncycastle:bcpkix-jdk18on:1.85")
     // Parses each skill's agents/openai.yaml in the contract test; the version comes from the Boot BOM.
     testImplementation("org.yaml:snakeyaml")
     // HeapLedgerBuildTest runs a build of its own through Gradle TestKit, which brings the TestKit classes and the Tooling API client (not the Gradle API):

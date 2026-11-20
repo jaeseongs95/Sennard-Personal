@@ -23,7 +23,7 @@ import java.util.TreeSet;
 import org.junit.jupiter.api.Test;
 
 /**
- * Rule k of the machine checks (docs/sennard60-architecture-checks.md): a column that refers to another table's key must have a foreign key. The
+ * Rule k of the machine checks (docs/sennard-architecture-checks.md): a column that refers to another table's key must have a foreign key. The
  * database declares what it keeps true, so a reference with no foreign key is a fact nothing guards. The check reads the schema the migrations
  * build on the database the test run names ({@link BusinessDb}: PostgreSQL; only its schema {@code sennard}), through {@code information_schema} (the standard catalog), and counts a column as a reference when
  *

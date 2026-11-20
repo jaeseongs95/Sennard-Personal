@@ -83,7 +83,7 @@
 
 기본 키는 `(attachment_id, seq, rev)` 삼중이며 대리 키는 없습니다. 파일의 현재 사본은 `rev`가 가장 큰 행입니다(두 행의 시각이 같을 수 있어 `created_at`으로는 순서가 정해지지 않습니다). `artifact_finish`가 모든 파일의 `rev` 0을 넣습니다. 다시 암호화는 자기 트랜잭션에서 읽은 그 파일의 최대 `rev`에 1을 더해 넣습니다. 두 번의 다시 암호화가 같은 최대값을 읽으면 두 번째는 번역된 유일 키 충돌로 끝나며 다시 실행하지 않습니다.
 
-아키텍처 검사 `w-sql-write-verb`는 `attachment`, `attachment_file`, `attachment_storage`에 `INSERT`만 허용합니다([아키텍처 검사](../sennard60-architecture-checks.ko.md)).
+아키텍처 검사 `w-sql-write-verb`는 `attachment`, `attachment_file`, `attachment_storage`에 `INSERT`만 허용합니다([아키텍처 검사](../sennard-architecture-checks.ko.md)).
 
 ## 저장 형식
 
