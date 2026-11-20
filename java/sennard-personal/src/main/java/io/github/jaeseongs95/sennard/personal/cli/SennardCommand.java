@@ -14,6 +14,7 @@ import io.github.jaeseongs95.sennard.hookclient.HookClientCall;
  * {@link SennardCli#run} has a branch for it, because that switch has no default.
  */
 enum SennardCommand {
+    SETUP("setup", "Opens the desktop installer and updater."),
     INSTALL("install", "Extracts this release jar into this user's installation folder and starts the server.",
             new CliOption("--state-dir", "stateDirectory", false, "State folder, when not the default. Must be writable in the encoding the system passes file names in; otherwise use SENNARD_STATE_DIR.")),
     UNINSTALL("uninstall", "Stops the server and removes the program. The state folder stays."),

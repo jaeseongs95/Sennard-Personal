@@ -60,12 +60,11 @@ class CliParserTest {
             CliRequest.Run parsed = run(args);
             assertEquals(command, parsed.command(), command.name());
         }
-        assertEquals(10, SennardCommand.values().length);
     }
 
     @Test
-    void theCommandNamesAreTheOnesTheInstallerCalls() {
-        assertEquals(java.util.List.of("install", "uninstall", "start", "stop", "status", "upgrade", "prepare", "hooks", "admin-reset", "attachments"),
+    void theCommandNamesMatchThePublicCommands() {
+        assertEquals(java.util.List.of("setup", "install", "uninstall", "start", "stop", "status", "upgrade", "prepare", "hooks", "admin-reset", "attachments"),
                 java.util.Arrays.stream(SennardCommand.values()).map(SennardCommand::commandName).toList());
     }
 

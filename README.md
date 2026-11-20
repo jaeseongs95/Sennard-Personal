@@ -36,7 +36,7 @@ You need the host's plugin feature, a [new, empty business database](docs/user/s
 The release is one jar that every operating system runs; there are no per-OS archives and no bundled runtime. The supported environment is any computer on which JDK 25 runs. See the release notes for the host environments covered by verification.
 
 <!-- release-version:start -->
-The current public release is `v1.1.0`, and the examples below install it. Read the [1.1.0 release notes](docs/release-notes/release-notes-v1.1.0.md) before installing or upgrading. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
+The current public release is `v1.2.0`, and the examples below install it. Read the [1.2.0 release notes](docs/release-notes/release-notes-v1.2.0.md) before installing or upgrading. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
 <!-- release-version:end -->
 
 ### Server
@@ -49,6 +49,10 @@ java -jar sennard-<version>.jar install
 ```
 
 On Windows, compare the value in the checksum file with the output of `Get-FileHash -Algorithm SHA256 sennard-<version>.jar` instead.
+
+On a desktop, open the setup window from the verified JAR with `java -jar sennard-<version>.jar setup`. It shows the installed version, package version, and destination folder. To update, close affected host sessions and back up your Sennard state folder and any configured business database before opening Setup from the newer JAR and choosing **Update and restart**. After the server starts, check the database status and follow the host plugin instructions below. After you install or update a host plugin, select **Register hooks** and start a new host session.
+
+To update from the terminal, run the newer, verified release JAR with the `upgrade` command after the same backup steps.
 
 The installer extracts the jar into the installation folder `~/.sennard/install` (`SENNARD_INSTALL_ROOT` changes it), trains the start-up caches, starts the server, waits for readiness, and writes the hook and MCP definitions into the plugins of the hosts that are installed. The state folder is `~/.sennard` by default (`SENNARD_STATE_DIR` or `--state-dir` changes it). `~` is the `user.home` of the JVM, the same question on every operating system. If the installation folder cannot be written in the file name encoding of the system (`native.encoding`), the installer ends with `INSTALL_ROOT_NOT_REPRESENTABLE` and chooses no other folder: set `SENNARD_INSTALL_ROOT` to a folder that can be written in it. The installer does not register an OS service or add anything to `PATH`.
 
@@ -83,7 +87,7 @@ Run in a terminal:
 
 <!-- release-install:start -->
 ```bash
-codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.1.0
+codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.2.0
 codex plugin add sennard@sennard
 ```
 <!-- release-install:end -->
@@ -96,8 +100,8 @@ Start a new Codex session, then review and trust the Sennard hooks in `/hooks`. 
 
 <!-- release-agy:start -->
 ```bash
-curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.1.0/sennard-antigravity-v1.1.0.zip
-unzip sennard-antigravity-v1.1.0.zip
+curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.2.0/sennard-antigravity-v1.2.0.zip
+unzip sennard-antigravity-v1.2.0.zip
 agy plugin install ./sennard
 agy plugin list
 ```

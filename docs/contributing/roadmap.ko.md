@@ -3,7 +3,7 @@
 # Sennard 향후 로드맵
 
 <!-- release-version:start -->
-현재 공개 릴리스는 `v1.1.0`입니다. 개인판 첫 발행은 [1.0.0 릴리스 노트](../release-notes/release-notes-v1.0.0.md)에 정리했다. 개인용 판은 PC 하나에 상주 서버 하나(Java 25, Spring Boot)를 두고 Claude Code·Codex·Antigravity의 hook과 MCP로 연결한다. 로컬 설정은 H2에, 업무 상태는 별도로 연결한 데이터베이스에 저장한다.
+현재 공개 릴리스는 `v1.2.0`입니다. 개인판 첫 발행은 [1.0.0 릴리스 노트](../release-notes/release-notes-v1.0.0.md)에 정리했다. 개인용 판은 PC 하나에 상주 서버 하나(Java 25, Spring Boot)를 두고 Claude Code·Codex·Antigravity의 hook과 MCP로 연결한다. 로컬 설정은 H2에, 업무 상태는 별도로 연결한 데이터베이스에 저장한다.
 <!-- release-version:end -->
 
 이 문서는 개인판 1.0.0 이후의 방향을 적는다. 일정은 날짜보다 단계별 종료 조건으로 관리하고, 필수 검증을 마치기 전에는 다음 릴리스 범위로 넘기지 않는다. 현재 동작과 제한은 [아키텍처](architecture.ko.md), 배포 절차는 [릴리스 문서](release.ko.md)를 기준으로 하며, 이 문서와 구현이 다르면 구현 상태와 검증 근거를 우선하고 이 문서를 함께 고친다.

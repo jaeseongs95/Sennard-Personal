@@ -4,6 +4,7 @@
 
 package io.github.jaeseongs95.sennard.personal.cli;
 
+import java.awt.GraphicsEnvironment;
 import java.io.File;
 import java.time.Clock;
 import java.time.Duration;
@@ -20,6 +21,7 @@ import io.github.jaeseongs95.sennard.personal.install.InstalledSettings;
 import io.github.jaeseongs95.sennard.personal.install.Installer;
 import io.github.jaeseongs95.sennard.personal.install.RunningProgram;
 import io.github.jaeseongs95.sennard.personal.install.ServerControl;
+import io.github.jaeseongs95.sennard.personal.setup.SetupWindow;
 import io.github.jaeseongs95.sennard.personal.wake.NativeWakeWorker;
 import io.github.jaeseongs95.sennard.protocol.Utf8Boundary;
 import io.github.jaeseongs95.sennard.hookclient.HookClientCall;
@@ -89,6 +91,15 @@ public final class SennardCli {
     /** The switch has no default: a command added to {@link SennardCommand} does not compile until it is handled here. */
     static int run(CliRequest.Run request, CliOutput output) {
         return switch (request.command()) {
+            case SETUP -> {
+                if (GraphicsEnvironment.isHeadless()) {
+                    output.error("Setup needs a graphical desktop. Use 'install', 'upgrade', or 'status' at the command line.");
+                    yield 1;
+                }
+                SetupWindow.showAndWait(InstallEnvironment.current(), runningJar(), version(),
+                        failure -> failure.code().name() + ": " + output.sentences().of(failure));
+                yield 0;
+            }
             case INSTALL -> {
                 installer(output).install(request.valueOrNull("--state-dir"));
                 yield 0;

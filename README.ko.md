@@ -36,7 +36,7 @@ Sennard는 이 컴퓨터의 사용자당 한 번 설치하는 서버와 호스�
 릴리스는 모든 운영체제가 실행하는 jar 하나이며 운영체제별 압축 파일과 동봉 런타임은 없습니다. 지원 환경은 JDK 25가 도는 컴퓨터입니다. 검증한 호스트 환경은 릴리스 노트에 정리했습니다.
 
 <!-- release-version:start -->
-현재 공개 릴리스는 `v1.1.0`이며 아래 설치 예시는 이 버전 기준입니다. 설치하거나 업그레이드하기 전에 [1.1.0 릴리스 노트](docs/release-notes/release-notes-v1.1.0.md#sennard-110-릴리스-노트)를 읽습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
+현재 공개 릴리스는 `v1.2.0`이며 아래 설치 예시는 이 버전 기준입니다. 설치하거나 업그레이드하기 전에 [1.2.0 릴리스 노트](docs/release-notes/release-notes-v1.2.0.md#sennard-120-릴리스-노트)를 읽습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
 <!-- release-version:end -->
 
 ### 서버
@@ -49,6 +49,10 @@ java -jar sennard-<판>.jar install
 ```
 
 Windows에서는 체크섬 파일의 값을 `Get-FileHash -Algorithm SHA256 sennard-<판>.jar`의 출력과 대조합니다.
+
+데스크톱에서는 체크섬을 확인한 JAR에 `java -jar sennard-<판>.jar setup` 명령을 실행해 설치 창을 엽니다. 창에는 설치된 버전, 패키지 버전, 설치 폴더가 표시됩니다. 업데이트할 때는 연동 중인 호스트 세션을 닫고 Sennard 상태 폴더와 연결된 업무 데이터베이스를 백업합니다. 새 JAR로 설치 창을 열어 **업데이트 및 재시작**을 선택합니다. 서버가 시작되면 창에서 데이터베이스 상태를 확인하고 아래의 호스트 플러그인 안내를 따릅니다. 플러그인을 설치하거나 업데이트한 뒤에는 **훅 등록**을 선택하고 새 호스트 세션을 시작합니다.
+
+터미널에서 업데이트하려면 위와 같이 백업한 뒤 체크섬을 확인한 새 릴리스 JAR에 `upgrade` 명령을 사용합니다.
 
 설치 명령은 jar를 설치 폴더 `~/.sennard/install`(`SENNARD_INSTALL_ROOT`로 바꿉니다)에 풀고, 시작 캐시를 학습하고, 서버를 시작해 준비를 기다린 뒤, 설치된 호스트의 플러그인에 hook·MCP 정의를 씁니다. 상태 폴더의 기본값은 `~/.sennard`입니다(`SENNARD_STATE_DIR` 또는 `--state-dir`로 바꿉니다). `~`는 JVM의 `user.home`이며 모든 운영체제에서 같은 질문의 답입니다. 설치 폴더를 시스템의 파일 이름 인코딩(`native.encoding`)으로 쓸 수 없으면 설치 명령은 `INSTALL_ROOT_NOT_REPRESENTABLE`로 끝나며 다른 폴더를 고르지 않습니다. `SENNARD_INSTALL_ROOT`를 그 인코딩으로 쓸 수 있는 폴더로 설정합니다. OS 서비스에 등록하거나 `PATH`에 무엇을 넣지는 않습니다.
 
@@ -83,7 +87,7 @@ Claude Code 안에서 실행하고, 설치 뒤 새 세션을 시작합니다.
 
 <!-- release-install:start -->
 ```bash
-codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.1.0
+codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.2.0
 codex plugin add sennard@sennard
 ```
 <!-- release-install:end -->
@@ -96,8 +100,8 @@ codex plugin add sennard@sennard
 
 <!-- release-agy:start -->
 ```bash
-curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.1.0/sennard-antigravity-v1.1.0.zip
-unzip sennard-antigravity-v1.1.0.zip
+curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.2.0/sennard-antigravity-v1.2.0.zip
+unzip sennard-antigravity-v1.2.0.zip
 agy plugin install ./sennard
 agy plugin list
 ```

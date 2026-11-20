@@ -173,6 +173,25 @@ class ReleaseJarInstallFlowTest {
     }
 
     @Test
+    void setupHasHelpAndRefusesToRunOnAHeadlessDesktopWithoutInstalling() throws Exception {
+        home = temporary.resolve("home");
+        state = temporary.resolve("state");
+        Path root = temporary.resolve("install-root");
+        environment = environmentOf(root, Map.of("SENNARD_STATE_DIR", state.toString()));
+        String jar = ReleaseJarFixture.releaseJar().toString();
+        ReleaseJarFixture.Run help = ReleaseJarFixture.run(
+                ReleaseJarFixture.java(home, "-Djava.awt.headless=true", "-jar", jar, "setup", "--help"), null, environment);
+        assertEquals(0, help.exitCode(), help.stdout());
+        assertTrue(help.stdout().contains("Opens the desktop installer and updater."), help.stdout());
+        ReleaseJarFixture.Run setup = ReleaseJarFixture.run(
+                ReleaseJarFixture.java(home, "-Djava.awt.headless=true", "-jar", jar, "setup"), null, environment);
+        assertEquals(1, setup.exitCode(), setup.stdout());
+        assertTrue(setup.stdout().contains("Use 'install', 'upgrade', or 'status'"), setup.stdout());
+        assertFalse(Files.exists(root));
+        assertFalse(Files.exists(state));
+    }
+
+    @Test
     void installStatusStopStartUpgradeAndUninstallOfTheReleaseJar() throws Exception {
         home = temporary.resolve("home");
         Path claudeCopy = claudePluginCopy();
