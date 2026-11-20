@@ -824,7 +824,7 @@ public class ContextLayerService {
      * The layers a hook adds for one actor. Each layer is read on its own: a failing layer is announced and the others are still given, and a
      * verification failure is announced once per change with the revision in use.
      *
-     * @param full a context start, which gets every non-empty layer; otherwise only what changed since this actor last received it
+     * @param full a context start, which gets every non-empty layer; other hooks carry notices and the first role of a newly linked child
      * @param turnStart the session's own user turn, which also gets the cue that makes the role save happen (the JEV advice is not asked of the agent: the server asks JEV itself, see {@code JevAdviceHook})
      * @param parentUnnamed the host's hooks do not name the parent of the conversation they run under ({@code HostCallerAdapter#hooksMarkSubagents} is false), so a conversation
      *            that has no binding and no recorded root, at the first hook this actor gets, is told how to have its parent found: by one tool call, whose metadata names both
@@ -853,9 +853,12 @@ public class ContextLayerService {
         List<LayerFailure> failures = sessionFailures(state, host, bindingSession);
         String failureMark = failures.stream().map(failure -> failure.layer() + ":" + failure.code() + ":" + (failure.revision() == null ? "-" : failure.revision())).collect(Collectors.joining(","));
         GlobalView global = globalView(state);
-        String globalToken = (global == null ? "" : global.stateToken()) + "#" + failureMark;
+        String previousGlobalToken = tokenBeforeMark(beforeGlobal);
+        boolean hasGlobalBody = global != null && !global.body().isEmpty();
+        String deliveredGlobalToken = full || !hasGlobalBody ? (global == null ? "" : global.stateToken()) : Objects.toString(previousGlobalToken, "");
+        String globalToken = deliveredGlobalToken + "#" + failureMark;
         if (full || !globalToken.equals(beforeGlobal)) {
-            addGlobalLines(lines, failures, global, tokenBeforeMark(beforeGlobal), full, stored != null);
+            addGlobalLines(lines, failures, global, previousGlobalToken, full, stored != null);
         }
         String roleName = null;
         String roleToken = null;
@@ -864,12 +867,16 @@ public class ContextLayerService {
             Binding binding = bindingFor(state, host, bindingSession);
             RoleView role = binding == null ? null : roleView(store.readRole(binding.roleId()));
             roleName = binding == null ? null : binding.role();
-            roleToken = role == null ? null : role.stateToken();
+            boolean sameRole = Objects.equals(beforeRole, roleName);
+            boolean hasRoleBody = role != null && !role.body().isEmpty();
+            boolean firstLinkedRole = parentUnnamed && recordedRoot.isPresent() && beforeRole == null;
+            boolean sendRoleBody = full || firstLinkedRole;
+            roleToken = role != null && (sendRoleBody || !hasRoleBody) ? role.stateToken() : sameRole ? beforeRoleToken : null;
             if (binding != null && turnStart) {
                 roleSaveCue = MessageRef.of("hooks.contextLayers.roleSaveCue", "role", binding.role(), "state", (role != null && !role.body().isEmpty() ? RoleBodyState.FILLED : RoleBodyState.EMPTY).wire());
             }
-            if (binding != null && (full || !binding.role().equals(beforeRole) || !Objects.equals(beforeRoleToken, roleToken))) {
-                addRoleLine(lines, binding, role, changed, binding.role().equals(beforeRole) && beforeRoleToken != null && !beforeRoleToken.isEmpty());
+            if (binding != null && (sendRoleBody || !sameRole || !Objects.equals(beforeRoleToken, roleToken))) {
+                addRoleLine(lines, binding, role, sendRoleBody, changed, sameRole && beforeRoleToken != null && !beforeRoleToken.isEmpty());
             } else if (binding == null && changed && beforeRole != null && !beforeRole.isEmpty()) {
                 lines.add(MessageRef.of("hooks.contextLayers.roleUnbound", "role", beforeRole));
             }
@@ -880,6 +887,8 @@ public class ContextLayerService {
         } catch (DataAccessException | JacksonException | IllegalStateException | IntegrityException unreadable) {
             LOG.warn("The role context could not be read for the hook of {}", host, unreadable);
             lines.add(MessageRef.of("hooks.contextLayers.unreadable", "layer", "role"));
+            roleName = stored == null ? null : stored.role();
+            roleToken = stored == null ? null : stored.roleToken();
         }
         if (roleSaveCue != null) {
             lines.add(roleSaveCue);
@@ -899,8 +908,10 @@ public class ContextLayerService {
         boolean revisionChanged = !stateToken.equals(beforeToken);
         boolean verifiedChange = receivedBefore && revisionChanged && failures.stream()
                 .noneMatch(failure -> AdminLog.TARGET_GLOBAL.equals(failure.layer()) || AdminLog.TARGET_KEYS.equals(failure.layer()));
-        if (global != null && !global.body().isEmpty() && (full || revisionChanged)) {
-            lines.add(MessageRef.of(GLOBAL_BLOCK, "stateToken", stateToken, "changed", verifiedChange ? "yes" : "no", "body", global.body()));
+        if (global != null && !global.body().isEmpty()) {
+            if (full) {
+                lines.add(MessageRef.of(GLOBAL_BLOCK, "stateToken", stateToken, "changed", verifiedChange ? "yes" : "no", "body", global.body()));
+            }
         } else if (verifiedChange && beforeToken != null && !beforeToken.isEmpty()) {
             // Only an actor that may still hold the earlier body needs the clearing notice.
             lines.add(MessageRef.of("hooks.contextLayers.cleared", "layer", "global", "role", ""));
@@ -908,8 +919,8 @@ public class ContextLayerService {
     }
 
     /** The binding is the user's assignment and is given even while its role has no body yet. */
-    private static void addRoleLine(List<MessageRef> lines, Binding binding, RoleView role, boolean changed, boolean sameRoleHadBody) {
-        if (role != null && !role.body().isEmpty()) {
+    private static void addRoleLine(List<MessageRef> lines, Binding binding, RoleView role, boolean sendBody, boolean changed, boolean sameRoleHadBody) {
+        if (sendBody && role != null && !role.body().isEmpty()) {
             lines.add(MessageRef.of(ROLE_BLOCK, "role", binding.role(), "stateToken", role.stateToken(), "changed", changed ? "yes" : "no", "body", SessionText.quoted(role.body())));
         } else if (changed && sameRoleHadBody) {
             lines.add(MessageRef.of("hooks.contextLayers.cleared", "layer", "role", "role", binding.role()));

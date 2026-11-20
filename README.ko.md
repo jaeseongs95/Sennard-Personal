@@ -36,7 +36,7 @@ Sennard는 이 컴퓨터의 사용자당 한 번 설치하는 서버와 호스�
 릴리스는 모든 운영체제가 실행하는 jar 하나이며 운영체제별 압축 파일과 동봉 런타임은 없습니다. 지원 환경은 JDK 25가 도는 컴퓨터입니다. 검증한 호스트 환경은 릴리스 노트에 정리했습니다.
 
 <!-- release-version:start -->
-현재 공개 릴리스는 `v1.0.0`이며 아래 설치 예시는 이 버전 기준입니다. Sennard Personal의 첫 공개판입니다. 설치 전에 [1.0.0 릴리스 노트](docs/release-notes/release-notes-v1.0.0.md#sennard-100-릴리스-노트)를 읽습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
+현재 공개 릴리스는 `v1.1.0`이며 아래 설치 예시는 이 버전 기준입니다. 설치하거나 업그레이드하기 전에 [1.1.0 릴리스 노트](docs/release-notes/release-notes-v1.1.0.md#sennard-110-릴리스-노트)를 읽습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
 <!-- release-version:end -->
 
 ### 서버
@@ -83,7 +83,7 @@ Claude Code 안에서 실행하고, 설치 뒤 새 세션을 시작합니다.
 
 <!-- release-install:start -->
 ```bash
-codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.0.0
+codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.1.0
 codex plugin add sennard@sennard
 ```
 <!-- release-install:end -->
@@ -96,8 +96,8 @@ codex plugin add sennard@sennard
 
 <!-- release-agy:start -->
 ```bash
-curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.0.0/sennard-antigravity-v1.0.0.zip
-unzip sennard-antigravity-v1.0.0.zip
+curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.1.0/sennard-antigravity-v1.1.0.zip
+unzip sennard-antigravity-v1.1.0.zip
 agy plugin install ./sennard
 agy plugin list
 ```

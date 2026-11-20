@@ -112,8 +112,9 @@ class DomainHookFixtureServerTest {
         assertTrue(output.isEmpty() || !output.has("decision"), output.toString());
     }
 
-    @Test
-    void aStateSavedBeforeCompactionIsShownAfterIt() throws IOException {
+    @ParameterizedTest
+    @CsvSource({"PreCompact", "without-pre-compact"})
+    void aSavedStateIsShownWhenCompactionStartsANewContext(String preCompact) throws IOException {
         String session = newSession("codex");
         Map<String, Object> meta = SessionServerSupport.meta("windows", "codex", session, "none");
         Map<String, Object> core = Map.of("objective", "survive compaction", "completionCriteria", List.of("c"), "constraints", List.of(), "decisions", List.of(), "progress", List.of(), "blockers", List.of(),
@@ -124,9 +125,16 @@ class DomainHookFixtureServerTest {
             String actual = stale.path("error").path("details").path("actualStateToken").asString();
             assertTrue(DomainServerSupport.call(client, "checkpoint_context", DomainServerSupport.arguments("operationKey", request,"expectedStateToken", actual, "status", "ACTIVE", "core", core, "evidenceRefs", List.of()), meta).path("ok").booleanValue());
         }
-        ok(DomainServerSupport.hookFrom("Stop", server.port, "windows", "codex", "PreCompact", null, session, body -> body.put("trigger", "auto")));
+        assertFalse(contextOf("codex", ok(hook("windows", "codex", "UserPromptSubmit", session))).contains("survive compaction"));
+        assertFalse(contextOf("codex", ok(hook("windows", "codex", "PostToolUse", session))).contains("survive compaction"));
+        if (preCompact.equals("PreCompact")) {
+            JsonNode before = ok(DomainServerSupport.hookFrom("Stop", server.port, "windows", "codex", "PreCompact", null, session, body -> body.put("trigger", "auto")));
+            assertFalse(contextOf("codex", before).contains("survive compaction"));
+        }
         JsonNode compact = ok(hook("windows", "codex", "SessionStart", null, session, body -> body.put("source", "compact")));
         assertTrue(contextOf("codex", compact).contains("survive compaction"), compact.toString());
+        JsonNode resumed = ok(hook("windows", "codex", "SessionStart", null, session, body -> body.put("source", "resume")));
+        assertTrue(contextOf("codex", resumed).contains("survive compaction"), resumed.toString());
     }
 
     // ----------------------------------------------------------------------------------------------------------- edit gate

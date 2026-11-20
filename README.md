@@ -36,7 +36,7 @@ You need the host's plugin feature, a [new, empty business database](docs/user/s
 The release is one jar that every operating system runs; there are no per-OS archives and no bundled runtime. The supported environment is any computer on which JDK 25 runs. See the release notes for the host environments covered by verification.
 
 <!-- release-version:start -->
-The current public release is `v1.0.0`, and the examples below install it. It is the first public release of Sennard Personal. Read the [1.0.0 release notes](docs/release-notes/release-notes-v1.0.0.md) before installing. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
+The current public release is `v1.1.0`, and the examples below install it. Read the [1.1.0 release notes](docs/release-notes/release-notes-v1.1.0.md) before installing or upgrading. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
 <!-- release-version:end -->
 
 ### Server
@@ -83,7 +83,7 @@ Run in a terminal:
 
 <!-- release-install:start -->
 ```bash
-codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.0.0
+codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.1.0
 codex plugin add sennard@sennard
 ```
 <!-- release-install:end -->
@@ -96,8 +96,8 @@ Start a new Codex session, then review and trust the Sennard hooks in `/hooks`. 
 
 <!-- release-agy:start -->
 ```bash
-curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.0.0/sennard-antigravity-v1.0.0.zip
-unzip sennard-antigravity-v1.0.0.zip
+curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.1.0/sennard-antigravity-v1.1.0.zip
+unzip sennard-antigravity-v1.1.0.zip
 agy plugin install ./sennard
 agy plugin list
 ```
