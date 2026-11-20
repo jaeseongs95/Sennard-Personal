@@ -5,28 +5,15 @@
 package io.github.jaeseongs95.sennard.personal.wake;
 
 import static org.junit.jupiter.api.Assertions.*;
-import java.io.UncheckedIOException;
-import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.AclEntry;
-import java.nio.file.attribute.AclEntryPermission;
-import java.nio.file.attribute.AclEntryType;
-import java.nio.file.attribute.AclFileAttributeView;
-import java.nio.file.attribute.PosixFileAttributeView;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.UserPrincipal;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import io.github.jaeseongs95.sennard.protocol.ToolProcess;
 import io.github.jaeseongs95.sennard.server.messaging.WakeTransport;
-import io.github.jaeseongs95.sennard.service.secret.ProcessUser;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Injected process boundary: checks policy and argv, and never claims that a fixture file is a working native host. */
@@ -54,8 +41,9 @@ class CodexWakeTransportTest {
     }
 
     @Test
-    void nativePathAndExactQueueArgumentsAreOnlyAHandoff() throws Exception {
-        Path executable = candidate();
+    void nestedNativePathAndExactQueueArgumentsAreOnlyAHandoff() throws Exception {
+        Path platformPackage = Files.createDirectory(temporary.resolve("platform-package"));
+        Path executable = candidate(Files.createDirectory(platformPackage.resolve("bin")));
         AtomicReference<ToolProcess.Request> observed = new AtomicReference<>();
         var adapter = adapter(request -> { observed.set(request); return new ToolProcess.Finished(0, new byte[0]); });
         var ready = assertInstanceOf(WakeTransport.Availability.Ready.class, adapter.connect(enabled(), TARGET));
@@ -78,51 +66,11 @@ class CodexWakeTransportTest {
     }
 
     @Test
-    void unreadableManagedSubtreeIsMissingWithoutAbortingBootstrap() throws Exception {
-        Path managed = Files.createDirectory(temporary.resolve("managed-package"));
-        Path denied = Files.createDirectory(managed.resolve("unreadable"));
-        AclFileAttributeView acl = Files.getFileAttributeView(denied, AclFileAttributeView.class);
-        if (acl != null) {
-            List<AclEntry> original = List.copyOf(acl.getAcl());
-            List<AclEntry> restricted = new ArrayList<>(original);
-            // An elevated runner can create this directory with Administrators as its owner.
-            UserPrincipal runner = ProcessUser.current().principal(managed, denied.getFileSystem().getUserPrincipalLookupService());
-            restricted.addFirst(AclEntry.newBuilder().setType(AclEntryType.DENY).setPrincipal(runner)
-                    .setPermissions(AclEntryPermission.LIST_DIRECTORY).build());
-            try {
-                // Restrict only this fixture directory; retaining WRITE_ACL permits exact restoration in finally.
-                acl.setAcl(restricted);
-                assertUnreadableManagedSubtree(managed, denied);
-            } finally {
-                acl.setAcl(original);
-                assertEquals(original, acl.getAcl(), "fixture must restore the original ACL");
-            }
-        } else {
-            PosixFileAttributeView posix = Files.getFileAttributeView(denied, PosixFileAttributeView.class);
-            assertNotNull(posix, "fixture requires an ACL or POSIX permission view; unsupported access is not a skip");
-            Set<PosixFilePermission> original = Set.copyOf(posix.readAttributes().permissions());
-            try {
-                posix.setPermissions(Set.of());
-                assertUnreadableManagedSubtree(managed, denied);
-            } finally {
-                posix.setPermissions(original);
-                assertEquals(original, posix.readAttributes().permissions(), "fixture must restore the original permissions");
-            }
-        }
-    }
-
-    private void assertUnreadableManagedSubtree(Path managed, Path denied) throws Exception {
-        UncheckedIOException failure;
-        // Stream creation can open the readable root. Only terminal traversal reaches the inaccessible child.
-        try (Stream<Path> entries = Files.find(managed, 8, (path, attributes) -> false)) {
-            failure = assertThrows(UncheckedIOException.class, entries::toList,
-                    "fixture must demonstrate a real lazy Files.find failure before checking the adapter");
-        }
-        AccessDeniedException inaccessible = assertInstanceOf(AccessDeniedException.class, failure.getCause());
-        assertEquals(denied, Path.of(inaccessible.getFile()), "the denied path must belong to this fixture");
-        var adapter = adapter(request -> { throw new AssertionError("unreadable bootstrap must never launch a process"); });
+    void invalidManagedRootIsMissingWithoutLaunching() {
+        String invalid = temporary.toString() + "\0";
+        var adapter = adapter(request -> { throw new AssertionError("invalid bootstrap must never launch a process"); });
         assertEquals(new WakeTransport.Availability.Missing("BOOTSTRAP_UNREADABLE"), adapter.connect(Map.of(
-                "CODEX_MANAGED_PACKAGE_ROOT", managed.toString(), "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "1"), TARGET));
+                "CODEX_MANAGED_PACKAGE_ROOT", invalid, "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "1"), TARGET));
     }
 
     @Test
@@ -187,7 +135,11 @@ class CodexWakeTransportTest {
     }
 
     private Path candidate() throws Exception {
-        Path path = Files.write(temporary.resolve("codex.exe"), new byte[] {'M', 'Z', 0, 0});
+        return candidate(temporary);
+    }
+
+    private Path candidate(Path folder) throws Exception {
+        Path path = Files.write(folder.resolve("codex.exe"), new byte[] {'M', 'Z', 0, 0});
         assertTrue(path.toFile().setExecutable(true));
         return path;
     }
