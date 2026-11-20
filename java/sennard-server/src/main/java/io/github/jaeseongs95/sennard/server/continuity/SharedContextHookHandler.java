@@ -37,7 +37,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * What every session is given at its boundaries beside its own saved state: the pointer to the installed intake with the skill targets, and the global and role
- * context the user signed. A context start gets every non-empty layer; a later user turn or step gets only what changed since that actor last received it. All of it
+ * context the user signed. A context start gets every non-empty layer; later hooks carry notices and can finish attaching a newly linked child to its role. All of it
  * is optional for the host, so a failure here takes only this text away. A subagent's start is composed with its cue and budget in {@link ContinuityHookHandler}.
  */
 @Component
@@ -84,7 +84,7 @@ public class SharedContextHookHandler implements HookDomain {
             }
         }
         String sessionHost = event.context().hostLabel().sessionHost();
-        Target target = target(event, host, sessionHost);
+        Target target = target(event, sessionHost);
         if (target != null) {
             String text = layerText(sessionHost, event.context().sessionId(), target, hostsNamingNoParent.contains(event.context().hostLabel()));
             if (text != null) {
@@ -148,7 +148,7 @@ public class SharedContextHookHandler implements HookDomain {
     }
 
     /** Which actor gets the layers at this boundary and how much of them; null when this boundary carries none. */
-    private static Target target(HostEvent event, HostWorkFacts host, String sessionHost) {
+    private static Target target(HostEvent event, String sessionHost) {
         HostContext context = event.context();
         if (context.sessionId().isEmpty()) {
             return null;
@@ -161,7 +161,7 @@ public class SharedContextHookHandler implements HookDomain {
         String actorId = ContinuityTools.actorId(sessionHost, context.sessionId(), child ? context.actor().agentKeyOr("unidentified-child") : null);
         return switch (event) {
             case HostEvent.SessionStarted started when own && started.kind() != HostEvent.StartKind.OTHER -> new Target(actorId, true, false);
-            case HostEvent ignored when own && event.startsTurn() -> new Target(actorId, host.restoresAtTurnStart(), true);
+            case HostEvent ignored when own && event.startsTurn() -> new Target(actorId, false, true);
             case HostEvent.ModelCallFinished finished when finished.carriesContext() -> new Target(actorId, false, false);
             case HostEvent.ToolFinished finished when finished.stepBoundary() -> new Target(actorId, false, false);
             default -> null;

@@ -27,7 +27,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <pre>
  * p1  kinds     every {@link WorkflowKind} has its name on the page in both languages, different in the two (the page is given the constant's name and finds the sentence by it)
  * p2  states    every {@link RunState} has its name on the page in both languages
- * p3  the name  the screen that was "Open roots" is "Open workflows" / "열린 workflow" in the navigation and in its title, and no sentence of it says "root" any more
+ * p3  the name  Workflow management and Workflow 관리 appear in navigation and in the title, with no internal root terminology
  * </pre>
  */
 class WorkflowStatsPageTest {
@@ -61,11 +61,11 @@ class WorkflowStatsPageTest {
     }
 
     @Test
-    void p3_theOpenRootsScreenIsTheOpenWorkflowsScreenAndSaysRootNowhere() throws IOException {
+    void p3_workflowManagementHasALocalizedTitleAndUserFacingTerminology() throws IOException {
         JsonNode english = catalog("en"), korean = catalog("ko");
         for (String key : List.of("admin.page.nav.roots", "admin.page.rootRelease.tab", "admin.page.rootRelease.title")) {
-            assertEquals("Open workflows", english.path(key).asString(), key);
-            assertEquals("열린 workflow", korean.path(key).asString(), key);
+            assertEquals("Workflow management", english.path(key).asString(), key);
+            assertEquals("Workflow 관리", korean.path(key).asString(), key);
         }
         for (String language : List.of("en", "ko")) {
             JsonNode names = catalog(language);

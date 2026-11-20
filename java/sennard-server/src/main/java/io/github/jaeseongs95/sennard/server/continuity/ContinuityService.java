@@ -690,17 +690,6 @@ public class ContinuityService {
 
     // ---------------------------------------------------------------------------------------------------------- lifecycle hooks
 
-    /**
-     * A new session's start: makes its task, and nothing else. The task is made here, by the start's own use case, and not by the first tool call that needs it: a tool call that
-     * the contract refuses (checkpoint_context with a stale state token) throws, its transaction rolls back, and a task made inside it would be gone with the {@code actualStateToken}
-     * the refusal has just shown. A session that no start reached has no task until a use case that does not refuse makes it ({@link #session}: {@code load_context},
-     * {@code inspect_context}); {@code checkpoint_context} and {@code purge_direct_context} refuse such a session without a token ({@link #existingSession}).
-     */
-    @Transactional
-    public void startSession(String rawSessionId) {
-        store.ensureTask(correlate(rawSessionId), now());
-    }
-
     @Transactional
     public void startFork(String rawSessionId) {
         Task task = session(rawSessionId);
@@ -768,63 +757,36 @@ public class ContinuityService {
 
     private List<MessageRef> compactDirect(Task task) {
         Snapshot snapshot = store.getCurrent(task.taskCorrelation(), task.currentEpoch());
-        List<MessageRef> restored = null;
-        if (snapshot != null && snapshot.memoryJson() != null && task.pendingSource() == ContextSource.DIRECT && !task.pendingConsumed()
-                && snapshot.stateToken().equals(task.pendingStateToken()) && snapshot.memoryDigest().equals(task.pendingDigest())) {
-            verify(snapshot);
-            if (store.consumeDirectMarker(task.taskCorrelation(), task.currentEpoch(), snapshot.stateToken(), snapshot.memoryDigest(), now())) {
-                restored = new ArrayList<>(List.of(MessageRef.of("continuity.restore.current", "stateToken", snapshot.stateToken(), "body", SessionText.quoted(snapshot.memoryJson()))));
-            }
+        if (snapshot == null || snapshot.memoryJson() == null) {
+            return null;
         }
+        verify(snapshot);
+        // SessionStart(compact) signals a new context even if PreCompact was absent or the saved state changed since it.
+        store.consumeDirectMarker(task.taskCorrelation(), task.currentEpoch(), snapshot.stateToken(), snapshot.memoryDigest(), now());
+        List<MessageRef> restored = new ArrayList<>(List.of(MessageRef.of("continuity.restore.current", "stateToken", snapshot.stateToken(), "body", SessionText.quoted(snapshot.memoryJson()))));
         WorkflowCard card = task.rootId() == null ? null : workflowProjection(task);
-        if (restored != null && card != null) {
+        if (card != null) {
             restored.add(MessageRef.of("continuity.restore.workflowCard", "card", SessionText.quoted(mapper.writeValueAsString(card))));
         }
         return restored;
     }
 
     private List<MessageRef> compactWorkflow(Task task, WorkflowSummary summary, WorkflowCard card) {
-        if (task.pendingConsumed() || task.pendingSource() != ContextSource.WORKFLOW || task.pendingRevision() == null || task.pendingRevision() != summary.revision()
-                || !summary.snapshotDigest().equals(task.pendingDigest())) {
-            return null;
-        }
-        if (!card.rootId().equals(task.pendingRootId())
-                || !store.consumeWorkflowMarker(task.taskCorrelation(), task.currentEpoch(), card.rootId(), card.revision(), card.snapshotDigest(), now())) {
-            return null;
-        }
+        store.consumeWorkflowMarker(task.taskCorrelation(), task.currentEpoch(), card.rootId(), summary.revision(), summary.snapshotDigest(), now());
         return List.of(MessageRef.of("continuity.restore.workflowCard", "card", SessionText.quoted(mapper.writeValueAsString(card))));
     }
 
-    /** The turn check: {@code restore} adds the saved body first, for hosts whose turn start is the context start. */
-    @Transactional
-    public List<MessageRef> turnStart(String rawSessionId, boolean restore) {
-        Task task = session(rawSessionId);
-        List<MessageRef> lines = new ArrayList<>();
-        if (restore) {
-            List<MessageRef> restored = restoreCurrent(task);
-            if (restored != null) {
-                lines.addAll(restored);
-            }
-        }
-        List<MessageRef> cue = checkpointCue(task, false);
-        if (cue != null) {
-            lines.addAll(cue);
-        }
-        return lines.isEmpty() ? null : lines;
-    }
-
     /**
-     * What a main agent's prompt does, as one use case in one transaction: the turn's start is recorded for the evidence of its work (hosts that check turn work), the saved state
-     * and the checkpoint cue are told, and the previous turn that ended with no record is named. The lines of both are in order; null when there are none.
+     * Records the prompt, gives the checkpoint cue and names a previous turn that ended with no record.
      */
     @Transactional
-    public List<MessageRef> onPromptSubmitted(String rawSessionId, boolean checksTurnWork, boolean restore, String rootActor) {
+    public List<MessageRef> onPromptSubmitted(String rawSessionId, boolean checksTurnWork, String rootActor) {
         if (checksTurnWork) {
             startTurnWork(rawSessionId);
         }
         // The prompt opens the turn the workflow gate counts: an instance the agent takes after it (opens or resumes) is what the request is handled by.
         startTurn(rawSessionId);
-        return joined(turnStart(rawSessionId, restore), turnChecks.promptSubmitted(rawSessionId, rootActor));
+        return joined(checkpointCue(session(rawSessionId), false), turnChecks.promptSubmitted(rawSessionId, rootActor));
     }
 
     /**
