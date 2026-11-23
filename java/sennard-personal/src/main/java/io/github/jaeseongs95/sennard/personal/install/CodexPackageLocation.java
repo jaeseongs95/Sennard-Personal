@@ -100,6 +100,21 @@ final class CodexPackageLocation implements HostPackageLocation.SeparateVersionR
         return root.resolve(".codex-plugin/plugin.json");
     }
 
+    List<Path> dataFolders(InstallEnvironment environment) throws IOException {
+        Scan installed = scan(environment);
+        if (!installed.undetermined().isEmpty()) {
+            throw new IOException("Cannot identify the Sennard Codex plugin data folders.");
+        }
+        Path data = codexHome(environment).toAbsolutePath().normalize().resolve("plugins").resolve("data");
+        if (installed.packages().isEmpty()) {
+            return List.of(data.resolve(PLUGIN + "-" + PLUGIN));
+        }
+        // Codex legacy plugin data uses <plugin>-<marketplace> and survives cache version replacement.
+        return installed.packages().stream()
+                .map(copy -> data.resolve(PLUGIN + "-" + copy.root().getParent().getParent().getFileName()))
+                .toList();
+    }
+
     private static Path codexHome(InstallEnvironment environment) {
         String configured = environment.environment().get("CODEX_HOME");
         return configured != null && !configured.isBlank() ? Path.of(configured) : environment.home().resolve(".codex");

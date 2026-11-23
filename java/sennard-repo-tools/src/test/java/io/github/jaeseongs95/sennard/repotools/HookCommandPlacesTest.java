@@ -104,12 +104,13 @@ class HookCommandPlacesTest {
         JsonNode definition = hookDefinition(CodexHost.ID);
 
         // An mcp_tool hook fails as a whole when a placeholder names a field the event lacks, and the host leaves agent_id out of the main session's events: so the events that may
-        // carry one are commands (they read the whole event), and only SubagentStart, SubagentStop (agent_id always) and Stop (never) are tool calls.
+        // carry one are commands (they read the whole event). Only SubagentStart and SubagentStop are tool calls. Stop can register a wake worker.
         assertEquals(Map.ofEntries(Map.entry("SessionStart", 1), Map.entry("SessionEnd", 1), Map.entry("UserPromptSubmit", 1), Map.entry("PreCompact", 1), Map.entry("PostCompact", 1),
-                Map.entry("PreToolUse", 3), Map.entry("PostToolUse", 1), Map.entry("PreModelRequest", 1), Map.entry("PostModelRequest", 1)), commandsByEvent(definition));
+                Map.entry("PreToolUse", 3), Map.entry("PostToolUse", 1), Map.entry("PreModelRequest", 1), Map.entry("PostModelRequest", 1), Map.entry("Stop", 1)),
+                commandsByEvent(definition));
         Map<String, Integer> tools = otherTypes(definition);
         assertTrue(tools.keySet().stream().allMatch(key -> key.endsWith(":" + MCP_TOOL)), "every other Codex hook is an mcp_tool hook: " + tools);
-        assertEquals(List.of("Stop:mcp_tool", "SubagentStart:mcp_tool", "SubagentStop:mcp_tool"), List.copyOf(tools.keySet()));
+        assertEquals(List.of("SubagentStart:mcp_tool", "SubagentStop:mcp_tool"), List.copyOf(tools.keySet()));
     }
 
     @Test

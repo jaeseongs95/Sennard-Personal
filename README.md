@@ -36,7 +36,7 @@ You need the host's plugin feature, a [new, empty business database](docs/user/s
 The release is one jar that every operating system runs; there are no per-OS archives and no bundled runtime. The supported environment is any computer on which JDK 25 runs. See the release notes for the host environments covered by verification.
 
 <!-- release-version:start -->
-The current public release is `v1.3.0`, and the examples below install it. Read the [1.3.0 release notes](docs/release-notes/release-notes-v1.3.0.md) before installing or upgrading. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
+The current public release is `v1.4.0`, and the examples below install it. Read the [1.4.0 release notes](https://github.com/jaeseongs95/Sennard-Personal/blob/v1.4.0/docs/release-notes/release-notes-v1.4.0.md) before installing or upgrading. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
 <!-- release-version:end -->
 
 ### Server
@@ -56,10 +56,12 @@ For a new desktop installation, you can also open Setup with `java -jar sennard-
 
 1. Close affected host sessions. Back up the Sennard state folder and any configured business database.
 2. Follow the host-specific instructions below to update every installed Sennard host plugin to the exact version of the target JAR. Close any host sessions opened to update the plugins.
-3. Use the verified target JAR with JDK 25. On a desktop, run `java -jar sennard-<version>.jar setup`, check the box confirming that you closed the sessions and backed up your data, and choose **Update and restart**. In a terminal, run `java -jar sennard-<version>.jar upgrade`. If Sennard asks to replace an existing Claude Code Stop setting, review the proposed change and confirm it to continue.
+3. Use the verified target JAR with JDK 25. On a desktop, run `java -jar sennard-<version>.jar setup`, check the box confirming that you closed the sessions and backed up your data, and choose **Update and restart**. In a terminal, run `java -jar sennard-<version>.jar upgrade`. For a 1.3 to 1.4 upgrade in Windows Command Prompt (CMD), enter `yes` to continue after reading the Codex wake notice, even if the old environment variable is absent. `no`, other input, or unavailable confirmation cancels the upgrade before it changes the installation. The Setup window asks when it detects an existing Codex opt-out during this upgrade. If Sennard asks to replace an existing Claude Code Stop setting, review the proposed change and confirm it to continue.
 4. When the new server starts, check the server and database status. If you install or update a matching plugin after the server update, choose **Register hooks** in Setup or run `sennard hooks` using the new installation. Then start new host sessions. In Codex, review and trust the hooks in `/hooks` again.
 
 See the [update procedure](docs/user/update.md#update-procedure) for recovery and retry instructions.
+
+Codex queue wake defaults to on in 1.4. An upgrade from 1.3 asks for confirmation only if it will turn wake on where it was off. To keep wake off during the upgrade, set `SENNARD_CODEX_QUEUE_WAKE=0` before running setup. Reopen the receiving Codex session after changing its settings. [Codex wake settings](docs/user/collaboration.md#waking-an-idle-session)
 
 If the server update stops with `HOST_PACKAGE_VERSION_MISMATCH`, check the expected version and the copies named in the error. Correct those copies using the host instructions below, close any sessions opened for the correction, and retry the server update.
 
@@ -102,7 +104,7 @@ Run in a terminal:
 
 <!-- release-install:start -->
 ```bash
-codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.3.0
+codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.4.0
 codex plugin add sennard@sennard
 ```
 <!-- release-install:end -->
@@ -119,8 +121,8 @@ Once the plugin and server are on the same version, run `sennard hooks` if you i
 
 <!-- release-agy:start -->
 ```bash
-curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.3.0/sennard-antigravity-v1.3.0.zip
-unzip sennard-antigravity-v1.3.0.zip
+curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.4.0/sennard-antigravity-v1.4.0.zip
+unzip sennard-antigravity-v1.4.0.zip
 agy plugin install ./sennard
 agy plugin list
 ```

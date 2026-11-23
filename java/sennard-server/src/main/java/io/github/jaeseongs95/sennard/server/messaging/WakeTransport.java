@@ -34,6 +34,18 @@ public interface WakeTransport {
         }
     }
 
+    enum RelayState {
+        OPEN, UNAVAILABLE, CLOSED, OWNER_LOST, EXPIRED
+    }
+
+    enum RootReport {
+        UNREPORTED, AVAILABLE, DISABLED, MISSING
+    }
+
+    /** Connection lifetime and the worker's root capability report are independent. */
+    record RootStatus(RelayState relay, RootReport report) {
+    }
+
     @FunctionalInterface
     interface Connection {
         Outcome wake(String hostSessionId, String marker);
@@ -49,6 +61,10 @@ public interface WakeTransport {
 
         default boolean managedReady() {
             return false;
+        }
+
+        default RootStatus rootStatus() {
+            return new RootStatus(RelayState.OPEN, RootReport.UNREPORTED);
         }
 
         default Outcome wakeManaged(String childId, String marker, BooleanSupplier authorized) {

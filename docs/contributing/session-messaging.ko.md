@@ -6,7 +6,7 @@
 
 **읽는 법:** 메시지 연산은 상주 서버(`SessionMessageService`는 서버 어댑터, 큐 자체는 `sennard-app`의 `MessagingService`) 안에서 실행하고 연산 하나는 데이터베이스 transaction 하나다. 연산은 연결 풀의 격리 수준에서 실행한다. 개인판의 `sennard.store.isolation` 기본 설정은 `READ_COMMITTED`이며 `DEFAULT`를 지정하면 데이터베이스의 기본값을 따른다. 경쟁에서 진 연산은 다시 실행하지 않는다. 경쟁의 승패는 조건부 `UPDATE`가 정한다. 두 claimer가 같은 메시지를 가져가려 하면 문장이 행을 바꾼 쪽(`WHERE`가 요구하는 「아직 claim 가능」, 곧 확인 전·만료 전·유효한 임대 없음을 만족한 쪽)이 메시지를 받고, 다른 쪽은 행을 바꾸지 못하므로 그 메시지에서 아무것도 가져가지 않고 받은 것이 없다고 답한다. 훅의 claim과 source receipt는 한 transaction이고 잠금을 잡지 않는다. receipt에 서명하는 키는 서버가 시작할 때 한 번 만들고, claim은 읽기만 한다. 큐 전체의 한도는 쓰기 전에 읽어 판단하므로 동시에 보내면 몇 건 넘을 수 있고, 세션 하나의 한도는 조건부 `UPDATE`라서 정확하다. 잠금 함수·명시적 행 잠금·advisory lock은 쓰지 않는다. 아래 절에서 「broker」는 그 연산을 실행하는 서버로 읽는다.
 
-- Claude Code는 대기 hook(`WakeController`, `WakeWaiters`)을 사용한다. 공용 native 경로(`IdleWakeService`)에는 Codex queue adapter와 Antigravity agentapi adapter가 있다. 검증한 marker만 일반 입력 소비자보다 앞선 경계에서 본문을 인수한다. Codex의 native wake는 기본으로 꺼져 있다. Antigravity는 프로젝트 ID 등 대상 훅이 제공한 연결값을 사용한다. 훅이 제공한 대화 ID는 대상 대화와 일치해야 한다. 격리 시험에는 합성 입력을 사용했으며 실제 Antigravity 세션의 연결값 제공과 전달은 아직 미검증이다. [native wake 상세](native-idle-wake.ko.md)를 본다.
+- 대화형 Claude Code는 대기 훅(`WakeController`, `WakeWaiters`)을 사용한다. Codex는 기본으로 네이티브 대기열을 쓰고 Antigravity는 대상 훅이 제공한 프로젝트와 연결값으로 `agentapi`를 호출한다. 두 호스트 모두 `IdleWakeService`를 사용하며, 서버 재시작 뒤 다음 적격 `Stop`에서 다시 등록할 수 있다. 검증한 표식만 일반 입력 처리보다 앞선 경계에서 본문을 인수한다. [네이티브 깨우기](native-idle-wake.ko.md)를 참고한다.
 - `autoWake`는 대기 hook이나 native 경로의 준비 상태를 보고한다. 비활성, 사전 조건 누락, 작업 중인 수신자, 미관측 알림을 구분하며 전달이나 ACK는 보고하지 않는다. `status.wake`는 계속 `null`이다.
 - 서버가 모르는 대상의 `prepare_session_message`는 큐에 넣지 않고 `NOT_FOUND`(`details.reasonCode=SESSION_NOT_FOUND`)로 거절한다. 본문 길이·NUL·TTL 범위 위반은 `INVALID_INPUT`이고 `details.reasonCode`가 위반한 규칙(`MESSAGE_BODY_SIZE`, `MESSAGE_BODY_NUL`, `MESSAGE_TTL_RANGE`)이다.
 
@@ -98,9 +98,9 @@ hook이 없는 호스트는 MCP 도구로 보낸다. `prepare_session_message`�
 
 `send_session_message`의 결과와 `get_session_message_status`의 미ACK 큐 행에는 조언용 `autoWake`가 붙는다. 계약은 `contracts/session-auto-wake-outlook.v2.schema.json`이며 `authorityEffect: "none"`이다. 발신 성공은 서버가 큐에 넣었다는 뜻이고, `autoWake`는 수신자의 idle 깨우기 경로를 지금 쓸 수 있는지에 대한 사실만 보고한다. 예측하지 않는다. 전달, 처리, 완료, 승인이나 권한의 증거가 아니고, 큐의 메시지를 지우거나 다시 보내지 않는다.
 
-서버는 native 경로의 준비 상태도 보고한다. 꺼져 있으면 `unsupported`, 사전 조건 누락·작업 중인 수신자·미관측 알림·재시도 유예는 `degraded`, 소유한 live 연결이 없으면 `no-live-relay`다. 사용할 깨우기 경로가 없으면 본문은 일반 claim 경계까지 큐에 남는다. 확인된 전달과 깨우기 준비 상태는 구별해 알린다.
+워커는 메인 대화의 깨우기 상태를 정해진 값으로만 보고한다. 깨우기가 꺼져 있으면 `unsupported`와 `no-idle-wake`, 워커가 사전 조건 누락을 보고하면 `degraded`와 `wake-prerequisite-missing`을 반환한다. `no-live-relay`에서 `relay-lease-missing`은 등록은 있으나 유효한 워커 연결을 쓸 수 없다는 뜻이고, `presence-unknown`은 등록이나 대기 훅이 확인되지 않았다는 뜻이다. 작업 중인 수신자, 미관측 알림, 재시도 유예도 각각의 사유와 함께 `degraded`로 보고한다. 사용할 깨우기 경로가 없으면 메시지는 일반 인수 경계까지 큐에 남는다.
 
-현재 자식 대상 메시지는 `no-live-relay`로 표시된다. 회수되거나 만료되기 전까지는 지정된 자식이 다음 지원 훅 경계에서 인수할 수 있다.
+등록된 관리형 자식의 깨우기 준비 상태는 그 자식의 연결을 기준으로 보고한다. 깨우기 경로가 없는 자식은 회수되거나 만료되기 전까지 다음 지원 훅 경계에서 메시지를 인수할 수 있다.
 
 ## 데이터베이스 이전과 복구
 

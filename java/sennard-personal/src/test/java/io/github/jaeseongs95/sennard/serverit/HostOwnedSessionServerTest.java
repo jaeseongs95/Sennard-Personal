@@ -17,8 +17,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -37,6 +39,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
 
 import io.github.jaeseongs95.sennard.hookclient.HookHeaders;
+import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
+import io.github.jaeseongs95.sennard.server.messaging.SessionMessageService;
+import io.github.jaeseongs95.sennard.server.session.HookSessions;
+import io.github.jaeseongs95.sennard.service.identity.SessionRegistry;
 import io.github.jaeseongs95.sennard.server.session.SessionClosed;
 
 /**
@@ -311,6 +317,62 @@ class HostOwnedSessionServerTest {
                 }
             }
         }
+    }
+
+    @Test
+    void codexStopRegistersWithTheRestartedServer(@TempDir Path state) throws Exception {
+        String session = SessionServerSupport.uniqueSession();
+        String priorKey = UUID.randomUUID().toString();
+        String keyHeader = NativeWakeProtocol.KEY.toLowerCase(Locale.ROOT);
+        try (Proc host = Proc.start()) {
+            HookSessions.Ownership before;
+            try (RunningServer first = started(state)) {
+                var start = codexWakeHook(first, "SessionStart", session, host.pid(), priorKey);
+                assertEquals(200, start.status(), start.text());
+                assertEquals(priorKey, start.headers().get(keyHeader));
+                before = SessionServerSupport.await(() -> first.bean(HookSessions.class).ownership("codex", session), "Codex ownership");
+            }
+            try (RunningServer second = started(state)) {
+                var restored = SessionServerSupport.await(() -> second.bean(HookSessions.class).ownership("codex", session), "restored Codex ownership");
+                assertEquals(before.sessionRef(), restored.sessionRef());
+                assertEquals(410, RawHttp.exchange(second.port, "POST", NativeWakeProtocol.POLL,
+                        Map.of(NativeWakeProtocol.KEY, priorKey), null).status());
+
+                DomainServerSupport.markTurnUnchanged(second, "codex", session);
+                DomainServerSupport.writeSessionSummary(second, "codex", session, "waiting for a peer message");
+                String newKey = UUID.randomUUID().toString();
+                var stop = codexWakeHook(second, "Stop", session, host.pid(), newKey);
+                assertEquals(200, stop.status(), stop.text());
+                assertEquals(newKey, stop.headers().get(keyHeader));
+                assertEquals(restored, second.bean(HookSessions.class).ownership("codex", session).orElseThrow());
+
+                String sender = SessionServerSupport.uniqueSession();
+                assertEquals(200, DomainServerSupport.hook(second.port, "windows", "codex", "SessionStart", null, sender, body -> { }).status());
+                String senderRef = second.bean(SessionRegistry.class).findRef("codex", sender).orElseThrow();
+                var messages = second.bean(SessionMessageService.class);
+                var queued = messages.prepare(senderRef, "codex", session, "wake after restart", null, OperationKeys.operation("prepare_session_message", senderRef));
+                messages.send(senderRef, "codex", queued.messageId(), OperationKeys.operation("send_session_message", senderRef));
+                var offer = RawHttp.exchange(second.port, "POST", NativeWakeProtocol.POLL, Map.of(NativeWakeProtocol.KEY, newKey), null);
+                assertEquals(200, offer.status(), offer.text());
+                assertTrue(NativeWakeProtocol.validMarker(offer.text()));
+                var claim = DomainServerSupport.hook(second.port, "windows", "codex", "UserPromptSubmit", null, session,
+                        body -> body.put("prompt", offer.text()));
+                assertEquals(200, claim.status(), claim.text());
+                assertTrue(claim.text().contains(queued.messageId()), claim.text());
+
+                var closed = DomainServerSupport.hook(second.port, "windows", "codex", "SessionEnd", null, session, body -> { });
+                assertEquals(200, closed.status(), closed.text());
+                assertEquals(410, RawHttp.exchange(second.port, "POST", NativeWakeProtocol.POLL,
+                        Map.of(NativeWakeProtocol.KEY, newKey), null).status());
+            }
+        }
+    }
+
+    private static RawHttp.Response codexWakeHook(RunningServer server, String event, String session, long pid, String key) throws IOException {
+        byte[] body = SessionServerSupport.hook("windows", "codex", event, session, "none");
+        return RawHttp.exchange(server.port, "POST", "/hooks/v1/codex/" + event,
+                Map.of("Content-Type", "application/json", "Content-Length", Integer.toString(body.length),
+                        HookHeaders.HOST_PIDS, Long.toString(pid), NativeWakeProtocol.KEY, key), body);
     }
 
     // (g) a restart: a host that lives is watched again, one that died meanwhile is ended at once

@@ -57,17 +57,17 @@ Antigravity 관리형 대화에는 호스트의 기존 `agy` 로그인과 권한
 | 호스트 | 기본 동작 |
 | --- | --- |
 | Claude Code | 대기 hook은 세션 시작과 Claude Code의 `Stop`에 하나씩 등록됩니다. 각 훅은 이벤트가 발생할 때 서버의 메시지를 기다립니다. 메시지가 오면 그 메시지를 전달하면서 쉬는 세션을 깨웁니다. 세션이 다시 일을 시작하면 대기는 끝나고 메시지는 아래의 경계에서 전달됩니다. 한 번의 대기는 최대 24시간입니다. 그보다 오래 쉬었거나 그 사이에 Sennard 서버가 다시 시작됐다면, 다음 `Stop` 이벤트부터 다시 깨울 수 있습니다. 이 동작은 사람이 붙어 있는 대화형 세션에서만 하며, `-p`로 띄운 세션은 깨우지 않습니다. SDK로 띄운 세션은 측정하지 않았습니다. 이 구분은 Claude Code가 훅에 넘기는 `CLAUDE_CODE_SESSION_ATTENDED` 값에 의존하며, 이 변수는 Claude Code 공식 문서에 없습니다(Claude Code 2.1.319에서 측정. 별도로 Windows의 Claude Code 2.1.316에서 측정한 값은 `-p` 세션 `0`, 사람이 붙은 대화형 세션 `1`). |
-| Codex | 사용자가 선택한 native queue 깨우기입니다. 대상의 새 SessionStart 환경, native 실행 파일, 이 서버가 소유한 live 세대가 필요합니다. 준비되지 않으면 메시지는 일반 hook 경계를 기다립니다. |
+| Codex | 네이티브 대기열 깨우기가 기본으로 켜져 있습니다. 네이티브 실행 파일과 서버가 소유한 현재 세대가 필요합니다. Sennard가 재시작되면 다음 적격 `Stop`에서 새 워커를 등록할 수 있습니다. |
 | Antigravity | 대화형 메인 세션은 자체 훅의 연결값으로 `agentapi`를 사용합니다. 워커는 관리형 자식을 ACP로 깨웁니다. 호스트를 깨울 수 없으면 일반 전달 경계에서 메시지를 받습니다. |
 
 `send_session_message` 결과와 `get_session_message_status`에는 조언용 `autoWake`가 붙습니다. 현황판의 세션에는 붙지 않습니다. 받는 세션의 깨우기 경로를 지금 쓸 수 있는지에 대한 사실만 알려 주며, 전달·처리·완료의 증거가 아닙니다.
 
 - `available`: 대기 hook이 붙어 있거나 native 대상 연결과 live 세대가 준비되었습니다.
-- `degraded`: 대상이 작업 중이거나 사전 조건이 없거나 이전 알림이 미관측 상태이거나 재시도 유예 중입니다. 전달 증거가 아닙니다.
-- `unsupported`: native queue 선택이 꺼져 있습니다.
-- `no-live-relay`: 사용할 대상 연결이나 소유한 live 세대를 알 수 없습니다. 본문은 일반 경계를 기다리며 세션이 꺼졌다는 증거는 아닙니다.
+- `degraded`는 사전 조건 누락(`wake-prerequisite-missing`), 작업 중인 대상, 미관측 알림 또는 재시도 유예를 나타냅니다.
+- `unsupported`와 `no-idle-wake`는 깨우기가 꺼져 있다는 뜻입니다.
+- `no-live-relay`와 `relay-lease-missing`은 등록은 있으나 워커 연결을 쓸 수 없다는 뜻입니다. `presence-unknown`은 등록이나 대기 훅이 확인되지 않았다는 뜻입니다. 메시지는 일반 인수 경계까지 큐에 남습니다.
 
-Codex 대기열 깨우기는 `AGENT_GOVERNANCE_CODEX_QUEUE_WAKE=1`로 켜고 `=0`으로 끕니다. 변수가 빈 값이거나 잘못된 값으로 존재하면 파일 설정으로 넘어가지 않습니다. 변수가 없으면 대상의 절대 `PLUGIN_DATA/session-messaging.json`에서 `{"schemaVersion":"1.0.0","codex":{"queueWake":true}}`를 읽을 수 있습니다(4096바이트 제한). 기본은 꺼짐입니다. 설정 변경이나 Sennard 서버 재시작 뒤에는 대상 세션을 다시 열어 hook이 새 연결을 넘기게 합니다.
+Codex에서 `SENNARD_CODEX_QUEUE_WAKE=0`으로 깨우기를 끄고 `=1`로 켤 수 있습니다. 값이 비었거나 잘못되면 사전 조건 누락으로 보고합니다. 환경변수가 없으면 수신 세션의 절대 경로 `PLUGIN_DATA/session-messaging.json`에서 `codex.queueWake`를 읽으며 기본값은 켜짐입니다. 파일로 끄려면 `{"schemaVersion":"1.0.0","codex":{"queueWake":false}}`를 사용합니다(4096바이트 제한). 설정을 바꾼 뒤에는 수신 세션을 다시 엽니다. [업그레이드 확인](update.ko.md#업데이트-절차)
 
 대화형 AGY 메인 세션을 깨우려면 해당 훅이 `ANTIGRAVITY_PROJECT_ID`, 루프백 주소인 `ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CSRF_TOKEN`, 절대 경로인 `ANTIGRAVITY_AGENTAPI_EXE` 또는 노출된 PATH의 native `agy`를 제공해야 합니다. `ANTIGRAVITY_CONVERSATION_ID`가 있으면 대상과 일치해야 합니다. Sennard는 해당 훅이 제공한 값을 사용하며, 명령 인수·데이터베이스·진단 로그에 토큰을 남기지 않습니다. 표식 도착, 본문 인수와 ACK는 CLI 인계와 별도로 확인합니다. [native wake 상세와 복구](../contributing/native-idle-wake.ko.md)를 참고하세요.
 

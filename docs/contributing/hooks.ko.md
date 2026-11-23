@@ -25,10 +25,11 @@
 | SessionStart | Sennard 클라이언트(command, 호스트 PID 전달) | 공식: 「SessionStart hooks can run before an MCP server is ready」 |
 | SessionEnd | Sennard 클라이언트(command, 호스트 한도 1초·최대 3초) | 공식: 「SessionEnd doesn't support MCP tool hooks」 |
 | UserPromptSubmit·PreCompact·PostCompact·PreToolUse(peer-wait·continuity·native-peer)·PostToolUse·PreModelRequest·PostModelRequest | Sennard 클라이언트(command, 이벤트 전체를 표준 입력으로 받음) | 이 이벤트들에서 `agent_id`는 선택 필드다. 호스트 소스(`codex-rs/hooks/src/schema.rs`, `events/model_request.rs`)는 서브에이전트의 이벤트가 아니면 이 필드를 싣지 않는다. 이벤트에 없는 필드를 가리키는 `mcp_tool` 자리 표시자는 훅 전체를 실패시키므로, command가 이벤트를 읽어 서브에이전트와 메인 세션을 가른다. PreModelRequest·PostModelRequest는 새로 받는다. `ModelCallStarting`·`ModelCallFinished`에 대응하며 응답은 텍스트를 싣지 않는다 |
-| SubagentStart·SubagentStop·Stop | `type: "mcp_tool"`(서버 `sennard`, 도구 `codex_hook`) | 공식: 「`command` and `mcp_tool` handlers are supported」, 「uses the same trust review and output contract as a command hook」. SubagentStart·SubagentStop은 항상 `agent_id`를 싣고, Stop은 싣지 않는다(서브에이전트의 끝은 SubagentStop) |
+| Stop | Sennard 클라이언트(command, `--bind-host`) | 메인 세션의 전체 입력을 받는다. 조건을 충족한 Stop은 현재 서버에 로컬 깨우기 워커를 등록할 수 있다 |
+| SubagentStart·SubagentStop | `type: "mcp_tool"`(서버 `sennard`, 도구 `codex_hook`) | 두 이벤트 모두 `agent_id`를 전달한다. MCP 도구 훅은 명령 훅과 같은 신뢰 검토 및 출력 규약을 따른다 |
 | Interrupt·PermissionRequest | 받지 않음 | 대응하는 Sennard 수집 사건이 없다 |
 
-mcp_tool 훅이 호출하는 `sennard` MCP 서버는 설치가 Codex의 플러그인 사본(`.mcp.json`)에 등록한 Sennard 중계이므로 그 훅도 알린 주소의 서버에 닿는다. mcp_tool 훅은 이벤트 전체가 아니라 `input`에 적은 필드만 도구에 준다(공식: 「Use `${field.nested}` to read a dotted field from the hook event」). 정의가 그 필드를 `${…}`로 나열한다. 호스트는 이벤트 JSON을 따라가 자리 표시자를 채우고, 필드가 없으면 훅을 실패시킨다(「hook input placeholder `${agent_id}` was not found」, `codex-rs/hooks/src/engine/mcp_runner.rs`). 기본값도 선택 형식도 없고, 값이 `null`로 있는 필드는 찾은 것으로 본다. 그래서 정의는 이벤트가 항상 갖는 필드만 적는다(`HookRegistrationFileTest`가 모든 자리 표시자를 그 필드 표와 녹화한 메인 세션 입력에 대조한다).
+mcp_tool 훅이 호출하는 `sennard` MCP 서버는 설치가 Codex의 플러그인 사본(`.mcp.json`)에 등록한 Sennard 중계이므로 그 훅도 알린 주소의 서버에 닿는다. mcp_tool 훅은 이벤트 전체가 아니라 `input`에 적은 필드만 도구에 준다(공식: 「Use `${field.nested}` to read a dotted field from the hook event」). 정의가 그 필드를 `${…}`로 나열한다. 호스트는 이벤트 JSON을 따라가 자리 표시자를 채우고, 필드가 없으면 훅을 실패시킨다(「hook input placeholder `${agent_id}` was not found」, `codex-rs/hooks/src/engine/mcp_runner.rs`). 기본값도 선택 형식도 없고, 값이 `null`로 있는 필드는 찾은 것으로 본다. 그래서 정의는 이벤트가 항상 갖는 필드만 적는다(`HookRegistrationFileTest`는 두 서브에이전트 훅의 자리 표시자를 필수 필드에 대조하고, `Stop` 명령 훅과 녹화한 메인 세션 입력을 검사한다).
 
 ### 1.3 Gemini CLI (https://geminicli.com/docs/hooks/reference/, https://geminicli.com/docs/extensions/reference/)
 
@@ -147,7 +148,7 @@ Claude Code 2.1.295 이상은 도구 실행 관문의 명령을 실행하지 못
 - `hook-command-not-java-client`(상한 0): 저장소의 플러그인 패키지는 정의를 비워서 싣는다. 저장소의 정의에 어떤 종류든 훅이나 MCP 서버가 있으면 위반이다(`sennard-arch-checks`의 `RepositoryRules`). 설치기가 쓰는 정의는 사용자의 `java`로 클라이언트 jar를 실행하는데, 저장소의 파일이 아니므로 이 규칙은 읽지 않는다. 그 단어는 `HookClientCommandTest`와 `HookRegistrationFileTest`가 지킨다.
 - `HostInputFieldsTest`·`HostInputReductionTest`(`sennard-personal`): 클라이언트가 가진 호스트별 필드 목록은 서버의 입력 record와 같고, 클라이언트와 서버는 같은 기록 입력을 같은 결과로 읽으며 같은 입력을 같은 이유로 거절한다. `HookClientProcessTest`(`sennard-hook-client`): 클라이언트의 JVM은 Spring·Jackson·SLF4J·Logback의 클래스를 올리지 않는다.
 - 게이트의 실패 정책(2.2절)은 녹화한 호스트 입력과 실제 프로세스로 시험한다. `HookLauncherProcessTest`는 생성된 Antigravity·Gemini 정의의 명령(사용자의 `java`와 클라이언트 jar)을 실제 서버를 상대로 실행하고 녹화한 Antigravity `PreToolUse`를 넣는다. `ClaudeHttpHookEndpointTest`는 녹화한 Claude 본문을 실제 엔드포인트에 보낸다. `CodexHookToolServerTest`는 녹화한 Codex 필드로 실제 `codex_hook` 도구를 부른다. `ContinuityHookRaceServerTest`(R7)는 한 세션의 첫 편집들이 작업 생성 지점에서 만나게 해 실제 PostgreSQL에서 확인한다. `HookClientTest`(`sennard-hook-client`)는 실제 소켓으로 클라이언트를 판정한다. Gemini CLI 입력은 녹화된 적이 없으므로 Gemini 사례는 손으로 쓴 `BeforeTool`로 돌린다(4절).
-- `HookCommandPlacesTest`(`sennard-repo-tools`)는 생성된 핸들러의 유형과 수를 검사한다. Claude, Antigravity, Gemini는 command 훅을 사용한다. Codex는 Stop, SubagentStart, SubagentStop에 MCP 도구 훅을 쓰고 나머지 등록 이벤트에 command 훅을 사용한다.
+- `HookCommandPlacesTest`(`sennard-repo-tools`)는 생성된 핸들러의 유형과 수를 검사한다. Claude, Antigravity, Gemini는 command 훅을 사용한다. Codex는 SubagentStart와 SubagentStop에 MCP 도구 훅을 쓰고, Stop을 포함한 나머지 등록 이벤트에는 명령 훅을 사용한다.
 - `GeneratedFilesTest`: 정의 파일은 어댑터가 낸 것과 같다(`./gradlew hostHookFiles`).
 
 ## 4. 실호스트에서만 확인되는 것

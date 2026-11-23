@@ -12,10 +12,10 @@
             "data" : {
               "autoWake" : {
                 "authorityEffect" : "none",
-                "basisAt" : "<TIME>",
+                "basisAt" : null,
                 "checkedAt" : "<TIME>",
-                "reason" : "wake-prerequisite-missing",
-                "state" : "degraded"
+                "reason" : "presence-unknown",
+                "state" : "no-live-relay"
               },
               "createdAt" : "<TIME>",
               "expiresAt" : "<TIME>",

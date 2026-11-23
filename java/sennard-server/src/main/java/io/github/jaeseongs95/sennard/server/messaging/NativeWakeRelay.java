@@ -12,6 +12,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 
 import org.springframework.stereotype.Component;
@@ -21,7 +22,11 @@ import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.Capability;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.Launch;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.LaunchReply;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.LaunchResult;
+import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.RootUnavailable;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
+import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.RelayState;
+import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.RootReport;
+import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.RootStatus;
 
 /** One volatile relay per accepted client registration. The durable reservation lives in IdleWakeService. */
 @Component
@@ -30,6 +35,15 @@ public final class NativeWakeRelay {
     private static final Duration CONTACT_LEASE = Duration.ofSeconds(30);
     private static final Duration OUTCOME_WAIT = Duration.ofSeconds(15);
     private final Map<String, Channel> channels = new ConcurrentHashMap<>();
+    private final LongSupplier nanoTime;
+
+    public NativeWakeRelay() {
+        this(System::nanoTime);
+    }
+
+    NativeWakeRelay(LongSupplier nanoTime) {
+        this.nanoTime = nanoTime;
+    }
 
     public WakeTransport transport(HostId host) {
         return transport(host, false);
@@ -56,11 +70,7 @@ public final class NativeWakeRelay {
 
     Channel find(String key) {
         Channel channel = NativeWakeProtocol.validKey(key) ? channels.get(key) : null;
-        if (channel != null && !channel.actorCurrent()) {
-            channel.close();
-            return null;
-        }
-        return channel;
+        return channel != null && channel.open() ? channel : null;
     }
 
     enum Poll {
@@ -92,10 +102,11 @@ public final class NativeWakeRelay {
         private final String session;
         private final BooleanSupplier actorCurrent;
         private final boolean preassignedChildId;
-        private boolean closed;
+        private RelayState relayState = RelayState.OPEN;
         private boolean polling;
         private Capability capability;
-        private long contactAt;
+        private RootReport rootReport = RootReport.UNREPORTED;
+        private long contactAt = nanoTime.getAsLong();
         private Offer<NativeWakeProtocol.Result> pendingWake;
         private Offer<LaunchReply> pendingLaunch;
 
@@ -126,7 +137,7 @@ public final class NativeWakeRelay {
 
         @Override
         public synchronized boolean registered() {
-            return !closed && actorCurrent() && capability != null && System.nanoTime() - contactAt < CONTACT_LEASE.toNanos();
+            return open() && capability != null && capability != Capability.NONE;
         }
 
         @Override
@@ -134,21 +145,48 @@ public final class NativeWakeRelay {
             return registered() && capability.managedChild();
         }
 
-        synchronized Poll beginPoll(Capability advertised) {
-            if (closed || !actorCurrent()) {
+        @Override
+        public synchronized RootStatus rootStatus() {
+            open(); // Retire an expired or superseded registration at the point it is observed.
+            return new RootStatus(relayState, rootReport);
+        }
+
+        private synchronized boolean open() {
+            if (relayState == RelayState.OPEN) {
+                if (!actorCurrent()) {
+                    retire(RelayState.OWNER_LOST);
+                } else if (nanoTime.getAsLong() - contactAt >= CONTACT_LEASE.toNanos()) {
+                    retire(RelayState.EXPIRED);
+                }
+            }
+            return relayState == RelayState.OPEN;
+        }
+
+        Poll beginPoll(Capability advertised) {
+            return beginPoll(advertised, null);
+        }
+
+        synchronized Poll beginPoll(Capability advertised, RootUnavailable unavailable) {
+            if (!open()) {
                 return Poll.CLOSED;
             }
-            if (capability != null && capability != advertised) {
+            RootReport report = switch (unavailable) {
+                case MISSING -> RootReport.MISSING;
+                case DISABLED -> RootReport.DISABLED;
+                case null -> advertised.rootWake() ? RootReport.AVAILABLE : RootReport.UNREPORTED;
+            };
+            if (capability != null && (capability != advertised || rootReport != report)) {
                 close();
                 return Poll.CLOSED;
             }
             if (polling || inFlight(pendingWake) || inFlight(pendingLaunch)) {
                 return Poll.BUSY;
             }
-            Poll next = registered() ? Poll.CONTINUING : Poll.FIRST_CONTACT;
+            Poll next = capability != null && capability != Capability.NONE ? Poll.CONTINUING : Poll.FIRST_CONTACT;
             polling = true;
             capability = advertised;
-            contactAt = System.nanoTime();
+            rootReport = report;
+            contactAt = nanoTime.getAsLong();
             return next;
         }
 
@@ -158,7 +196,7 @@ public final class NativeWakeRelay {
 
         synchronized Reply awaitOffer() throws InterruptedException {
             long deadline = System.nanoTime() + POLL_HOLD.toNanos();
-            while (!closed && actorCurrent()) {
+            while (open()) {
                 if (pendingWake != null && !pendingWake.taken && pendingWake.result == null) {
                     if (pendingWake.authorized.getAsBoolean()) {
                         pendingWake.taken = true;
@@ -189,7 +227,7 @@ public final class NativeWakeRelay {
         }
 
         synchronized boolean complete(String marker, String childId, NativeWakeProtocol.Result result) {
-            if (closed || !actorCurrent() || !inFlight(pendingWake) || !pendingWake.reply.marker().equals(marker)
+            if (!open() || !inFlight(pendingWake) || !pendingWake.reply.marker().equals(marker)
                     || !Objects.equals(pendingWake.reply.childId(), childId)) {
                 return false;
             }
@@ -216,7 +254,7 @@ public final class NativeWakeRelay {
         }
 
         private synchronized Optional<Offer<LaunchReply>> acceptLaunchCompletion(String id, LaunchReply result) {
-            if (closed || !actorCurrent() || !inFlight(pendingLaunch) || pendingLaunch.completing
+            if (!open() || !inFlight(pendingLaunch) || pendingLaunch.completing
                     || !pendingLaunch.reply.launch().id().equals(id) || session.equals(result.childId())
                     || (preassignedChildId && result.result() == LaunchResult.CREATED && !id.equals(result.childId()))) {
                 return Optional.empty();
@@ -229,7 +267,7 @@ public final class NativeWakeRelay {
             if (pendingLaunch != offer) {
                 return false;
             }
-            boolean confirmed = accepted && !closed && offer.authorized.getAsBoolean();
+            boolean confirmed = accepted && open() && offer.authorized.getAsBoolean();
             offer.result = confirmed ? result : new LaunchReply(LaunchResult.UNKNOWN, null);
             notifyAll();
             return confirmed;
@@ -345,7 +383,7 @@ public final class NativeWakeRelay {
             notifyAll();
             long deadline = System.nanoTime() + OUTCOME_WAIT.toNanos();
             try {
-                while (!closed && offer.result == null) {
+                while (open() && offer.result == null) {
                     long remaining = deadline - System.nanoTime();
                     if (remaining <= 0) {
                         break;
@@ -359,8 +397,14 @@ public final class NativeWakeRelay {
 
         @Override
         public synchronized void close() {
+            if (open()) {
+                retire(RelayState.CLOSED);
+            }
+        }
+
+        private void retire(RelayState reason) {
+            relayState = reason;
             channels.remove(key, this);
-            closed = true;
             notifyAll();
         }
     }

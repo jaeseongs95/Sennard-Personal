@@ -12,6 +12,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +28,7 @@ class NativeWakeRelayTest {
         String key = UUID.randomUUID().toString();
         var target = new WakeTransport.Target("target", "/work", current::get);
         var connection = assertInstanceOf(WakeTransport.Availability.Ready.class, transport.connect(key, target)).connection();
+        assertEquals(new WakeTransport.RootStatus(WakeTransport.RelayState.OPEN, WakeTransport.RootReport.UNREPORTED), connection.rootStatus());
         var channel = relay.find(key);
         assertEquals(NativeWakeRelay.Poll.FIRST_CONTACT, channel.beginPoll(NativeWakeProtocol.Capability.ROOT));
         channel.endPoll();
@@ -34,12 +36,40 @@ class NativeWakeRelayTest {
 
         current.set(false);
         assertFalse(connection.live());
+        assertEquals(WakeTransport.RelayState.OWNER_LOST, connection.rootStatus().relay());
         assertNull(relay.find(key));
         assertEquals(NativeWakeRelay.Poll.CLOSED, channel.beginPoll(NativeWakeProtocol.Capability.ROOT));
 
         String nextKey = UUID.randomUUID().toString();
         assertInstanceOf(WakeTransport.Availability.Ready.class, transport.connect(nextKey, new WakeTransport.Target("target", "/work")));
         assertEquals(NativeWakeRelay.Poll.FIRST_CONTACT, relay.find(nextKey).beginPoll(NativeWakeProtocol.Capability.ROOT));
+    }
+
+    @Test
+    void aPollRenewsItsLeaseUntilExpiryAndAnExplicitCloseHasItsOwnState() {
+        var now = new AtomicLong();
+        var relay = new NativeWakeRelay(now::get);
+        var transport = relay.transport(new HostId("fixture"));
+        var target = new WakeTransport.Target("target", "/work");
+        String key = UUID.randomUUID().toString();
+        var connection = assertInstanceOf(WakeTransport.Availability.Ready.class, transport.connect(key, target)).connection();
+        var channel = relay.find(key);
+        assertEquals(NativeWakeRelay.Poll.FIRST_CONTACT, channel.beginPoll(NativeWakeProtocol.Capability.ROOT));
+        channel.endPoll();
+
+        now.set(TimeUnit.SECONDS.toNanos(29));
+        assertEquals(NativeWakeRelay.Poll.CONTINUING, channel.beginPoll(NativeWakeProtocol.Capability.ROOT));
+        channel.endPoll();
+        now.set(TimeUnit.SECONDS.toNanos(59));
+        assertEquals(NativeWakeRelay.Poll.CLOSED, channel.beginPoll(NativeWakeProtocol.Capability.ROOT));
+        assertEquals(new WakeTransport.RootStatus(WakeTransport.RelayState.EXPIRED, WakeTransport.RootReport.AVAILABLE), connection.rootStatus());
+        assertNull(relay.find(key));
+
+        String replacement = UUID.randomUUID().toString();
+        var fresh = assertInstanceOf(WakeTransport.Availability.Ready.class, transport.connect(replacement, target)).connection();
+        fresh.close();
+        assertEquals(new WakeTransport.RootStatus(WakeTransport.RelayState.CLOSED, WakeTransport.RootReport.UNREPORTED), fresh.rootStatus());
+        assertNull(relay.find(replacement));
     }
 
     @Test

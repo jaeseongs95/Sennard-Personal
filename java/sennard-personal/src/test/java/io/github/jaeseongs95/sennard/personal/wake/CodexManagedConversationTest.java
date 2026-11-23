@@ -20,6 +20,7 @@ import java.nio.file.StandardWatchEventKinds;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -42,10 +43,35 @@ class CodexManagedConversationTest {
     private static final Duration DEADLINE = Duration.ofSeconds(8);
     private static final String MARKER = "[sennard wake:01a14677-baf4-4350-922b-d5d63b40c168]";
     private static final String NEXT_MARKER = "[sennard wake:01a14677-baf4-4350-922b-d5d63b40c169]";
+    private static final WakeTransport.Target PARENT = new WakeTransport.Target("parent", null);
     private final JsonMapper mapper = JsonMapper.builder().build();
 
     @TempDir
     Path workspace;
+
+    @ParameterizedTest
+    @CsvSource({"false,NONE", "true,ROOT"})
+    void workerReportsCapabilitiesWithoutAManagedLauncher(boolean rootReady, NativeWakeProtocol.Capability expected) throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var capability = new AtomicReference<String>();
+        server.createContext(NativeWakeProtocol.POLL, exchange -> {
+            try (exchange) {
+                capability.set(exchange.getRequestHeaders().getFirst(NativeWakeProtocol.CAPABILITIES));
+                exchange.sendResponseHeaders(410, -1);
+            }
+        });
+        server.start();
+        try {
+            NativeWakeAdapter adapter = (environment, target) -> rootReady
+                    ? new WakeTransport.Availability.Ready((thread, marker) -> new WakeTransport.Outcome.Submitted())
+                    : new WakeTransport.Availability.Disabled();
+            assertEquals(0, NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), UUID.randomUUID().toString(),
+                    PARENT, Map.of(), adapter, mapper));
+            assertEquals(expected.name(), capability.get());
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @ParameterizedTest
     @CsvSource({"true,204", "false,204", "true,409"})
@@ -84,11 +110,12 @@ class CodexManagedConversationTest {
         });
         server.start();
         try {
-            int exit = NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), key, "parent", null, request -> {
+            var adapter = managedAdapter(new WakeTransport.Availability.Disabled(), request -> {
                 assertEquals(launch, request);
                 process.set(probe(supported ? "ordinary" : "unlisted-effort"));
                 return CodexManagedConversation.open(process.get(), mapper, DEADLINE, request.model(), request.effort(), null);
-            }, mapper);
+            });
+            int exit = NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), key, PARENT, Map.of(), adapter, mapper);
             assertEquals(0, exit);
             assertEquals(2, polled.get());
             assertEquals(NativeWakeProtocol.Capability.MANAGED.name(), capability.get());
@@ -112,11 +139,13 @@ class CodexManagedConversationTest {
         byte[] launchBody = mapper.writeValueAsBytes(launch);
         var polls = new AtomicInteger();
         var rootWakes = new AtomicInteger();
+        var capability = new AtomicReference<String>();
         var completions = new CopyOnWriteArrayList<List<String>>();
         server.createContext(NativeWakeProtocol.POLL, exchange -> {
             try (exchange) {
                 int poll = polls.getAndIncrement();
                 if (poll == 0) {
+                    capability.set(exchange.getRequestHeaders().getFirst(NativeWakeProtocol.CAPABILITIES));
                     exchange.getResponseHeaders().set("Content-Type", "application/json");
                     exchange.sendResponseHeaders(200, launchBody.length);
                     exchange.getResponseBody().write(launchBody);
@@ -146,15 +175,18 @@ class CodexManagedConversationTest {
         });
         server.start();
         try {
-            int exit = NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), key, "parent", (thread, marker) -> {
+            var root = new WakeTransport.Availability.Ready((thread, marker) -> {
                 rootWakes.incrementAndGet();
                 return new WakeTransport.Outcome.Submitted();
-            }, request -> open(probe("ordinary"), null), mapper);
+            });
+            var adapter = managedAdapter(root, request -> open(probe("ordinary"), null));
+            int exit = NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), key, PARENT, Map.of(), adapter, mapper);
             assertEquals(0, exit);
         } finally {
             server.stop(0);
         }
         assertEquals(0, rootWakes.get());
+        assertEquals(NativeWakeProtocol.Capability.BOTH.name(), capability.get());
         assertEquals(4, polls.get());
         assertEquals(List.of(List.of(NativeWakeProtocol.COMPLETE + "/NOT_SENT", "sibling", MARKER),
                 List.of(NativeWakeProtocol.COMPLETE + "/SUBMITTED", "child", NEXT_MARKER)), completions);
@@ -258,6 +290,20 @@ class CodexManagedConversationTest {
             assertInstanceOf(WakeTransport.Outcome.NotSent.class, conversation.wake("child", MARKER));
         }
         assertEquals(List.of("initialize", "initialized", "model/list", "thread/start", "turn/start"), methods(requests()));
+    }
+
+    private static NativeWakeAdapter managedAdapter(WakeTransport.Availability root, NativeWakeAdapter.ManagedLauncher launcher) {
+        return new NativeWakeAdapter() {
+            @Override
+            public WakeTransport.Availability connect(Map<String, String> environment, WakeTransport.Target target) {
+                return root;
+            }
+
+            @Override
+            public Optional<ManagedLauncher> managedLauncher(Map<String, String> environment, WakeTransport.Target target) {
+                return Optional.of(launcher);
+            }
+        };
     }
 
     private CodexManagedConversation open(ToolProcess.Stdio process, String resume) throws IOException, InterruptedException {

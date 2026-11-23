@@ -123,6 +123,7 @@ public final class Installer {
     private final String version;
     private final PrintStream out;
     private final ClaudeStopConfirmation claudeStopConfirmation;
+    private final boolean commandLine;
 
     /** @param running what this command runs from: a release jar (an installed version's jar included) or anything else */
     public Installer(InstallEnvironment environment, RunningProgram running, String version, PrintStream out) {
@@ -130,11 +131,21 @@ public final class Installer {
     }
 
     Installer(InstallEnvironment environment, RunningProgram running, String version, PrintStream out, ClaudeStopConfirmation claudeStopConfirmation) {
+        this(environment, running, version, out, claudeStopConfirmation, false);
+    }
+
+    public static Installer forCommandLine(InstallEnvironment environment, RunningProgram running, String version, PrintStream out) {
+        return new Installer(environment, running, version, out, ClaudeStopConfirmation.interactive(), true);
+    }
+
+    private Installer(InstallEnvironment environment, RunningProgram running, String version, PrintStream out,
+            ClaudeStopConfirmation claudeStopConfirmation, boolean commandLine) {
         this.environment = environment;
         this.running = running;
         this.version = version;
         this.out = out;
         this.claudeStopConfirmation = claudeStopConfirmation;
+        this.commandLine = commandLine;
     }
 
     /**
@@ -155,9 +166,10 @@ public final class Installer {
         String stateDirectory = givenStateDirectory == null ? null : checkedStateDirectory(givenStateDirectory, Path.of("").toAbsolutePath());
         Path versions = root.resolve(InstalledVersion.VERSIONS);
         preflightHostPackages(versions.resolve(version), version);
+        CodexWakeSetup codexWake = CodexWakeSetup.prepare(environment, false, commandLine);
         Runnable applyClaudeSettings = prepareClaudeSettings();
         ReleaseJar release = release();
-        VersionRetirement.withLock(versions, () -> install(root, stateDirectory, release, applyClaudeSettings));
+        VersionRetirement.withLock(versions, () -> install(root, stateDirectory, release, applyClaudeSettings, codexWake));
     }
 
     private static void requireFreshInstall(Path root) {
@@ -166,9 +178,10 @@ public final class Installer {
         }
     }
 
-    private void install(Path root, String stateDirectory, ReleaseJar release, Runnable applyClaudeSettings) {
+    private void install(Path root, String stateDirectory, ReleaseJar release, Runnable applyClaudeSettings, CodexWakeSetup codexWake) {
         requireFreshInstall(root);
         preflightHostPackages(root.resolve(InstalledVersion.VERSIONS).resolve(version), version);
+        codexWake.apply();
         InstalledVersion installed = publish(root, release, null);
         if (stateDirectory != null) {
             writeStateDirectory(installed, stateDirectory);
@@ -436,8 +449,10 @@ public final class Installer {
         InstalledVersion newest = upgradeCandidate(root);
         preflightHostPackages(newest.folder(), version);
         boolean needsPlacement = !newest.version().equals(version) || Files.isRegularFile(newest.folder().resolve(UPGRADE_PENDING));
+        boolean migration = CodexWakeSetup.isTransition(newest.version(), version);
+        CodexWakeSetup codexWake = needsPlacement ? CodexWakeSetup.prepare(environment, migration, commandLine) : CodexWakeSetup.NONE;
         Runnable applyClaudeSettings = needsPlacement ? prepareClaudeSettings() : KEEP_CLAUDE_SETTINGS;
-        VersionRetirement.withLock(root.resolve(InstalledVersion.VERSIONS), () -> upgrade(root, applyClaudeSettings));
+        VersionRetirement.withLock(root.resolve(InstalledVersion.VERSIONS), () -> upgrade(root, newest, applyClaudeSettings, codexWake));
     }
 
     private InstalledVersion upgradeCandidate(Path root) {
@@ -459,10 +474,16 @@ public final class Installer {
         return newest;
     }
 
-    private void upgrade(Path root, Runnable applyClaudeSettings) {
+    private void upgrade(Path root, InstalledVersion expected, Runnable applyClaudeSettings, CodexWakeSetup codexWake) {
         InstalledVersion previous = upgradeCandidate(root);
+        if (!previous.equals(expected)) {
+            throw new UnavailableException(UnavailableCode.HOST_FILES_FAILED, SennardException.args("cause",
+                    "The installed version changed during setup. Run the upgrade again. / 설치된 버전이 바뀌었습니다. 업그레이드를 다시 실행해 주세요."));
+        }
         preflightHostPackages(previous.folder(), version);
-        InstalledVersion published = previous.version().equals(version) ? previous : publish(root, release(), previous);
+        ReleaseJar release = previous.version().equals(version) ? null : release();
+        codexWake.apply();
+        InstalledVersion published = release == null ? previous : publish(root, release, previous);
         Path placementPending = published.folder().resolve(UPGRADE_PENDING);
         Path retirementPending = published.folder().resolve(RETIREMENT_PENDING);
         try {

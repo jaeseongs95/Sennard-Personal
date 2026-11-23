@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import io.github.jaeseongs95.sennard.domain.error.ConflictCode;
 import io.github.jaeseongs95.sennard.domain.error.ConflictException;
+import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
 import io.github.jaeseongs95.sennard.server.diagnostics.SafeFailure;
 import io.github.jaeseongs95.sennard.server.hook.HookBoundary;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict;
@@ -32,9 +33,12 @@ public class WakeHookBoundary implements HookBoundary {
 
     @Override
     public boolean bootstrap(HostEvent event, HookVerdict verdict, String wakeKey) {
+        if (!NativeWakeProtocol.validKey(wakeKey)) {
+            return false;
+        }
         return switch (event) {
             case HostEvent.SessionStarted started -> wake.bootstrap(started.context(), wakeKey);
-            case HostEvent.TurnEnded ended when wakeKey != null && ended.continuable() && !ended.alreadyContinued() && verdict instanceof HookVerdict.Proceed ->
+            case HostEvent.TurnEnded ended when ended.continuable() && !ended.alreadyContinued() && verdict instanceof HookVerdict.Proceed ->
                 wake.registerIdle(ended.context(), wakeKey);
             default -> false;
         };

@@ -4,10 +4,10 @@
 
 package io.github.jaeseongs95.sennard.personal.wake;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -23,19 +23,9 @@ import io.github.jaeseongs95.sennard.protocol.ToolProcess;
 import io.github.jaeseongs95.sennard.server.diagnostics.SafeFailure;
 import io.github.jaeseongs95.sennard.server.hook.HostDefinition;
 import io.github.jaeseongs95.sennard.server.hook.host.CodexHost;
-import io.github.jaeseongs95.sennard.server.hook.host.HostInput;
 import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.Availability;
 import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.Outcome;
 import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.Target;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import tools.jackson.core.JsonParser;
-import tools.jackson.core.JsonToken;
-import tools.jackson.core.StreamReadFeature;
-import tools.jackson.databind.DeserializationContext;
-import tools.jackson.databind.DeserializationFeature;
-import tools.jackson.databind.ObjectReader;
-import tools.jackson.databind.annotation.JsonDeserialize;
-import tools.jackson.databind.deser.std.StdDeserializer;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Only the native Codex CLI can enqueue input on the host's live thread; Java has no equivalent host API. No shell, npm wrapper, resume flag or user-specific path. */
@@ -53,26 +43,24 @@ public final class CodexWakeTransport implements NativeWakeAdapter {
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(CodexWakeTransport.class);
-    private static final String OPT_IN = "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE";
     private final WakeProcess process;
     private final JsonMapper mapper;
-    private final ObjectReader configuration;
+    private final CodexQueueWakeSettings configuration;
 
     public CodexWakeTransport(WakeProcess process, JsonMapper mapper) {
         this.process = process;
         this.mapper = mapper;
-        this.configuration = mapper.readerFor(QueueConfiguration.class).with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+        this.configuration = new CodexQueueWakeSettings(mapper);
     }
 
     @Override
     public Availability connect(Map<String, String> environment, Target target) {
         try {
-            String override = environment.get(OPT_IN);
+            String override = environment.get(CodexQueueWakeSettings.OVERRIDE);
             if (override != null && !override.equals("0") && !override.equals("1")) {
                 return new Availability.Missing("INVALID_OPT_IN");
             }
-            boolean enabled = override == null ? configured(environment.get("PLUGIN_DATA")) : override.equals("1");
+            boolean enabled = override == null ? configuration.enabled(environment) : override.equals("1");
             if (!enabled) {
                 return new Availability.Disabled();
             }
@@ -117,56 +105,6 @@ public final class CodexWakeTransport implements NativeWakeAdapter {
         return environment.entrySet().stream()
                 .filter(entry -> List.of("PATH", "Path", "CODEX_MANAGED_PACKAGE_ROOT", "CODEX_HOME", "SystemRoot", "HOME", "USERPROFILE", "TEMP", "TMP", "LANG").contains(entry.getKey()))
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
-    }
-
-    private boolean configured(String folder) throws IOException {
-        if (folder == null) {
-            return false;
-        }
-        Path root = Path.of(folder);
-        if (!root.isAbsolute()) {
-            return false;
-        }
-        Path file = root.resolve("session-messaging.json");
-        if (!Files.exists(file)) {
-            return false;
-        }
-        byte[] bytes;
-        try (InputStream input = Files.newInputStream(file)) {
-            bytes = input.readNBytes(4097);
-        }
-        if (bytes.length > 4096) {
-            return false;
-        }
-        QueueConfiguration config = configuration.readValue(bytes);
-        return config != null && config.enabled();
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record QueueConfiguration(@HostInput.Text String schemaVersion, CodexQueue codex) {
-        boolean enabled() {
-            return "1.0.0".equals(schemaVersion) && codex != null && Boolean.TRUE.equals(codex.queueWake());
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record CodexQueue(@JsonDeserialize(using = QueueFlag.class) Boolean queueWake) {
-    }
-
-    /** Configuration permits the JSON boolean itself, with no text or numeric coercion. */
-    public static final class QueueFlag extends StdDeserializer<Boolean> {
-        public QueueFlag() {
-            super(Boolean.class);
-        }
-
-        @Override
-        public Boolean deserialize(JsonParser parser, DeserializationContext context) {
-            if (parser.hasToken(JsonToken.VALUE_TRUE) || parser.hasToken(JsonToken.VALUE_FALSE)) {
-                return parser.hasToken(JsonToken.VALUE_TRUE);
-            }
-            parser.skipChildren();
-            return null;
-        }
     }
 
     private static Optional<Path> executable(Map<String, String> environment) throws IOException {

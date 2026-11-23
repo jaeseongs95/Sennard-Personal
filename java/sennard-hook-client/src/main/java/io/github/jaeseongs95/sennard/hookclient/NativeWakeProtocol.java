@@ -12,6 +12,7 @@ public final class NativeWakeProtocol {
     public static final String KEY = "X-Sennard-Wake-Key";
     public static final String MARKER = "X-Sennard-Wake-Marker";
     public static final String CAPABILITIES = "X-Sennard-Worker-Capabilities";
+    public static final String ROOT_UNAVAILABLE = "X-Sennard-Root-Wake-Unavailable";
     public static final String LAUNCH_ID = "X-Sennard-Launch-Id";
     public static final String CHILD_ID = "X-Sennard-Child-Id";
     public static final String POLL = "/hooks/v1/native-wake/poll";
@@ -43,15 +44,23 @@ public final class NativeWakeProtocol {
     }
 
     public enum Capability {
-        ROOT, MANAGED, BOTH;
+        ROOT, MANAGED, BOTH, NONE;
 
         public boolean rootWake() {
-            return this != MANAGED;
+            return this == ROOT || this == BOTH;
         }
 
         public boolean managedChild() {
-            return this != ROOT;
+            return this == MANAGED || this == BOTH;
         }
+
+        public boolean accepts(RootUnavailable unavailable) {
+            return unavailable == null ? this != NONE : !rootWake();
+        }
+    }
+
+    public enum RootUnavailable {
+        DISABLED, MISSING
     }
 
     public record Launch(String id, String model, String effort) {

@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -23,12 +24,15 @@ import io.github.jaeseongs95.sennard.domain.error.BindingException;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
 import io.github.jaeseongs95.sennard.server.diagnostics.SafeFailure;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.context.support.MessageSourceAccessor;
 import org.springframework.context.support.StaticMessageSource;
 import io.github.jaeseongs95.sennard.app.messaging.WakeReservation;
 import io.github.jaeseongs95.sennard.app.messaging.WakeReservationService;
 import io.github.jaeseongs95.sennard.server.hook.*;
+import io.github.jaeseongs95.sennard.server.hook.host.AntigravityHost;
 import io.github.jaeseongs95.sennard.server.hook.host.CodexHookAdapter;
 import io.github.jaeseongs95.sennard.server.message.Messages;
 import io.github.jaeseongs95.sennard.server.mcp.SelfSession;
@@ -47,11 +51,16 @@ class IdleWakeServiceTest {
         @Override public Optional<Ownership> ownership(String host, String session) { return Optional.of(new Ownership("ref-a", generation)); }
     }
     private static final class Live extends SessionRegistry {
-        Live() { super(null, null, null, CLOCK); }
+        private final String host;
+        Live() { this("codex"); }
+        Live(String host) {
+            super(null, null, null, CLOCK);
+            this.host = host;
+        }
         @Override public boolean isLiveGeneration(String ref, long generation) { return generation == 7; }
         @Override public Optional<String> findRef(String host, String session) { return Optional.of("ref-" + session); }
         @Override public boolean bindManagedChild(String host, String rootSessionId, String rootRef, long generation, String childSessionId) {
-            return host.equals("codex") && rootSessionId.equals("session-a") && rootRef.equals("ref-a") && generation == 7 && childSessionId.equals("child-a");
+            return this.host.equals(host) && rootSessionId.equals("session-a") && rootRef.equals("ref-a") && generation == 7 && childSessionId.equals("child-a");
         }
     }
     private static class Reservations extends WakeReservationService {
@@ -125,6 +134,159 @@ class IdleWakeServiceTest {
             assertEquals(NativeWakeProtocol.LaunchResult.UNKNOWN, conflicting.get(2, TimeUnit.SECONDS).result());
         } finally {
             channel.close();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void antigravityRootUpgradeKeepsTheChildUntilItClosesOrTheRelayExpires(boolean expire) throws Exception {
+        var context = new HostContext(AntigravityHost.ID, "session-a", context().actor(), null, null, null, null, null);
+        var root = new SelfSession("ref-a", 7, "antigravity", context.sessionId(), SelfSession.Provenance.HOST_OBSERVED,
+                context.actor(), null, null, null, null);
+        var now = new AtomicLong();
+        var relay = new NativeWakeRelay(now::get);
+        var reservations = new Reservations();
+        var wake = new IdleWakeService(List.of(relay.transport(AntigravityHost.ID)), new Owners(), new Live("antigravity"),
+                reservations, null, null, CLOCK, new WakeServerIncarnation());
+        var hook = new WakeHookBoundary(wake, null, null);
+        var stop = new HostEvent.TurnEnded(context, false, true);
+        var paused = new HookVerdict.Proceed();
+        String managedKey = UUID.randomUUID().toString();
+        String rootKey = UUID.randomUUID().toString();
+        assertTrue(hook.bootstrap(stop, paused, managedKey));
+        var managed = relay.find(managedKey);
+        assertEquals(NativeWakeRelay.Poll.FIRST_CONTACT, managed.beginPoll(NativeWakeProtocol.Capability.MANAGED));
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var result = executor.submit(() -> wake.launchManagedChild(root, "model", "effort"));
+            var launch = managed.awaitOffer().launch();
+            assertNotNull(launch);
+            managed.endPoll();
+            var created = new NativeWakeProtocol.LaunchReply(NativeWakeProtocol.LaunchResult.CREATED, "child-a");
+            assertTrue(managed.completeLaunch(launch.id(), created));
+            assertEquals(created, result.get(2, TimeUnit.SECONDS));
+
+            assertTrue(hook.bootstrap(stop, paused, rootKey));
+            var rootRelay = relay.find(rootKey);
+            assertEquals(NativeWakeRelay.Poll.FIRST_CONTACT, rootRelay.beginPoll(NativeWakeProtocol.Capability.ROOT));
+            rootRelay.endPoll();
+            assertEquals(WakeOutlook.State.AVAILABLE, wake.outlook("antigravity", "session-a").orElseThrow().state());
+            assertEquals(WakeOutlook.State.AVAILABLE, wake.outlook("antigravity", "session-a", "child-a").orElseThrow().state());
+            assertFalse(hook.bootstrap(stop, paused, UUID.randomUUID().toString()));
+
+            now.set(TimeUnit.SECONDS.toNanos(29));
+            assertEquals(NativeWakeRelay.Poll.CONTINUING, managed.beginPoll(NativeWakeProtocol.Capability.MANAGED));
+            String marker = IdleWakeService.marker(UUID.randomUUID().toString());
+            var sending = executor.submit(() -> managed.wakeManaged("child-a", marker, () -> true));
+            var offer = managed.awaitOffer();
+            assertEquals("child-a", offer.childId());
+            assertEquals(marker, offer.marker());
+            managed.endPoll();
+            assertTrue(managed.complete(marker, "child-a", NativeWakeProtocol.Result.SUBMITTED));
+            assertInstanceOf(WakeTransport.Outcome.Submitted.class, sending.get(2, TimeUnit.SECONDS));
+
+            if (expire) {
+                now.set(TimeUnit.SECONDS.toNanos(30) - 1);
+                assertEquals(NativeWakeRelay.Poll.CONTINUING, rootRelay.beginPoll(NativeWakeProtocol.Capability.ROOT));
+                rootRelay.endPoll();
+                now.set(TimeUnit.SECONDS.toNanos(59));
+                wake.reapRetiredRelays();
+                assertEquals(WakeOutlook.Reason.RELAY_LEASE_MISSING, wake.outlook("antigravity", "session-a", "child-a").orElseThrow().reason());
+                reservations.accepts = true;
+                var child = new HostContext(AntigravityHost.ID, "child-a", HostContext.SessionActor.managedChild("child-a"),
+                        null, null, null, null, null);
+                assertTrue(wake.consume(child, IdleWakeService.markerNonce(marker).orElseThrow()).isPresent());
+            } else {
+                wake.on(new HookSessions.SessionLeft("antigravity", "child-a"));
+            }
+            assertNull(relay.find(managedKey));
+            assertSame(rootRelay, relay.find(rootKey));
+        } finally {
+            wake.on(new HookSessions.SessionLeft("antigravity", "session-a"));
+        }
+        assertNull(relay.find(managedKey));
+        assertNull(relay.find(rootKey));
+        assertTrue(wake.outlook("antigravity", "session-a", "child-a").isEmpty());
+    }
+
+    @Test
+    void outlookKeepsAReportedOptOutAfterLeaseExpiryAndAcceptsAReplacement() {
+        var now = new AtomicLong();
+        var relay = new NativeWakeRelay(now::get);
+        var wake = new IdleWakeService(List.of(relay.transport(context().hostLabel())), new Owners(), new Live(),
+                new Reservations(), null, null, CLOCK, new WakeServerIncarnation());
+        String previous = UUID.randomUUID().toString();
+        assertTrue(wake.registerIdle(context(), previous));
+        assertEquals(WakeOutlook.Reason.RELAY_LEASE_MISSING, wake.outlook("codex", "session-a").orElseThrow().reason());
+        var worker = relay.find(previous);
+        assertEquals(NativeWakeRelay.Poll.FIRST_CONTACT,
+                worker.beginPoll(NativeWakeProtocol.Capability.NONE, NativeWakeProtocol.RootUnavailable.DISABLED));
+        worker.endPoll();
+        now.set(TimeUnit.SECONDS.toNanos(30));
+        wake.reapRetiredRelays();
+        assertNull(relay.find(previous));
+        assertEquals(WakeOutlook.Reason.NO_IDLE_WAKE, wake.outlook("codex", "session-a").orElseThrow().reason());
+
+        String next = UUID.randomUUID().toString();
+        assertTrue(wake.registerIdle(context(), next));
+        assertEquals(WakeOutlook.Reason.RELAY_LEASE_MISSING, wake.outlook("codex", "session-a").orElseThrow().reason());
+        var current = relay.find(next);
+        assertEquals(NativeWakeRelay.Poll.FIRST_CONTACT, current.beginPoll(NativeWakeProtocol.Capability.ROOT));
+        current.endPoll();
+        assertEquals(WakeOutlook.Reason.RELAY_LIVE, wake.outlook("codex", "session-a").orElseThrow().reason());
+        current.close();
+        assertEquals(WakeOutlook.Reason.RELAY_LEASE_MISSING, wake.outlook("codex", "session-a").orElseThrow().reason());
+    }
+
+    @Test
+    void replacingManagedOnlyRelaysClosesEachOneThatOwnsNoChild() {
+        var relay = new NativeWakeRelay();
+        var wake = new IdleWakeService(List.of(relay.transport(context().hostLabel())), new Owners(), new Live(),
+                new Reservations(), null, null, CLOCK, new WakeServerIncarnation());
+        String key = UUID.randomUUID().toString();
+        assertTrue(wake.registerIdle(context(), key));
+        try {
+            for (int replacement = 0; replacement < 6; replacement++) {
+                var channel = relay.find(key);
+                assertEquals(NativeWakeRelay.Poll.FIRST_CONTACT, channel.beginPoll(NativeWakeProtocol.Capability.MANAGED));
+                channel.endPoll();
+                String nextKey = UUID.randomUUID().toString();
+                assertTrue(wake.registerIdle(context(), nextKey));
+                assertNull(relay.find(key), "replaced relay " + replacement);
+                key = nextKey;
+            }
+        } finally {
+            wake.on(new HookSessions.SessionLeft("codex", "session-a"));
+        }
+        assertNull(relay.find(key));
+    }
+
+    @Test
+    void failedLaunchReleasesAReplacedRelayAfterTheOfferSettles() throws Exception {
+        var relay = new NativeWakeRelay();
+        var wake = new IdleWakeService(List.of(relay.transport(context().hostLabel())), new Owners(), new Live(),
+                new Reservations(), null, null, CLOCK, new WakeServerIncarnation());
+        var root = new SelfSession("ref-a", 7, "codex", "session-a", SelfSession.Provenance.HOST_OBSERVED,
+                context().actor(), null, null, null, null);
+        String oldKey = UUID.randomUUID().toString();
+        String newKey = UUID.randomUUID().toString();
+        assertTrue(wake.registerIdle(context(), oldKey));
+        var channel = relay.find(oldKey);
+        assertEquals(NativeWakeRelay.Poll.FIRST_CONTACT, channel.beginPoll(NativeWakeProtocol.Capability.MANAGED));
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var result = executor.submit(() -> wake.launchManagedChild(root, "model", "effort"));
+            var launch = channel.awaitOffer().launch();
+            assertNotNull(launch);
+            channel.endPoll();
+            assertFalse(wake.registerIdle(context(), oldKey));
+            assertTrue(wake.registerIdle(context(), newKey));
+            assertSame(channel, relay.find(oldKey));
+            var rejected = new NativeWakeProtocol.LaunchReply(NativeWakeProtocol.LaunchResult.NOT_SENT, null);
+            assertTrue(channel.completeLaunch(launch.id(), rejected));
+            assertEquals(rejected, result.get(2, TimeUnit.SECONDS));
+            assertNull(relay.find(oldKey));
+            assertNotNull(relay.find(newKey));
+        } finally {
+            wake.on(new HookSessions.SessionLeft("codex", "session-a"));
         }
     }
 

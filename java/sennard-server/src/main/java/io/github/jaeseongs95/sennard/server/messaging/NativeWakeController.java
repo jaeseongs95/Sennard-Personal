@@ -28,12 +28,16 @@ public class NativeWakeController {
 
     @PostMapping(NativeWakeProtocol.POLL)
     public ResponseEntity<?> poll(@RequestHeader(NativeWakeProtocol.KEY) String key,
-            @RequestHeader(value = NativeWakeProtocol.CAPABILITIES, defaultValue = "ROOT") NativeWakeProtocol.Capability capability) throws InterruptedException {
+            @RequestHeader(value = NativeWakeProtocol.CAPABILITIES, defaultValue = "ROOT") NativeWakeProtocol.Capability capability,
+            @RequestHeader(value = NativeWakeProtocol.ROOT_UNAVAILABLE, required = false) NativeWakeProtocol.RootUnavailable unavailable) throws InterruptedException {
+        if (!capability.accepts(unavailable)) {
+            return ResponseEntity.badRequest().build();
+        }
         NativeWakeRelay.Channel channel = relay.find(key);
         if (channel == null) {
             return ResponseEntity.status(HttpStatus.GONE).build();
         }
-        NativeWakeRelay.Poll poll = channel.beginPoll(capability);
+        NativeWakeRelay.Poll poll = channel.beginPoll(capability, unavailable);
         switch (poll) {
             case CLOSED -> {
                 return ResponseEntity.status(HttpStatus.GONE).build();
@@ -46,6 +50,9 @@ public class NativeWakeController {
         }
         NativeWakeRelay.Reply reply;
         try {
+            if (capability == NativeWakeProtocol.Capability.NONE) {
+                return ResponseEntity.noContent().build();
+            }
             if (poll == NativeWakeRelay.Poll.FIRST_CONTACT && capability.rootWake()) {
                 wake.relayAvailable(channel.host(), channel.session());
             }

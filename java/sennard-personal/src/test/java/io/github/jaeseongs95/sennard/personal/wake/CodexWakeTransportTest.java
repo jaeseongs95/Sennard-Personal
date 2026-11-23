@@ -5,10 +5,14 @@
 package io.github.jaeseongs95.sennard.personal.wake;
 
 import static org.junit.jupiter.api.Assertions.*;
+
+import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -22,20 +26,93 @@ class CodexWakeTransportTest {
     private static final WakeTransport.Target TARGET = new WakeTransport.Target("thread-a", "/work");
 
     @Test
-    void optInDefaultsOffAndPresentEmptyOrZeroOverrideTrueFile() throws Exception {
+    void queueWakeDefaultsOnWithoutEnvironmentSettingOrFile() throws Exception {
+        candidate();
+        var adapter = adapter(request -> { throw new AssertionError("connect must not launch"); });
+        assertInstanceOf(WakeTransport.Availability.Ready.class, adapter.connect(Map.of("CODEX_MANAGED_PACKAGE_ROOT", temporary.toString()), TARGET));
+        assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(Map.of(), TARGET));
+        assertInstanceOf(WakeTransport.Availability.Ready.class,
+                adapter.connect(Map.of("CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "PLUGIN_DATA", temporary.toString()), TARGET));
+    }
+
+    @Test
+    void danglingConfigurationLinkDoesNotEnableWake() throws Exception {
+        candidate();
+        Path file = temporary.resolve("session-messaging.json");
+        try {
+            if (File.separatorChar == '\\') {
+                // A junction is a real NTFS link and does not require the symbolic-link privilege.
+                Path target = Files.createDirectory(temporary.resolve("settings-target"));
+                var junction = new ProcessBuilder("cmd.exe", "/d", "/c", "mklink", "/J",
+                        file.getFileName().toString(), target.getFileName().toString())
+                        .directory(temporary.toFile()).redirectErrorStream(true).start();
+                try {
+                    assertTrue(junction.waitFor(10, TimeUnit.SECONDS), "junction creation timed out");
+                    assertEquals(0, junction.exitValue(), () -> "mklink failed with exit " + junction.exitValue());
+                } finally {
+                    if (junction.isAlive()) {
+                        junction.destroyForcibly();
+                    }
+                }
+                Files.delete(target);
+            } else {
+                Files.createSymbolicLink(file, temporary.resolve("missing-settings.json"));
+            }
+            assertTrue(Files.exists(file, LinkOption.NOFOLLOW_LINKS), "the link itself must exist");
+            assertTrue(Files.notExists(file), "the link target must be missing");
+            var adapter = adapter(request -> { throw new AssertionError("connect must not launch"); });
+            assertEquals(new WakeTransport.Availability.Missing("BOOTSTRAP_UNREADABLE"), adapter.connect(Map.of(
+                    "CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "PLUGIN_DATA", temporary.toString()), TARGET));
+        } finally {
+            Files.deleteIfExists(file);
+        }
+    }
+
+    @Test
+    void unreadableConfigurationPathDoesNotEnableWake() throws Exception {
+        candidate();
+        Files.createDirectory(temporary.resolve("session-messaging.json"));
+        var adapter = adapter(request -> { throw new AssertionError("connect must not launch"); });
+        assertEquals(new WakeTransport.Availability.Missing("BOOTSTRAP_UNREADABLE"), adapter.connect(Map.of(
+                "CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "PLUGIN_DATA", temporary.toString()), TARGET));
+    }
+
+    @Test
+    void explicitZeroOverridesTrueFile() throws Exception {
+        candidate();
         Files.writeString(temporary.resolve("session-messaging.json"), "{\"schemaVersion\":\"1.0.0\",\"codex\":{\"queueWake\":true}}");
         var adapter = adapter(request -> { throw new AssertionError("connect must not launch"); });
-        assertInstanceOf(WakeTransport.Availability.Disabled.class, adapter.connect(Map.of(), TARGET));
-        assertInstanceOf(WakeTransport.Availability.Disabled.class, adapter.connect(Map.of("PLUGIN_DATA", temporary.toString(), "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "0"), TARGET));
-        assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(Map.of("PLUGIN_DATA", temporary.toString(), "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", ""), TARGET));
-        assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(Map.of("PLUGIN_DATA", temporary.toString()), TARGET));
+        assertInstanceOf(WakeTransport.Availability.Disabled.class, adapter.connect(Map.of(
+                "CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "PLUGIN_DATA", temporary.toString(), "SENNARD_CODEX_QUEUE_WAKE", "0"), TARGET));
+    }
+
+    @Test
+    void presentEmptyOrInvalidOverrideDoesNotFallBackToTrueFile() throws Exception {
+        candidate();
+        Files.writeString(temporary.resolve("session-messaging.json"), "{\"schemaVersion\":\"1.0.0\",\"codex\":{\"queueWake\":true}}");
+        var adapter = adapter(request -> { throw new AssertionError("connect must not launch"); });
+        for (String override : List.of("", "true", " 0")) {
+            assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(Map.of(
+                    "CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "PLUGIN_DATA", temporary.toString(), "SENNARD_CODEX_QUEUE_WAKE", override), TARGET), override);
+        }
+    }
+
+    @Test
+    void theWorkerIgnoresTheLegacyVariable() throws Exception {
+        candidate();
+        var adapter = adapter(request -> { throw new AssertionError("connect must not launch"); });
+        assertInstanceOf(WakeTransport.Availability.Ready.class, adapter.connect(Map.of(
+                "CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "0"), TARGET));
+        assertInstanceOf(WakeTransport.Availability.Disabled.class, adapter.connect(Map.of(
+                "CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "0",
+                "SENNARD_CODEX_QUEUE_WAKE", "0"), TARGET));
     }
 
     @Test
     void boundedOrMalformedFileCannotEnableWake() throws Exception {
         var adapter = adapter(request -> { throw new AssertionError("no launch"); });
         Files.writeString(temporary.resolve("session-messaging.json"), "x".repeat(4097));
-        assertInstanceOf(WakeTransport.Availability.Disabled.class, adapter.connect(Map.of("PLUGIN_DATA", temporary.toString()), TARGET));
+        assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(Map.of("PLUGIN_DATA", temporary.toString()), TARGET));
         Files.writeString(temporary.resolve("session-messaging.json"), "{");
         assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(Map.of("PLUGIN_DATA", temporary.toString()), TARGET));
     }
@@ -51,7 +128,7 @@ class CodexWakeTransportTest {
         assertEquals(List.of(executable.toString(), "queue", "--thread", "thread-a", "--message", "marker-a"), observed.get().command());
         assertFalse(observed.get().inheritEnvironment());
         assertEquals(65536, observed.get().maxOutputBytes());
-        assertFalse(observed.get().environment().containsKey("AGENT_GOVERNANCE_CODEX_QUEUE_WAKE"));
+        assertFalse(observed.get().environment().containsKey("SENNARD_CODEX_QUEUE_WAKE"));
     }
 
     @Test
@@ -70,7 +147,7 @@ class CodexWakeTransportTest {
         String invalid = temporary.toString() + "\0";
         var adapter = adapter(request -> { throw new AssertionError("invalid bootstrap must never launch a process"); });
         assertEquals(new WakeTransport.Availability.Missing("BOOTSTRAP_UNREADABLE"), adapter.connect(Map.of(
-                "CODEX_MANAGED_PACKAGE_ROOT", invalid, "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "1"), TARGET));
+                "CODEX_MANAGED_PACKAGE_ROOT", invalid, "SENNARD_CODEX_QUEUE_WAKE", "1"), TARGET));
     }
 
     @Test
@@ -79,9 +156,13 @@ class CodexWakeTransportTest {
         var adapter = adapter(request -> { throw new AssertionError("configuration never launches"); });
         Map<String, String> environment = Map.of("PLUGIN_DATA", temporary.toString(), "CODEX_MANAGED_PACKAGE_ROOT", temporary.toString());
         Path file = temporary.resolve("session-messaging.json");
-        for (String flag : List.of("false", "null", "\"true\"", "1", "[]", "{}")) {
+        Files.writeString(file, "{\"schemaVersion\":\"1.0.0\",\"codex\":{\"queueWake\":false}}");
+        assertInstanceOf(WakeTransport.Availability.Disabled.class, adapter.connect(environment, TARGET));
+        assertInstanceOf(WakeTransport.Availability.Ready.class, adapter.connect(Map.of(
+                "CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "PLUGIN_DATA", temporary.toString(), "SENNARD_CODEX_QUEUE_WAKE", "1"), TARGET));
+        for (String flag : List.of("null", "\"true\"", "1", "[]", "{}")) {
             Files.writeString(file, "{\"schemaVersion\":\"1.0.0\",\"codex\":{\"queueWake\":" + flag + "}}");
-            assertFalse(adapter.connect(environment, TARGET) instanceof WakeTransport.Availability.Ready, flag);
+            assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(environment, TARGET), flag);
         }
         for (String schema : List.of("\"2.0.0\"", "1", "null", "true", "[]", "{}")) {
             Files.writeString(file, "{\"schemaVersion\":" + schema + ",\"codex\":{\"queueWake\":true}}");
@@ -144,8 +225,9 @@ class CodexWakeTransportTest {
         return path;
     }
     private Map<String, String> enabled() {
-        return Map.of("CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "1");
+        return Map.of("CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "SENNARD_CODEX_QUEUE_WAKE", "1");
     }
+
     private static CodexWakeTransport adapter(WakeProcess runner) {
         return new CodexWakeTransport(runner, JsonMapper.builder().build());
     }

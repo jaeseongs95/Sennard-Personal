@@ -5,9 +5,13 @@
 package io.github.jaeseongs95.sennard.serverit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.ZoneOffset;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +31,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.springframework.aop.framework.Advised;
 import io.github.jaeseongs95.sennard.app.messaging.WakeReservation;
@@ -37,6 +42,7 @@ import io.github.jaeseongs95.sennard.domain.messaging.ClaimReceipt;
 import io.github.jaeseongs95.sennard.domain.messaging.PeerAddress;
 import io.github.jaeseongs95.sennard.hookclient.HookHeaders;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
+import io.github.jaeseongs95.sennard.personal.wake.NativeWakeWorker;
 import io.github.jaeseongs95.sennard.server.hook.HostContext;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.host.ClaudeHost;
@@ -52,6 +58,7 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Real store CAS/transactions; no native process or mock database. */
 @Tag("business-db")
@@ -456,12 +463,94 @@ class NativeWakeReservationServerTest {
     }
 
     private String send(Target recipient) throws Exception {
+        return sendTo("codex", recipient.session(), null).messageId();
+    }
+
+    private SessionMessageService.SendResult sendTo(String host, String session, String actor) throws Exception {
         Target sender = target();
         SessionMessageService messages = server.bean(SessionMessageService.class);
-        var prepared = messages.prepare(sender.ref(), "codex", recipient.session(), "wake-lock-" + UUID.randomUUID(), null,
+        var prepared = messages.prepare(PeerAddress.session(sender.ref()), host, session, actor, "wake-lock-" + UUID.randomUUID(), null,
                 OperationKeys.operation("prepare_session_message", sender.ref()));
-        messages.send(sender.ref(), "codex", prepared.messageId(), OperationKeys.operation("send_session_message", sender.ref()));
-        return prepared.messageId();
+        return messages.send(sender.ref(), "codex", prepared.messageId(), OperationKeys.operation("send_session_message", sender.ref()));
+    }
+
+    @Test
+    void workerReportsDisabledThroughTheSendOutlook() throws Exception {
+        String disabledKey = UUID.randomUUID().toString();
+        try (var disabled = ownedTarget(disabledKey)) {
+            String session = disabled.target().session();
+            assertWakeOutlook(sendTo("codex", session, null), "no-live-relay", "relay-lease-missing");
+            runWorker("codex", "SessionStart", session, disabledKey, Map.of("SENNARD_CODEX_QUEUE_WAKE", "0"));
+            assertWakeOutlook(sendTo("codex", session, null), "unsupported", "no-idle-wake");
+        }
+    }
+
+    @Test
+    void workerReportsFileConfiguredDisablementThroughTheSendOutlook(@TempDir Path pluginData) throws Exception {
+        Files.writeString(pluginData.resolve("session-messaging.json"),
+                "{\"schemaVersion\":\"1.0.0\",\"codex\":{\"queueWake\":false}}");
+        String disabledKey = UUID.randomUUID().toString();
+        try (var disabled = ownedTarget(disabledKey)) {
+            String session = disabled.target().session();
+            runWorker("codex", "SessionStart", session, disabledKey, Map.of("PLUGIN_DATA", pluginData.toString()));
+            assertWakeOutlook(sendTo("codex", session, null), "unsupported", "no-idle-wake");
+        }
+    }
+
+    @Test
+    void codexWorkerReportsMissingPrerequisitesThroughTheSendOutlook() throws Exception {
+        String missingKey = UUID.randomUUID().toString();
+        try (var missing = ownedTarget(missingKey)) {
+            String session = missing.target().session();
+            runWorker("codex", "SessionStart", session, missingKey, Map.of("SENNARD_CODEX_QUEUE_WAKE", "malformed"));
+            assertWakeOutlook(sendTo("codex", session, null), "degraded", "wake-prerequisite-missing");
+        }
+    }
+
+    @Test
+    void antigravityWorkerWithoutItsLocalPrerequisitesReportsDegraded() throws Exception {
+        Process owner = ownerProcess();
+        try {
+            String session = SessionServerSupport.uniqueSession();
+            String key = UUID.randomUUID().toString();
+            agyWakeHook(owner, "SessionStart", session, UUID.randomUUID().toString());
+            DomainServerSupport.observeAgyRoot(server, session);
+            DomainServerSupport.markTurnUnchanged(server, "agy", session);
+            DomainServerSupport.writeSessionSummary(server, "agy", session, "ready for peer messages");
+            assertEquals(key, acceptedKey(agyWakeHook(owner, "Stop", session, key)));
+            runWorker("agy", "Stop", session, key, Map.of());
+            assertWakeOutlook(sendTo("antigravity", session, null), "degraded", "wake-prerequisite-missing");
+        } finally {
+            reap(owner);
+        }
+    }
+
+    @Test
+    void targetWithoutABindingReportsPresenceUnknown() throws Exception {
+        try (var target = ownedTarget()) {
+            assertWakeOutlook(sendTo("codex", target.target().session(), null), "no-live-relay", "presence-unknown");
+        }
+    }
+
+    private static void assertWakeOutlook(SessionMessageService.SendResult sent, String state, String reason) {
+        JsonNode outlook = JsonMapper.builder().build().valueToTree(sent.autoWake());
+        assertEquals(state, outlook.path("state").asString());
+        assertEquals(reason, outlook.path("reason").asString());
+        assertEquals("none", outlook.path("authorityEffect").asString());
+    }
+
+    private static void runWorker(String host, String event, String session, String key, Map<String, String> environment) throws Exception {
+        ProcessHandle process = ProcessHandle.current();
+        var bytes = new ByteArrayOutputStream();
+        try (var input = new DataOutputStream(bytes)) {
+            input.writeUTF(key);
+            input.writeInt(server.port);
+            input.writeLong(process.pid());
+            input.writeUTF(process.info().startInstant().orElseThrow().toString());
+            input.write(SessionServerSupport.hook("windows", host, event, session, "none"));
+        }
+        assertEquals(0, NativeWakeWorker.run(new String[]{NativeWakeProtocol.COMMAND, host, event},
+                new ByteArrayInputStream(bytes.toByteArray()), environment));
     }
 
     @Test

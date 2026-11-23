@@ -20,6 +20,8 @@ This document defines the language rules for the repository's documents and the 
 - The file contains the English part first, then a line with `---`, then the Korean part. The two parts are not split into separate files or linked to each other as separate documents.
 - The first line of the file links to the title of each part in the same file, for example `[English](#sennard-100-release-notes) | [한국어](#sennard-100-릴리스-노트)`.
 - The two parts have the same sections in the same order, and the same number of list items, tables, and code blocks.
+- Omit internal ledger identifiers and use links to documentation at the tag for this release.
+- Describe fixes in terms of what users experienced and what changes for them in the release.
 ### Sections
 
 The sections appear in the following order. The Korean part uses the Korean titles.

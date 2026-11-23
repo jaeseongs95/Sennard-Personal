@@ -314,6 +314,61 @@ class ReleaseJarInstallFlowTest {
     }
 
     @Test
+    void codexWakeConfirmationUnavailableStopsUpgrade() throws Exception {
+        home = temporary.resolve("home");
+        state = temporary.resolve("state");
+        Path root = temporary.resolve("install-root");
+        Map<String, String> overrides = new HashMap<>();
+        overrides.put("SENNARD_INSTALL_ROOT", root.toString());
+        overrides.put("SENNARD_STATE_DIR", state.toString());
+        overrides.put("SENNARD_STORE_PREPARE", "false");
+        overrides.put("AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", null);
+        overrides.put("SENNARD_CODEX_QUEUE_WAKE", null);
+        environment = ReleaseJarFixture.isolated(home, overrides);
+        InstalledVersion old = ReleaseJarFixture.installedCopy(root, "1.3.0");
+        ReleaseJarFixture.writeSettings(old, state, false);
+        byte[] oldSettings = Files.readAllBytes(old.settingsFile());
+        Path jar = ReleaseJarFixture.releaseJarWithVersion(temporary, "1.4.0");
+        Path newFolder = installedVersion(root, "1.4.0").folder();
+        assertFalse(Files.exists(newFolder));
+        Path pluginData = home.resolve(".codex/plugins/data/sennard-sennard");
+        Path wakeSetting = Files.writeString(Files.createDirectories(pluginData).resolve("session-messaging.json"),
+                "{\"schemaVersion\":\"1.0.0\",\"codex\":{\"queueWake\":false,\"extra\":1}}");
+        byte[] oldWake = Files.readAllBytes(wakeSetting);
+
+        ReleaseJarFixture.Run result = run(jar, "upgrade");
+
+        assertEquals(1, result.exitCode(), result.stdout());
+        assertTrue(result.stdout().contains("Codex queue wake"), result.stdout());
+        assertFalse(Files.exists(newFolder), "the new runtime must not be published");
+        assertFalse(Files.exists(state.resolve(ServerAddress.FILE_NAME)), "no new server is started");
+        assertArrayEquals(oldSettings, Files.readAllBytes(old.settingsFile()));
+        assertArrayEquals(oldWake, Files.readAllBytes(wakeSetting));
+    }
+
+    @Test
+    void codexWakeAlreadyOnAllowsANoninteractiveUpgrade() throws Exception {
+        home = temporary.resolve("home");
+        state = temporary.resolve("state");
+        Path root = temporary.resolve("install-root");
+        Map<String, String> overrides = new HashMap<>();
+        overrides.put("SENNARD_INSTALL_ROOT", root.toString());
+        overrides.put("SENNARD_STATE_DIR", state.toString());
+        overrides.put("SENNARD_STORE_PREPARE", "false");
+        overrides.put("AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "1");
+        overrides.put("SENNARD_CODEX_QUEUE_WAKE", null);
+        environment = ReleaseJarFixture.isolated(home, overrides);
+        InstalledVersion old = ReleaseJarFixture.installedCopy(root, "1.3.0");
+        ReleaseJarFixture.writeSettings(old, state, false);
+        Path jar = ReleaseJarFixture.releaseJarWithVersion(temporary, "1.4.0");
+
+        ReleaseJarFixture.Run result = run(jar, "upgrade");
+
+        assertEquals(0, result.exitCode(), result.stdout());
+        assertTrue(Files.isRegularFile(installedVersion(root, "1.4.0").appJar()));
+    }
+
+    @Test
     void installStatusStopStartUpgradeAndUninstallOfTheReleaseJar() throws Exception {
         home = temporary.resolve("home");
         Path claudeCopy = claudePluginCopy();

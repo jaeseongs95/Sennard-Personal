@@ -12,7 +12,7 @@
       "protocolVersion" : "2025-11-25",
       "serverInfo" : {
         "name" : "sennard",
-        "version" : "1.3.0"
+        "version" : "{RELEASE_VERSION}"
       }
     }
   },

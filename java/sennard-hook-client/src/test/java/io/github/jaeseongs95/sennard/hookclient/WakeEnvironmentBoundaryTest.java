@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 class WakeEnvironmentBoundaryTest {
     @Test
     void presentEmptyValuesKeepTheirPrecedence() throws Exception {
-        Map<String, String> environment = Map.of("AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "", "PATH", "");
+        Map<String, String> environment = Map.of("SENNARD_CODEX_QUEUE_WAKE", "", "PATH", "");
         assertEquals(environment, WakeEnvironment.forHost("codex", environment).orElseThrow());
     }
 
@@ -22,7 +22,7 @@ class WakeEnvironmentBoundaryTest {
     void localEnvironmentSelectionPreservesUnicodeAndExcludesUnrelatedValues() throws Exception {
         String path = " C:\\한글\\quoted\"=a:b";
         assertEquals(Map.of("PATH", path), WakeEnvironment.forHost("codex", Map.of(
-                "PATH", path, "UNRELATED_SECRET", "fixture")).orElseThrow());
+                "PATH", path, "UNRELATED_SECRET", "fixture", "AGENT_GOVERNANCE_CODEX_QUEUE_WAKE", "0")).orElseThrow());
         assertEquals(Map.of("PATH", path, "CLAUDE_CONFIG_DIR", "/fixture/claude"), WakeEnvironment.forHost("claude", Map.of(
                 "PATH", path, "CLAUDE_CONFIG_DIR", "/fixture/claude", "CODEX_HOME", "/fixture/codex",
                 "UNRELATED_SECRET", "fixture")).orElseThrow());

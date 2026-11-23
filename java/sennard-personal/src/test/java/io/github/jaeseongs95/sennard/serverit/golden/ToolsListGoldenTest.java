@@ -5,8 +5,10 @@
 package io.github.jaeseongs95.sennard.serverit.golden;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Locale;
 
@@ -56,7 +58,11 @@ class ToolsListGoldenTest {
     void initializeIsTheSameAnswer() throws Exception {
         GoldenHarness.Reply reply = post("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\","
                 + "\"capabilities\":{},\"clientInfo\":{\"name\":\"golden\",\"version\":\"1\"}}}");
-        Golden.check(GROUP, "L-initialize", Golden.answer(reply), List.of());
+        var answer = Golden.answer(reply);
+        var releaseVersion = Golden.MAPPER.readTree(Files.readString(Golden.REPOSITORY.resolve("release/version.json"))).path("version");
+        assertTrue(releaseVersion.isString() && !releaseVersion.asString().isBlank(), "release/version.json must declare a version string");
+        assertEquals(releaseVersion, answer.at("/body/result/serverInfo/version"), "serverInfo.version must match release/version.json");
+        Golden.check(GROUP, "L-initialize", answer, List.of(new Golden.Token("{RELEASE_VERSION}", releaseVersion.asString(), false)));
     }
 
     /** The refusals of the protocol itself, before any tool runs: what a host sees for a tool or a method this server does not have. */

@@ -36,7 +36,7 @@ Sennard는 이 컴퓨터의 사용자당 한 번 설치하는 서버와 호스�
 릴리스는 모든 운영체제가 실행하는 jar 하나이며 운영체제별 압축 파일과 동봉 런타임은 없습니다. 지원 환경은 JDK 25가 도는 컴퓨터입니다. 검증한 호스트 환경은 릴리스 노트에 정리했습니다.
 
 <!-- release-version:start -->
-현재 공개 릴리스는 `v1.3.0`이며 아래 설치 예시는 이 버전 기준입니다. 설치하거나 업그레이드하기 전에 [1.3.0 릴리스 노트](docs/release-notes/release-notes-v1.3.0.md#sennard-130-릴리스-노트)를 읽습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
+현재 공개 릴리스는 `v1.4.0`이며 아래 설치 예시는 이 버전 기준입니다. 설치하거나 업그레이드하기 전에 [1.4.0 릴리스 노트](https://github.com/jaeseongs95/Sennard-Personal/blob/v1.4.0/docs/release-notes/release-notes-v1.4.0.md#sennard-140-릴리스-노트)를 읽습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
 <!-- release-version:end -->
 
 ### 서버
@@ -56,10 +56,12 @@ Windows에서는 체크섬 파일의 값을 `Get-FileHash -Algorithm SHA256 senn
 
 1. 연동 중인 호스트 세션을 닫습니다. Sennard 상태 폴더와 연결된 업무 데이터베이스를 백업합니다.
 2. 아래 호스트별 안내에 따라 설치된 모든 Sennard 호스트 플러그인을 대상 JAR와 정확히 같은 버전으로 업데이트합니다. 플러그인 업데이트에 사용한 호스트 세션을 닫습니다.
-3. 체크섬을 확인한 대상 JAR를 JDK 25로 실행합니다. 데스크톱에서는 `java -jar sennard-<판>.jar setup`으로 설치 창을 열고 세션 종료와 백업을 확인하는 체크박스에 표시한 뒤 **업데이트 및 재시작**을 선택합니다. 터미널에서는 `java -jar sennard-<판>.jar upgrade`를 실행합니다. Sennard가 기존 Claude Code Stop 설정을 바꿀지 묻는다면 변경 내용을 검토하고 동의해 계속합니다.
+3. 체크섬을 확인한 대상 JAR를 JDK 25로 실행합니다. 데스크톱에서는 `java -jar sennard-<판>.jar setup`으로 설치 창을 열고 세션 종료와 백업을 확인하는 체크박스에 표시한 뒤 **업데이트 및 재시작**을 선택합니다. 터미널에서는 `java -jar sennard-<판>.jar upgrade`를 실행합니다. Windows 명령 프롬프트(CMD)에서 1.3에서 1.4로 올릴 때는 기존 환경변수가 없어도 Codex 깨우기 안내를 읽고 `yes`를 입력해야 계속합니다. `no`나 그 밖의 응답을 입력하거나 확인할 수 없으면 설치를 변경하기 전에 중단합니다. 설치 창은 이 업그레이드에서 기존 Codex 비활성화 설정을 감지하면 확인을 요청합니다. Sennard가 기존 Claude Code Stop 설정을 바꿀지 묻는다면 변경 내용을 검토하고 동의해 계속합니다.
 4. 새 서버가 시작되면 서버와 데이터베이스의 상태를 확인합니다. 서버 업데이트 뒤에 같은 버전의 플러그인을 설치하거나 업데이트했다면 설치 창에서 **훅 등록**을 선택하거나 새 설치본으로 `sennard hooks`를 실행합니다. 그다음 새 호스트 세션을 시작합니다. Codex에서는 `/hooks`에서 훅을 다시 검토하고 신뢰합니다.
 
 복구와 재시도 방법은 [업데이트 절차](docs/user/update.ko.md#업데이트-절차)를 참고합니다.
+
+1.4에서는 Codex 대기열 깨우기가 기본으로 켜집니다. 1.3에서 업그레이드할 때는 꺼져 있던 깨우기가 켜지는 경우에만 확인을 요청합니다. 업그레이드 후에도 끈 상태를 유지하려면 설치 전에 `SENNARD_CODEX_QUEUE_WAKE=0`을 설정합니다. 설정을 바꾼 뒤에는 수신 Codex 세션을 다시 엽니다. [Codex 깨우기 설정](docs/user/collaboration.ko.md#쉬고-있는-세션-깨우기)
 
 `HOST_PACKAGE_VERSION_MISMATCH` 오류로 서버 업데이트가 중단되면 오류에 표시된 필요 버전과 플러그인 사본을 확인합니다. 아래의 호스트별 안내에 따라 해당 사본의 버전을 맞추고, 수정에 사용한 세션을 닫은 뒤 서버 업데이트를 다시 실행합니다.
 
@@ -102,7 +104,7 @@ Sennard 개인판 1.3.0의 GitHub 릴리스 첨부 파일에는 Gemini CLI 설�
 
 <!-- release-install:start -->
 ```bash
-codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.3.0
+codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.4.0
 codex plugin add sennard@sennard
 ```
 <!-- release-install:end -->
@@ -119,8 +121,8 @@ codex plugin add sennard@sennard
 
 <!-- release-agy:start -->
 ```bash
-curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.3.0/sennard-antigravity-v1.3.0.zip
-unzip sennard-antigravity-v1.3.0.zip
+curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.4.0/sennard-antigravity-v1.4.0.zip
+unzip sennard-antigravity-v1.4.0.zip
 agy plugin install ./sennard
 agy plugin list
 ```

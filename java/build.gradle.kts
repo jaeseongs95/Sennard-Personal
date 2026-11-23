@@ -30,12 +30,12 @@ spotless {
     }
     format("sqlScripts") {
         target(files(moduleSources.map { source -> fileTree(source.resolve("main/resources")) { include("**/*.sql") } }))
-        // Every script starts with a "--" comment of its own: the delimiter is the first "--" that is not one of the three header lines, so that comment is kept.
+        // Start the SQL body at the first line after the header and blank separator, whether it is a statement or a comment.
         licenseHeader(
             "-- SPDX-License-Identifier: AGPL-3.0-or-later\n" +
                 "-- Copyright (C) 2026 Jaeseong Song\n" +
                 "-- See ADDITIONAL-TERMS.md for the additional terms under AGPL section 7.\n\n",
-            "--(?! SPDX-License-Identifier| Copyright \\(C\\)| See ADDITIONAL-TERMS)"
+            "(?![ \\t]*$|-- (?:SPDX-License-Identifier:|Copyright \\(C\\)|See ADDITIONAL-TERMS\\.md))"
         )
     }
 }

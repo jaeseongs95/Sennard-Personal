@@ -7,6 +7,7 @@ package io.github.jaeseongs95.sennard.server.messaging;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,6 +25,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -47,6 +49,9 @@ import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict;
 import io.github.jaeseongs95.sennard.server.mcp.HostCallerAdapter;
 import io.github.jaeseongs95.sennard.server.mcp.SelfSession;
+import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.RelayState;
+import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.RootReport;
+import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.RootStatus;
 import io.github.jaeseongs95.sennard.server.session.HookSessions;
 import io.github.jaeseongs95.sennard.server.session.SessionClosed;
 import io.github.jaeseongs95.sennard.service.identity.SessionRegistry;
@@ -63,19 +68,30 @@ public class IdleWakeService {
     private record Managed(String childRef, Key root, HookSessions.Ownership owner, Binding rootBinding) {
     }
     private static final class Binding {
-        final WakeTransport.Availability availability;
+        WakeTransport.Connection connection;
+        RootStatus disconnectedStatus = new RootStatus(RelayState.UNAVAILABLE, RootReport.UNREPORTED);
         final BooleanSupplier actorCurrent;
         final Managed managed;
-        final long registrationTime = System.nanoTime();
+        // Each entry counts outstanding launches and attached child bindings, independently of root wake.
+        final Map<WakeTransport.Connection, Integer> managedConnections = new LinkedHashMap<>();
+        long registrationTime = System.nanoTime();
         volatile boolean active;
         boolean closed;
         boolean requestedAgain;
         FutureTask<Void> attempt;
         Binding(WakeTransport.Availability availability, BooleanSupplier actorCurrent, boolean active, Managed managed) {
-            this.availability = availability;
+            switch (availability) {
+                case WakeTransport.Availability.Ready ready -> connection = ready.connection();
+                case WakeTransport.Availability.Disabled ignored -> disconnectedStatus = new RootStatus(RelayState.UNAVAILABLE, RootReport.DISABLED);
+                case WakeTransport.Availability.Missing ignored -> disconnectedStatus = new RootStatus(RelayState.UNAVAILABLE, RootReport.MISSING);
+            }
             this.actorCurrent = actorCurrent;
             this.active = active;
             this.managed = managed;
+        }
+
+        RootStatus rootStatus() {
+            return connection == null ? disconnectedStatus : connection.rootStatus();
         }
     }
     /** The only identity a wake input may claim for, after nonce, server incarnation, ownership and live-generation checks. */
@@ -137,11 +153,11 @@ public class IdleWakeService {
         }
         Key key = key(context);
         Binding current = bindings.get(key);
-        if (idle && current != null && current.actorCurrent.getAsBoolean() && current.availability instanceof WakeTransport.Availability.Ready ready
-                && (ready.connection().registered() || System.nanoTime() - current.registrationTime < CLIENT_START_GRACE.toNanos())) {
-            return false;
+        var target = new WakeTransport.Target(context.sessionId(), context.workspace(), actorCurrent);
+        if (idle && current != null && current.managed == null && current.actorCurrent.getAsBoolean()) {
+            return replaceIdleRelay(key, current, transport, registration, target);
         }
-        WakeTransport.Availability availability = transport.connect(registration, new WakeTransport.Target(context.sessionId(), context.workspace(), actorCurrent));
+        WakeTransport.Availability availability = transport.connect(registration, target);
         if (idle && !(availability instanceof WakeTransport.Availability.Ready)) {
             return false;
         }
@@ -159,6 +175,37 @@ public class IdleWakeService {
         return availability instanceof WakeTransport.Availability.Ready;
     }
 
+    private boolean replaceIdleRelay(Key key, Binding binding, WakeTransport transport, String registration, WakeTransport.Target target) {
+        synchronized (binding) {
+            if (binding.closed || bindings.get(key) != binding || !target.actorCurrent().getAsBoolean()) {
+                return false;
+            }
+            var previous = binding.connection;
+            if (previous != null) {
+                RootStatus status = previous.rootStatus();
+                boolean starting = status.relay() == RelayState.OPEN && status.report() == RootReport.UNREPORTED
+                        && !previous.managedReady() && System.nanoTime() - binding.registrationTime < CLIENT_START_GRACE.toNanos();
+                if (previous.live() || starting) {
+                    return false;
+                }
+            }
+            if (!(transport.connect(registration, target) instanceof WakeTransport.Availability.Ready ready)) {
+                return false;
+            }
+            if (bindings.get(key) != binding || !target.actorCurrent().getAsBoolean()) {
+                ready.connection().close();
+                return false;
+            }
+            binding.connection = ready.connection();
+            if (previous != null && previous != binding.connection && !binding.managedConnections.containsKey(previous)) {
+                previous.close();
+            }
+            binding.registrationTime = System.nanoTime();
+            binding.active = false;
+            return true;
+        }
+    }
+
     /** Launches through an accepted root worker and binds the child before the worker can keep it. */
     LaunchReply launchManagedChild(SelfSession caller, String model, String effort) {
         var owner = requireManagedOwner(caller);
@@ -166,17 +213,47 @@ public class IdleWakeService {
         Binding binding = bindings.get(key);
         BooleanSupplier registrationCurrent = () -> !closing && binding != null && bindings.get(key) == binding
                 && binding.actorCurrent.getAsBoolean() && hooks.ownership(caller.host(), caller.hostSessionId()).filter(owner::equals).isPresent();
-        if (!registrationCurrent.getAsBoolean() || !(binding.availability instanceof WakeTransport.Availability.Ready ready)) {
+        if (!registrationCurrent.getAsBoolean()) {
             return new LaunchReply(LaunchResult.NOT_SENT, null);
         }
-        LaunchReply reply = ready.connection().createChild(model, effort, registrationCurrent,
-                childId -> sessions.bindManagedChild(caller.host(), caller.hostSessionId(), owner.sessionRef(), owner.generation(), childId));
-        if (reply.result() == LaunchResult.CREATED
-                && (!registrationCurrent.getAsBoolean() || !sessions.isLiveGeneration(owner.sessionRef(), owner.generation())
-                        || !registerManaged(key, binding, owner, reply.childId(), registrationCurrent))) {
-            return new LaunchReply(LaunchResult.UNKNOWN, null);
+        WakeTransport.Connection connection;
+        synchronized (binding) {
+            connection = binding.managedConnections.keySet().stream().filter(WakeTransport.Connection::managedReady).findFirst()
+                    .orElseGet(() -> binding.connection != null && binding.connection.managedReady() ? binding.connection : null);
+            if (connection == null || binding.closed || !registrationCurrent.getAsBoolean()) {
+                return new LaunchReply(LaunchResult.NOT_SENT, null);
+            }
+            binding.managedConnections.merge(connection, 1, Integer::sum);
         }
-        return reply;
+        try {
+            LaunchReply reply = connection.createChild(model, effort, registrationCurrent,
+                    childId -> sessions.bindManagedChild(caller.host(), caller.hostSessionId(), owner.sessionRef(), owner.generation(), childId));
+            if (reply.result() == LaunchResult.CREATED
+                    && (!registrationCurrent.getAsBoolean() || !sessions.isLiveGeneration(owner.sessionRef(), owner.generation())
+                            || !registerManaged(key, binding, connection, owner, reply.childId(), registrationCurrent))) {
+                return new LaunchReply(LaunchResult.UNKNOWN, null);
+            }
+            return reply;
+        } finally {
+            releaseManaged(binding, connection);
+        }
+    }
+
+    private static void releaseManaged(Binding root, WakeTransport.Connection connection) {
+        synchronized (root) {
+            Integer count = root.managedConnections.get(connection);
+            if (count == null) {
+                return;
+            }
+            if (count == 1) {
+                root.managedConnections.remove(connection);
+                if (root.connection != connection) {
+                    connection.close();
+                }
+            } else {
+                root.managedConnections.put(connection, count - 1);
+            }
+        }
     }
 
     HookSessions.Ownership requireManagedOwner(SelfSession caller) {
@@ -197,20 +274,19 @@ public class IdleWakeService {
         return caller.callId() != null && adapter != null && adapter.acceptsInferredManagedRoot();
     }
 
-    private boolean registerManaged(Key root, Binding rootBinding, HookSessions.Ownership owner, String childId, BooleanSupplier rootCurrent) {
+    private boolean registerManaged(Key root, Binding rootBinding, WakeTransport.Connection connection,
+            HookSessions.Ownership owner, String childId, BooleanSupplier rootCurrent) {
         return sessions.findRef(root.host(), childId).map(childRef -> {
             Key child = new Key(root.host(), childId);
-            var managed = new Binding(rootBinding.availability, rootCurrent, false, new Managed(childRef, root, owner, rootBinding));
-            if (bindings.putIfAbsent(child, managed) != null) {
-                return false;
-            }
-            if (rootCurrent.getAsBoolean()) {
+            var managed = new Binding(new WakeTransport.Availability.Ready(connection), rootCurrent, false, new Managed(childRef, root, owner, rootBinding));
+            synchronized (rootBinding) {
+                if (rootBinding.closed || !rootCurrent.getAsBoolean() || !connection.managedReady()
+                        || bindings.putIfAbsent(child, managed) != null) {
+                    return false;
+                }
+                rootBinding.managedConnections.merge(connection, 1, Integer::sum);
                 return true;
             }
-            if (bindings.remove(child, managed)) {
-                close(child, managed);
-            }
-            return false;
         }).orElse(false);
     }
 
@@ -343,8 +419,9 @@ public class IdleWakeService {
     private void request(Key key, Binding binding) {
         FutureTask<Void> task;
         synchronized (binding) {
+            var connection = binding.connection;
             if (closing || binding.closed || binding.active || bindings.get(key) != binding || !binding.actorCurrent.getAsBoolean()
-                    || !(binding.availability instanceof WakeTransport.Availability.Ready ready) || !connectionReady(binding, ready.connection())) {
+                    || connection == null || !connectionReady(binding, connection)) {
                 return;
             }
             if (binding.attempt != null) {
@@ -353,7 +430,7 @@ public class IdleWakeService {
             }
             task = new FutureTask<>(() -> {
                 try {
-                    dispatch(key, binding, ready.connection());
+                    dispatch(key, binding, connection);
                 } catch (RuntimeException failure) {
                     // Async boundary: queueing remains committed; a failed reservation is never reported as a wake success or retried here.
                     LOG.warn("NATIVE_WAKE_ATTEMPT_FAILED", SafeFailure.capture(failure));
@@ -425,7 +502,7 @@ public class IdleWakeService {
         }
         WakeReservation reservation = reserved.orElseThrow();
         synchronized (binding) {
-            if (closing || binding.closed || binding.active || bindings.get(key) != binding || !binding.actorCurrent.getAsBoolean()
+            if (closing || binding.closed || binding.active || bindings.get(key) != binding || binding.connection != connection || !binding.actorCurrent.getAsBoolean()
                     || Thread.currentThread().isInterrupted()) {
                 reservations.cancelReserved(target.sessionRef(), target.generation());
                 return;
@@ -467,13 +544,22 @@ public class IdleWakeService {
             return Optional.empty();
         }
         synchronized (binding) {
-            if (binding.availability instanceof WakeTransport.Availability.Disabled) {
-                return Optional.of(new Advisory(WakeOutlook.State.UNSUPPORTED, WakeOutlook.Reason.NO_IDLE_WAKE));
+            if (binding.closed) {
+                return Optional.empty();
             }
-            if (binding.availability instanceof WakeTransport.Availability.Missing) {
-                return Optional.of(new Advisory(WakeOutlook.State.DEGRADED, WakeOutlook.Reason.WAKE_PREREQUISITE_MISSING));
+            RootStatus status = binding.rootStatus();
+            if (status.relay() == RelayState.OWNER_LOST) {
+                return Optional.empty();
             }
-            if (binding.availability instanceof WakeTransport.Availability.Ready ready && !connectionReady(binding, ready.connection())) {
+            if (binding.managed == null && status.relay() != RelayState.CLOSED) {
+                if (status.report() == RootReport.DISABLED) {
+                    return Optional.of(new Advisory(WakeOutlook.State.UNSUPPORTED, WakeOutlook.Reason.NO_IDLE_WAKE));
+                }
+                if (status.report() == RootReport.MISSING) {
+                    return Optional.of(new Advisory(WakeOutlook.State.DEGRADED, WakeOutlook.Reason.WAKE_PREREQUISITE_MISSING));
+                }
+            }
+            if (binding.connection == null || !connectionReady(binding, binding.connection)) {
                 return Optional.of(new Advisory(WakeOutlook.State.NO_LIVE_RELAY, WakeOutlook.Reason.RELAY_LEASE_MISSING));
             }
             if (binding.active) {
@@ -532,13 +618,49 @@ public class IdleWakeService {
                 }));
     }
 
+    @Scheduled(fixedDelay = 5_000)
+    void reapRetiredRelays() {
+        bindings.values().forEach(binding -> {
+            WakeTransport.Connection retired;
+            synchronized (binding) {
+                if (binding.managed == null) {
+                    binding.managedConnections.keySet().removeIf(connection -> connection.rootStatus().relay() != RelayState.OPEN);
+                }
+                if (binding.connection == null) {
+                    return;
+                }
+                RootStatus status = binding.rootStatus();
+                if (status.relay() == RelayState.OPEN) {
+                    return;
+                }
+                // The identity remains usable for a marker offered before the connection expired.
+                retired = binding.connection;
+                binding.disconnectedStatus = status;
+                binding.connection = null;
+            }
+            if (binding.managed != null) {
+                releaseManaged(binding.managed.rootBinding(), retired);
+            }
+        });
+    }
+
     private void close(Key key, Binding binding) {
+        WakeTransport.Connection connection;
         FutureTask<Void> task;
         synchronized (binding) {
+            if (binding.closed) {
+                return;
+            }
             binding.closed = true;
             binding.requestedAgain = false;
-            if (binding.managed == null && binding.availability instanceof WakeTransport.Availability.Ready ready) {
-                ready.connection().close();
+            connection = binding.connection;
+            binding.connection = null;
+            if (binding.managed == null) {
+                if (connection != null && !binding.managedConnections.containsKey(connection)) {
+                    connection.close();
+                }
+                binding.managedConnections.keySet().forEach(WakeTransport.Connection::close);
+                binding.managedConnections.clear();
             }
             task = binding.attempt;
             if (task != null) {
@@ -556,6 +678,9 @@ public class IdleWakeService {
                 }
             });
         } else {
+            if (connection != null) {
+                releaseManaged(binding.managed.rootBinding(), connection);
+            }
             reservations.cancelReserved(binding.managed.childRef(), binding.managed.owner().generation());
         }
     }

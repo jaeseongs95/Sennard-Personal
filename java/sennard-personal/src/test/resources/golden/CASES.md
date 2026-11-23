@@ -52,7 +52,7 @@ so the comparison shows it. Syntax of a rule: `` `pointer` ~ `regex` → `placeh
 
 ## Kept as it is, on purpose
 
-- `serverInfo.version` and `currentVersion` (private source version 6.0.0) are part of the contract; a release changes them. The skill cases (`get_skill_inventory`,
+- `serverInfo.version` and `currentVersion` are checked against `release/version.json` before normalization. The skill cases (`get_skill_inventory`,
   `classify_skills`, `record_skill_selection`) read this repository's `skills/`, and the SessionStart and PreInvocation hook answers carry its skill
   list (and the path of `skills/orchestrator/references/intake.md`), so a change to a skill file changes them.
 - The inputs of the tool cases are those of the tool tests (`ToolContractServerTest`, `ContinuityMessagingToolContractTest`, `WorkflowToolsServerTest`,
@@ -62,7 +62,7 @@ so the comparison shows it. Syntax of a rule: `` `pointer` ~ `regex` → `placeh
 
 | ID | Target | Input | What is fixed | Normalization |
 | --- | --- | --- | --- | --- |
-| L-initialize | `/mcp` method `initialize` | protocolVersion 2025-11-25, empty capabilities, clientInfo golden/1 | status, Content-Type, protocolVersion, capabilities, serverInfo (name and version), instructions | none |
+| L-initialize | `/mcp` method `initialize` | protocolVersion 2025-11-25, empty capabilities, clientInfo golden/1 | status, Content-Type, protocolVersion, capabilities, serverInfo (name and exact version from `release/version.json`), instructions | `/body/result/serverInfo/version` → `{RELEASE_VERSION}` |
 | L-ping | `/mcp` method `ping` | no params | status, Content-Type, empty result | none |
 | L-tools_list | `/mcp` method `tools/list` | params {} | the exact bytes of the HTTP body (all 45 tools with name, title, description, inputSchema, annotations), from the application with no test tool | none |
 | L-unknown_method | `/mcp` method `no/such/method` | no params | status, Content-Type, JSON-RPC error code and message | none |
@@ -148,7 +148,7 @@ so the comparison shows it. Syntax of a rule: `` `pointer` ~ `regex` → `placeh
 | T-run_skill_check-ok | tool `run_skill_check` | skill task-contract, command validate, the input `tests/task-contract/fixtures/normal/simple-read.json`; no session meta | status, Content-Type, `api-result.v1` envelope with `ok=true`, every member of `data` (`exitCode`, `value`), `error=null`, isError=false, `_meta` content language | none |
 | T-run_skill_check-queued | tool `run_skill_check` | skill change-scope-guardian, command capture-baseline on a folder of the case (runs as a background job); no session meta | status, Content-Type, `api-result.v1` envelope with `ok=true`, every member of `data` (`jobRef`, `state`), `error=null`, isError=false, `_meta` content language | `/data/jobRef` ~ `[0-9a-f]{8}-[0-9a-f-]{27}` → `<UUID>` |
 | T-send_session_message-mcp_unavailable | tool `send_session_message` | messageId "message-does-not-exist"; the test server has no live relay to answer the wake | status, Content-Type, `api-result.v1` envelope with `ok=false`, `error.code=MCP_UNAVAILABLE`, message, messageKey, params, details, isError=true, `_meta` content language | none |
-| T-send_session_message-ok | tool `send_session_message` | a message for a Claude session started without a wake registration key, sent with its messageId | status, Content-Type, `api-result.v1` envelope with `ok=true`, every member of `data`, `error=null`, isError=false, `_meta` content language | `/data/autoWake/basisAt` → `<TIME>`; `/data/autoWake/checkedAt` → `<TIME>`; `/data/createdAt` → `<TIME>`; `/data/expiresAt` → `<TIME>`; `/data/messageId` ~ `[0-9a-f]{8}-[0-9a-f-]{27}` → `<UUID>` |
+| T-send_session_message-ok | tool `send_session_message` | a message for a Claude session started without a wake registration key, sent with its messageId | status, Content-Type, `api-result.v1` envelope with `ok=true`, every member of `data` including `autoWake` with `presence-unknown` and null `basisAt`, `error=null`, isError=false, `_meta` content language | `/data/autoWake/checkedAt` → `<TIME>`; `/data/createdAt` → `<TIME>`; `/data/expiresAt` → `<TIME>`; `/data/messageId` ~ `[0-9a-f]{8}-[0-9a-f-]{27}` → `<UUID>` |
 | T-start_guarded_workflow-lease_conflict | tool `start_guarded_workflow` | leaseId "lease-golden-missing" | status, Content-Type, `api-result.v1` envelope with `ok=false`, `error.code=LEASE_CONFLICT`, message, messageKey, params, details, isError=true, `_meta` content language | none |
 | T-start_guarded_workflow-ok | tool `start_guarded_workflow` | the lease of a claimed attempt, its root revision, one skill | status, Content-Type, `api-result.v1` envelope with `ok=true`, every member of `data`, `error=null`, isError=false, `_meta` content language | `/data/plan/bootstrapExecution/context/observedAt` → `<TIME>`; `/data/plan/integrityToken` ~ `^[A-Za-z0-9_-]{43}$` → `<TOKEN>`; `/body/result/content/1/text` → `{REPO}` |
 | T-start_inquiry_workflow-invalid_input | tool `start_inquiry_workflow` | the same without goal | status, Content-Type, `api-result.v1` envelope with `ok=false`, `error.code=INVALID_INPUT`, message, messageKey, params, details, isError=true, `_meta` content language | none |

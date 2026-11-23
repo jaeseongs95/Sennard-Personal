@@ -326,7 +326,7 @@ class HookRegistrationFileTest {
     /**
      * The host's documentation fixes SessionStart (it can run before an MCP server is ready) and SessionEnd (no MCP tool hooks) as commands. An mcp_tool hook can name only fields
      * its event always has (see {@link #codexMcpToolPlaceholdersAreFieldsTheEventAlwaysHas}), and the host leaves {@code agent_id} out of every event of the main session but
-     * SubagentStart and SubagentStop, so every event that may carry it is a command, which reads the whole event: only the two subagent events and Stop are tool calls.
+     * SubagentStart and SubagentStop, so every event that may carry it is a command, which reads the whole event. Stop also uses a command to renew the wake binding.
      */
     @Test
     void codexTheEventsWithAnOptionalAgentIdAreCommandsAndTheOthersAreMcpToolCalls() {
@@ -339,7 +339,7 @@ class HookRegistrationFileTest {
         expected.put("PostCompact", List.of("command"));
         expected.put("PreToolUse", List.of("command", "command", "command"));
         expected.put("PostToolUse", List.of("command"));
-        expected.put("Stop", List.of("mcp_tool"));
+        expected.put("Stop", List.of("command"));
         expected.put("PreModelRequest", List.of("command"));
         expected.put("PostModelRequest", List.of("command"));
         expected.put("SessionEnd", List.of("command"));
@@ -368,13 +368,6 @@ class HookRegistrationFileTest {
     @Test
     void codexMcpToolHooksCallTheSennardToolWithTheEventAndTheFieldsTheHostFills() {
         HostRegistrationFile.WholeFile file = hooks(codex());
-        JsonNode stop = handler(file, "Stop", 0);
-        assertEquals("mcp_tool", stop.path("type").stringValue());
-        assertEquals("sennard", stop.path("server").stringValue());
-        assertEquals("codex_hook", stop.path("tool").stringValue());
-        assertEquals(10, stop.path("timeout").intValue());
-        assertEquals(Map.of("event", "Stop", "session_id", "${session_id}", "transcript_path", "${transcript_path}", "cwd", "${cwd}", "model", "${model}",
-                "turn_id", "${turn_id}", "stop_hook_active", "${stop_hook_active}"), input(stop));
         assertEquals(Map.of("event", "SubagentStart", "session_id", "${session_id}", "transcript_path", "${transcript_path}", "cwd", "${cwd}", "model", "${model}",
                 "agent_id", "${agent_id}"), input(handler(file, "SubagentStart", 0)));
         assertEquals(Map.of("event", "SubagentStop", "session_id", "${session_id}", "transcript_path", "${transcript_path}", "cwd", "${cwd}", "model", "${model}",
@@ -388,8 +381,7 @@ class HookRegistrationFileTest {
      */
     private static final Map<String, Set<String>> CODEX_ALWAYS = Map.of(
             "SubagentStart", Set.of("session_id", "transcript_path", "cwd", "model", "turn_id", "agent_id"),
-            "SubagentStop", Set.of("session_id", "transcript_path", "cwd", "model", "turn_id", "agent_id", "stop_hook_active"),
-            "Stop", Set.of("session_id", "transcript_path", "cwd", "model", "turn_id", "stop_hook_active"));
+            "SubagentStop", Set.of("session_id", "transcript_path", "cwd", "model", "turn_id", "agent_id", "stop_hook_active"));
 
     private static List<String> placeholders(JsonNode mcpHandler) {
         List<String> names = new ArrayList<>();
@@ -421,34 +413,19 @@ class HookRegistrationFileTest {
         assertEquals(CODEX_ALWAYS.size(), checked);
     }
 
-    /** The recorded main-session bodies of the host (no agent_id in any): every placeholder of an mcp_tool hook for such an event is a field of the recording. */
+    /** The command receives the recorded root Stop body, including its turn identity and continuation flag. */
     @ParameterizedTest
     @ValueSource(strings = {"linux", "windows"})
-    void codexEveryPlaceholderIsInTheRecordedMainSessionInputOfItsEvent(String os) {
-        Set<String> subagentEvents = Set.of("SubagentStart", "SubagentStop");
-        int expected = 0;
-        for (String event : CODEX_ALWAYS.keySet()) {
-            if (!subagentEvents.contains(event)) {
-                expected++;
-            }
-        }
-        int checked = 0;
-        for (JsonNode handler : handlers(hooks(codex()).content())) {
-            if (!handler.path("type").stringValue().equals("mcp_tool")) {
-                continue;
-            }
-            String event = handler.path("input").path("event").stringValue();
-            if (subagentEvents.contains(event)) {
-                continue; // a subagent's event: it is not in a main session's recordings
-            }
-            JsonNode recorded = MAPPER.readTree(HookTestSupport.fixture(os, "codex", event));
-            assertFalse(recorded.has("agent_id"), event + ": the recording is a main session's");
-            for (String name : placeholders(handler)) {
-                assertTrue(recorded.has(name), event + ": ${" + name + "} is not in the recorded input, so the host would fail the hook: " + recorded.propertyNames());
-            }
-            checked++;
-        }
-        assertEquals(expected, checked);
+    void codexStopBindsTheHostUsingTheRecordedMainSessionInput(String os) {
+        JsonNode stop = handler(hooks(codex()), "Stop", 0);
+        assertEquals("command", stop.path("type").stringValue());
+        assertEquals(HOOK_LINE + " hook codex Stop --bind-host", stop.path("command").stringValue());
+        assertEquals(10, stop.path("timeout").intValue());
+        assertFalse(stop.has("input"));
+        JsonNode recorded = MAPPER.readTree(HookTestSupport.fixture(os, "codex", "Stop"));
+        assertFalse(recorded.has("agent_id"));
+        assertTrue(recorded.path("turn_id").isString());
+        assertTrue(recorded.path("stop_hook_active").isBoolean());
     }
 
     /** What the main session's input leaves out is read from a command's stdin, so a subagent is still told from it: no event whose agent_id is optional is a tool call. */

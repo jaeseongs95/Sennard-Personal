@@ -101,7 +101,7 @@ public final class SennardCli {
                 yield 0;
             }
             case INSTALL -> {
-                installer(output).install(request.valueOrNull("--state-dir"));
+                commandLineInstaller(output).install(request.valueOrNull("--state-dir"));
                 yield 0;
             }
             case UNINSTALL -> {
@@ -127,7 +127,7 @@ public final class SennardCli {
                 yield status.hasHostPackageMismatch() ? 1 : 0;
             }
             case UPGRADE -> {
-                installer(output).upgrade();
+                commandLineInstaller(output).upgrade();
                 yield 0;
             }
             case PREPARE -> {
@@ -166,6 +166,10 @@ public final class SennardCli {
     /** The installer: it installs from the jar this JVM runs from, and works on the installation that jar belongs to when it is a version of one. */
     static Installer installer(CliOutput output) {
         return new Installer(InstallEnvironment.current(), runningJar(), version(), output.stream());
+    }
+
+    private static Installer commandLineInstaller(CliOutput output) {
+        return Installer.forCommandLine(InstallEnvironment.current(), runningJar(), version(), output.stream());
     }
 
     private static int number(CliRequest.Run request, String option, int fallback) {

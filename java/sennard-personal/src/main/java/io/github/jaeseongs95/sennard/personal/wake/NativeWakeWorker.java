@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -24,6 +25,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.Capability;
+import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.RootUnavailable;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.Launch;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.LaunchReply;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.LaunchResult;
@@ -85,16 +87,7 @@ public final class NativeWakeWorker {
             }
             var target = new WakeTransport.Target(context.sessionId(), context.workspace());
             NativeWakeAdapter adapter = host.provider().adapter(new LocalWakeProcess(), mapper);
-            WakeTransport.Availability nativeWake = adapter.connect(environment, target);
-            WakeTransport.Connection rootWake = nativeWake instanceof WakeTransport.Availability.Ready ready ? ready.connection() : null;
-            var managed = adapter.managedLauncher(environment, target);
-            if (managed.isPresent()) {
-                return watch(server, key, context.sessionId(), rootWake, managed.orElseThrow(), mapper);
-            }
-            if (rootWake != null) {
-                return watch(server, key, context.sessionId(), rootWake, null, mapper);
-            }
-            return 0;
+            return watch(server, key, target, environment, adapter, mapper);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return 1;
@@ -104,22 +97,36 @@ public final class NativeWakeWorker {
         }
     }
 
-    static int watch(ServerAddress server, String key, String session, WakeTransport.Connection rootWake,
-            ManagedLauncher managed, JsonMapper mapper) throws IOException, InterruptedException {
-        Capability capability = managed == null ? Capability.ROOT : rootWake == null ? Capability.MANAGED : Capability.BOTH;
+    static int watch(ServerAddress server, String key, WakeTransport.Target target, Map<String, String> environment,
+            NativeWakeAdapter adapter, JsonMapper mapper) throws IOException, InterruptedException {
+        String session = target.hostSessionId();
         ObjectReader launches = mapper.readerFor(Launch.class).with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
                 .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        WakeTransport.Availability nativeWake = adapter.connect(environment, target);
+        WakeTransport.Connection rootWake = nativeWake instanceof WakeTransport.Availability.Ready ready ? ready.connection() : null;
+        RootUnavailable unavailable = switch (nativeWake) {
+            case WakeTransport.Availability.Ready ignored -> null;
+            case WakeTransport.Availability.Disabled ignored -> RootUnavailable.DISABLED;
+            case WakeTransport.Availability.Missing ignored -> RootUnavailable.MISSING;
+        };
         Map<String, ManagedConversation> children = new HashMap<>();
         try {
+            Optional<ManagedLauncher> managed = adapter.managedLauncher(environment, target);
+            Capability capability;
+            if (rootWake == null) {
+                capability = managed.isEmpty() ? Capability.NONE : Capability.MANAGED;
+            } else {
+                capability = managed.isEmpty() ? Capability.ROOT : Capability.BOTH;
+            }
             while (server.live() && !Thread.currentThread().isInterrupted()) {
-                Poll poll = poll(server, key, capability, launches);
-                if (poll == null) {
+                Poll poll = poll(server, key, capability, unavailable, launches);
+                if (poll == null || capability == Capability.NONE) {
                     return 0;
                 }
                 if (!server.live()) {
                     return 0;
                 }
-                if (poll.launch() != null && (managed == null || !createAndReport(server, key, session, poll.launch(), managed, children))) {
+                if (poll.launch() != null && (managed.isEmpty() || !createAndReport(server, key, session, poll.launch(), managed.orElseThrow(), children))) {
                     return 1;
                 }
                 if (poll.marker() != null && !wakeAndReport(server, key, session, poll, rootWake, children)) {
@@ -201,10 +208,13 @@ public final class NativeWakeWorker {
         }
     }
 
-    private static Poll poll(ServerAddress server, String key, Capability capability, ObjectReader launches) throws IOException {
+    private static Poll poll(ServerAddress server, String key, Capability capability, RootUnavailable unavailable, ObjectReader launches) throws IOException {
         HttpURLConnection connection = request(server.baseUrl().resolve(NativeWakeProtocol.POLL), key);
         try {
             connection.setRequestProperty(NativeWakeProtocol.CAPABILITIES, capability.name());
+            if (unavailable != null) {
+                connection.setRequestProperty(NativeWakeProtocol.ROOT_UNAVAILABLE, unavailable.name());
+            }
             return switch (connection.getResponseCode()) {
                 case 200 -> readPoll(connection, launches);
                 case 204 -> new Poll(null, null, null);

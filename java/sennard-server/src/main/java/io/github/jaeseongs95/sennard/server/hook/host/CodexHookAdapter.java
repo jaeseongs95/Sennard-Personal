@@ -28,15 +28,11 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Codex: a turn continues through {@code decision:block}.
  *
- * <p>The server receives the hooks through the host's {@code mcp_tool} hook, which calls a tool of the Sennard MCP server that the plugin registers
- * ({@link CodexHookTool}); the server is the Sennard MCP relay, a stdio server, because the server's port is the operating system's choice at each start and no definition can name
- * it. An {@code mcp_tool} hook may name only fields that its event always carries: a placeholder of a field that is not there fails the whole hook, and the host has no default or
- * optional form. {@code SubagentStart}, {@code SubagentStop} and {@code Stop} qualify. The events whose {@code agent_id} is optional (a subagent's prompt, tool use, compaction
- * and model request carry it; the main session's do not) are commands of the hook client, which reads the whole event on its standard input, so the subagent is still told from the
- * main session. Two more events are commands, because the host's documentation fixes them: {@code SessionEnd} ("doesn't support MCP tool hooks")
- * and {@code SessionStart} ("can run before an MCP server is ready"), which is also where the Sennard hook client finds the host's process id and starts the server. A command hook
- * and an {@code mcp_tool} hook share the host's output contract (developers.openai.com Codex hooks: "uses the same trust review and output contract as a
- * command hook").
+ * <p>{@code SubagentStart} and {@code SubagentStop} reach the server through {@link CodexHookTool} on the stdio MCP relay. An {@code mcp_tool} hook may name only fields
+ * that its event always carries. The hook client instead reads the whole event from standard input, preserving the optional {@code agent_id} for prompt, tool, compaction and
+ * model events. {@code SessionEnd} supports command handlers, and {@code SessionStart} can run before an MCP server is ready. The {@code SessionStart} command finds
+ * the host process and starts the server when needed. The {@code Stop} command also binds the host so an eligible Stop can register a local wake worker. Both handler forms
+ * use the same output contract.
  */
 @Component
 public final class CodexHookAdapter implements HostHookAdapter, SessionIdSchemaAdapter<CodexHookInput> {
@@ -97,8 +93,8 @@ public final class CodexHookAdapter implements HostHookAdapter, SessionIdSchemaA
             new Hook(SessionIdEvent.PRE_TOOL_USE, null, "continuity", null, FailureAnswer.DENY_PRE_TOOL_USE),
             new Hook(SessionIdEvent.PRE_TOOL_USE, CodexWorkFacts.NATIVE_PEER_SEND.pattern(), "native-peer", null, FailureAnswer.DENY_PRE_TOOL_USE),
             command(SessionIdEvent.POST_TOOL_USE, null, null),
-            // The host's Stop has no agent_id at all (a subagent's end is SubagentStop), so the adapter reads it as the main session's.
-            tool(SessionIdEvent.STOP, null, null, "turn_id", "stop_hook_active"),
+            // Stop carries the root turn. Use the command boundary so it can renew the local wake registration.
+            command(SessionIdEvent.STOP, null, null),
             command(SessionIdEvent.PRE_MODEL_REQUEST, null, null),
             command(SessionIdEvent.POST_MODEL_REQUEST, null, null));
 
@@ -201,6 +197,9 @@ public final class CodexHookAdapter implements HostHookAdapter, SessionIdSchemaA
     /** The event's command uses the tool form's ten-second limit. The native peer gate blocks on a client failure using stderr and exit 2. */
     private static HookDefinition.Command eventCommand(HookInstallation installation, Hook hook) {
         HookClientCall call = HookClientCall.of(HOST.label(), hook.event().hostName(), hook.onFailure()).withTimeout(HOOK_LIMIT_SECONDS - 1);
+        if (hook.event() == SessionIdEvent.STOP) {
+            call = call.bindingHost();
+        }
         return command(installation, hook.module() == null ? call : call.inModule(hook.module()), HOOK_LIMIT_SECONDS, false);
     }
 
