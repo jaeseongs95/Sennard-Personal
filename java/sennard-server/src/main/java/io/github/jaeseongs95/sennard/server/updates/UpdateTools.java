@@ -4,10 +4,12 @@
 
 package io.github.jaeseongs95.sennard.server.updates;
 
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpToolParam;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import io.github.jaeseongs95.sennard.domain.error.InputCode;
@@ -23,7 +25,10 @@ public class UpdateTools {
     private final UpdateCheckSchedule schedule;
     private final ToolSupport support;
 
-    public UpdateTools(PluginUpdateService updates, UpdateCheckSchedule schedule, ToolSupport support) {
+    private final ObjectProvider<HostPackageStatus> hostPackages;
+
+    public UpdateTools(PluginUpdateService updates, UpdateCheckSchedule schedule, ToolSupport support, ObjectProvider<HostPackageStatus> hostPackages) {
+        this.hostPackages = hostPackages;
         this.updates = updates;
         this.schedule = schedule;
         this.support = support;
@@ -41,7 +46,9 @@ public class UpdateTools {
             if (Boolean.TRUE.equals(force)) {
                 schedule.now();
             }
-            return updates.status();
+            PluginUpdateService.Status status = updates.status();
+            HostPackageStatus local = hostPackages.getIfAvailable();
+            return status.withHostPackageMismatches(local == null ? List.of() : local.mismatches(status.currentVersion()));
         });
     }
 }

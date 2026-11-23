@@ -111,7 +111,7 @@ public class PreLinkAdminService {
             }
             case AdminChange.GlobalSet _, AdminChange.RoleAdd _, AdminChange.RoleRename _, AdminChange.RoleDelete _, AdminChange.RoleBodySet _, AdminChange.BindingSet _,
                     AdminChange.Ack _, AdminChange.JevSet _, AdminChange.JevKeySet _, AdminChange.JevKeyDelete _, AdminChange.EditExemptSet _, AdminChange.JvmPresetSet _,
-                    AdminChange.ConvergenceLimitsSet _, AdminChange.ResourceLimitsSet _, AdminChange.AttachmentStorageSet _, AdminChange.RootApprove _, AdminChange.RootRelease _ ->
+                    AdminChange.ConvergenceLimitsSet _, AdminChange.ResourceLimitsSet _, AdminChange.AttachmentStorageSet _, AdminChange.RootApprove _, AdminChange.RootRelease _, AdminChange.WorkflowPlanUnblock _ ->
                 throw changeInvalid(Map.of("reason", "BUSINESS_DATABASE_NOT_READY"));
         }
     }
@@ -230,7 +230,7 @@ public class PreLinkAdminService {
             }
             case AdminChange.GlobalSet _, AdminChange.RoleAdd _, AdminChange.RoleRename _, AdminChange.RoleDelete _, AdminChange.RoleBodySet _, AdminChange.BindingSet _,
                     AdminChange.Ack _, AdminChange.JevSet _, AdminChange.JevKeySet _, AdminChange.JevKeyDelete _, AdminChange.EditExemptSet _, AdminChange.JvmPresetSet _,
-                    AdminChange.ConvergenceLimitsSet _, AdminChange.ResourceLimitsSet _, AdminChange.AttachmentStorageSet _, AdminChange.RootApprove _, AdminChange.RootRelease _ -> throw new IllegalStateException("Refused before this point (checkTaken).");
+                    AdminChange.ConvergenceLimitsSet _, AdminChange.ResourceLimitsSet _, AdminChange.AttachmentStorageSet _, AdminChange.RootApprove _, AdminChange.RootRelease _, AdminChange.WorkflowPlanUnblock _ -> throw new IllegalStateException("Refused before this point (checkTaken).");
         }
         events.publishEvent(new AdminIntentSpent(input.intent()));
         return new ContextLayerService.CommitResult(appended, false);

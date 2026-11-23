@@ -44,6 +44,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import com.zaxxer.hikari.HikariDataSource;
 
 import io.github.jaeseongs95.sennard.app.RandomConfiguration;
+import io.github.jaeseongs95.sennard.service.migration.MigrationScript;
 import io.github.jaeseongs95.sennard.service.secret.TestPrivateStorage;
 import io.github.jaeseongs95.sennard.service.store.StoreCode;
 import io.github.jaeseongs95.sennard.service.store.StoreException;
@@ -135,7 +136,7 @@ class StoreClusterTest {
     // ------------------------------------------------------------------------------------------------------------ migrations
 
     @Test
-    void v1ToV26ApplyInVersionOrderOnAnEmptyDatabaseAndAReRunChangesNothing() throws Exception {
+    void v1ToV27ApplyInVersionOrderOnAnEmptyDatabaseAndAReRunChangesNothing() throws Exception {
         dropSchemas();
         SennardDatabaseConfig config = BusinessDb.config();
         Migrations migrations = BusinessDb.migrations();
@@ -149,8 +150,8 @@ class StoreClusterTest {
                     assertEquals("SUCCEEDED", rows.getString(2), "expand script " + rows.getString(1));
                 }
                 // EXPAND_SCRIPTS is counted from the classpath, so a script that went missing would not show there.
-                assertEquals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26"),
-                        versions, "V1 to V26, in version order");
+                assertEquals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27"),
+                        versions, "V1 to V27, in version order");
             }
             try (ResultSet rows = s.executeQuery("SELECT script FROM sennard.expand_history WHERE version = 16")) {
                 assertTrue(rows.next(), "the glossary script ran");
@@ -159,6 +160,53 @@ class StoreClusterTest {
             try (ResultSet rows = s.executeQuery("SELECT count(*) FROM sennard.expand_history")) {
                 rows.next();
                 assertEquals(EXPAND_SCRIPTS, rows.getLong(1), "one history row per script file");
+            }
+        }
+    }
+
+    @Test
+    void v27PreservesExistingWorkflowRowsAndV26History() throws Exception {
+        dropSchemas();
+        SennardDatabaseConfig config = BusinessDb.config();
+        List<MigrationScript> throughV26 = MigrationScript.load("db/expand").stream().filter(script -> script.version() <= 26).toList();
+        MigrationRunner runner = new MigrationRunner(Clock.systemUTC(), BusinessDb.dataSources());
+        assertEquals(26, runner.run(config, MigrationRunner.Phase.EXPAND, throughV26));
+        try (Connection owner = BusinessDb.connect(); Statement s = owner.createStatement()) {
+            s.execute("INSERT INTO sennard.workflow_runs (run_id, revision, state, receipt_json, created_at, updated_at) "
+                    + "VALUES ('before-v27', 7, 'RUNNING', '{\"before\":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+            s.execute("INSERT INTO sennard.convergence_roots (root_id, revision, state, workspace_id, workspace_locator, root_json, created_at, updated_at) "
+                    + "VALUES ('before-v27', 3, 'OPEN', 'workspace', '/existing', '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+        }
+        Migrations migrations = BusinessDb.migrations();
+        assertEquals(1, migrations.expand(config), "only V27 is pending");
+        assertEquals(0, migrations.expand(config), "the new migration is applied only once");
+        try (Connection owner = BusinessDb.connect(); Statement s = owner.createStatement()) {
+            try (ResultSet rows = s.executeQuery("SELECT script, digest FROM sennard.expand_history WHERE version IN (26, 27) ORDER BY version")) {
+                assertTrue(rows.next());
+                assertEquals("V26__managed_child_identity.sql", rows.getString(1));
+                assertEquals(throughV26.getLast().digest(), rows.getString(2).strip());
+                assertTrue(rows.next());
+                assertEquals("V27__workflow_stop_checks.sql", rows.getString(1));
+                assertFalse(rows.next());
+            }
+            try (ResultSet rows = s.executeQuery("SELECT revision, state, receipt_json, stop_violation FROM sennard.workflow_runs WHERE run_id = 'before-v27'")) {
+                assertTrue(rows.next());
+                assertEquals(7, rows.getLong(1));
+                assertEquals("RUNNING", rows.getString(2));
+                assertEquals("{\"before\":true}", rows.getString(3));
+                assertFalse(rows.getBoolean(4));
+            }
+            try (ResultSet rows = s.executeQuery("SELECT revision, state, root_json, stop_rechecks, plan_target FROM sennard.convergence_roots WHERE root_id = 'before-v27'")) {
+                assertTrue(rows.next());
+                assertEquals(3, rows.getLong(1));
+                assertEquals("OPEN", rows.getString(2));
+                assertEquals("{}", rows.getString(3));
+                assertEquals(0, rows.getInt(4));
+                assertNull(rows.getString(5));
+            }
+            try (ResultSet rows = s.executeQuery("SELECT count(*) FROM sennard.workflow_blocked_plans")) {
+                assertTrue(rows.next());
+                assertEquals(0, rows.getLong(1));
             }
         }
     }

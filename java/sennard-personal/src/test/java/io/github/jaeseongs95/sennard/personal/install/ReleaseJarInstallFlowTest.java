@@ -34,6 +34,7 @@ import io.github.jaeseongs95.sennard.personal.ReleasedFolder;
 import io.github.jaeseongs95.sennard.serverit.SharedDatabase;
 import io.github.jaeseongs95.sennard.service.personal.OwnerOnlyAccess;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -116,11 +117,18 @@ class ReleaseJarInstallFlowTest {
         Path plugins = home.resolve(".claude").resolve("plugins");
         Path copy = plugins.resolve("cache").resolve("sennard-claude").resolve("sennard").resolve(HOST_COPY_VERSION);
         Files.createDirectories(copy.resolve("hooks"));
+        writeClaudeBody(copy, HOST_COPY_VERSION);
         Files.writeString(copy.resolve("hooks").resolve("hooks.json"), "{\"hooks\":{}}", StandardCharsets.UTF_8);
         Files.writeString(copy.resolve(".mcp.json"), "{\"mcpServers\":{}}", StandardCharsets.UTF_8);
         Files.writeString(plugins.resolve("installed_plugins.json"), "{\"version\":2,\"plugins\":{\"sennard@sennard-claude\":[{\"scope\":\"user\",\"installPath\":"
                 + JSON.writeValueAsString(copy.toString()) + ",\"version\":\"" + HOST_COPY_VERSION + "\"}]}}", StandardCharsets.UTF_8);
         return copy;
+    }
+
+    private static void writeClaudeBody(Path copy, String version) throws IOException {
+        Path manifest = copy.resolve(".claude-plugin/plugin.json");
+        Files.createDirectories(manifest.getParent());
+        Files.writeString(manifest, JSON.createObjectNode().put("version", version).toString(), StandardCharsets.UTF_8);
     }
 
     /**
@@ -162,7 +170,7 @@ class ReleaseJarInstallFlowTest {
         JsonNode geminiTree = JSON.readTree(Files.readString(geminiManifest, StandardCharsets.UTF_8));
         JsonNode geminiServer = geminiTree.path("mcpServers").path("sennard");
         assertProgram(geminiServer.path("command").asString(), words(geminiServer.path("args")), installed, addressFile, McpRelayMain.class.getName());
-        assertEquals(HOST_COPY_VERSION, geminiTree.path("version").asString(), "the rest of the host's manifest is kept");
+        assertEquals(installed.version(), geminiTree.path("version").asString(), "the rest of the host's manifest is kept");
         assertTrue(Files.isRegularFile(geminiManifest.resolveSibling("hooks").resolve("hooks.json")), "the Gemini CLI hook definition was written");
     }
 
@@ -189,6 +197,120 @@ class ReleaseJarInstallFlowTest {
         assertTrue(setup.stdout().contains("Use 'install', 'upgrade', or 'status'"), setup.stdout());
         assertFalse(Files.exists(root));
         assertFalse(Files.exists(state));
+    }
+
+    @Test
+    void installAndHooksReturnFailureForMismatchedBodyAndStatusIsUnhealthy() throws Exception {
+        home = temporary.resolve("home");
+        state = temporary.resolve("state");
+        Path root = temporary.resolve("install-root");
+        environment = environmentOf(root, Map.of("SENNARD_STATE_DIR", state.toString(), "SENNARD_STORE_PREPARE", "false"));
+        Path copy = claudePluginCopy();
+        Path jar = ReleaseJarFixture.releaseJar();
+        writeClaudeBody(copy, "0.0.0");
+
+        ReleaseJarFixture.Run refused = run(jar, "install");
+        assertEquals(1, refused.exitCode(), refused.stdout());
+        assertTrue(refused.stdout().contains("HOST_PACKAGE_VERSION_MISMATCH"), refused.stdout());
+        assertTrue(refused.stdout().contains("sennard@sennard-claude (scope=user)"), refused.stdout());
+        assertFalse(Files.exists(root));
+        assertFalse(Files.exists(state));
+
+        writeClaudeBody(copy, HOST_COPY_VERSION);
+        ReleaseJarFixture.Run installed = run(jar, "install");
+        assertEquals(0, installed.exitCode(), installed.stdout());
+        writeClaudeBody(copy, "0.0.0");
+        byte[] existing = Files.readAllBytes(copy.resolve("hooks/hooks.json"));
+        ReleaseJarFixture.Run hooks = run(jar, "hooks");
+        assertEquals(1, hooks.exitCode(), hooks.stdout());
+        assertTrue(hooks.stdout().contains("HOST_PACKAGE_VERSION_MISMATCH"), hooks.stdout());
+        assertArrayEquals(existing, Files.readAllBytes(copy.resolve("hooks/hooks.json")));
+
+        ReleaseJarFixture.Run status = run(jar, "status");
+        assertEquals(1, status.exitCode(), status.stdout());
+        JsonNode diagnosis = JSON.readTree(status.stdout().substring(status.stdout().indexOf('{')));
+        assertFalse(diagnosis.path("healthy").asBoolean(true));
+        JsonNode mismatch = diagnosis.path("hostPackageMismatches").path(0);
+        assertEquals(copy.toString(), mismatch.path("path").asString());
+        assertEquals("0.0.0", mismatch.path("actualVersion").asString());
+        assertEquals(HOST_COPY_VERSION, mismatch.path("expectedVersion").asString());
+        assertEquals("sennard@sennard-claude (scope=user)", mismatch.path("installation").asString());
+    }
+
+    private record UpgradeFixture(Path root, Path hostCopy, Path release, InstalledVersion old, InstalledVersion next) {
+    }
+
+    private UpgradeFixture prepareUpgrade(String nextVersion) throws Exception {
+        home = temporary.resolve("home");
+        state = temporary.resolve("state");
+        Path root = temporary.resolve("install-root");
+        environment = environmentOf(root, Map.of("SENNARD_STATE_DIR", state.toString(), "SENNARD_STORE_PREPARE", "false"));
+        Path copy = claudePluginCopy();
+        ReleaseJarFixture.Run install = run(ReleaseJarFixture.releaseJar(), "install");
+        assertEquals(0, install.exitCode(), install.stdout());
+        writeClaudeBody(copy, nextVersion);
+        Path release = ReleaseJarFixture.releaseJarWithVersion(temporary.resolve("newer"), nextVersion);
+        return new UpgradeFixture(root, copy, release, installedVersion(root, HOST_COPY_VERSION), installedVersion(root, nextVersion));
+    }
+
+    @Test
+    void majorUpgradeKeepsJarsReferencedByOldHookOrMcp() throws Exception {
+        int major = Integer.parseInt(HOST_COPY_VERSION.substring(0, HOST_COPY_VERSION.indexOf('.')));
+        UpgradeFixture fixture = prepareUpgrade((major + 1) + ".0.0");
+        Path savedDefinition = temporary.resolve("unreloaded-mcp.json");
+        Files.copy(fixture.hostCopy().resolve(".mcp.json"), savedDefinition);
+        String cached = Files.readString(savedDefinition);
+        assertTrue(cached.contains(fixture.old().hookClientJar().getFileName().toString()), cached);
+
+        ReleaseJarFixture.Run upgraded = run(fixture.release(), "upgrade");
+
+        assertEquals(0, upgraded.exitCode(), upgraded.stdout());
+        assertTrue(Files.isRegularFile(fixture.old().appJar()));
+        assertTrue(Files.isRegularFile(fixture.old().hookClientJar()));
+        assertTrue(Files.isRegularFile(fixture.next().appJar()));
+        assertEquals(cached, Files.readString(savedDefinition));
+    }
+
+    /** Fail the atomic publish of one generated definition with a nonempty directory in its place. */
+    private Path interruptPlacement(UpgradeFixture fixture) throws Exception {
+        Path blocked = fixture.root().resolve("host-packages/claude/.mcp.json");
+        Files.delete(blocked);
+        Files.createDirectory(blocked);
+        Path sentinel = Files.writeString(blocked.resolve("sentinel"), "interrupted write");
+        ReleaseJarFixture.Run failure = run(fixture.release(), "upgrade");
+        assertEquals(1, failure.exitCode(), failure.stdout());
+        assertTrue(failure.stdout().contains("HOST_FILES_FAILED"), failure.stdout());
+        return sentinel;
+    }
+
+    @Test
+    void interruptedPlacementKeepsBothJarPaths() throws Exception {
+        UpgradeFixture fixture = prepareUpgrade(ReleaseJarFixture.newerVersion());
+        byte[] oldMcp = Files.readAllBytes(fixture.hostCopy().resolve(".mcp.json"));
+
+        interruptPlacement(fixture);
+
+        for (InstalledVersion version : List.of(fixture.old(), fixture.next())) {
+            assertTrue(Files.isRegularFile(version.appJar()), version.folder().toString());
+            assertTrue(Files.isRegularFile(version.hookClientJar()), version.folder().toString());
+        }
+        assertArrayEquals(oldMcp, Files.readAllBytes(fixture.hostCopy().resolve(".mcp.json")));
+    }
+
+    @Test
+    void sameVersionResumesOnlyWhenUpgradeWasIncomplete() throws Exception {
+        UpgradeFixture fixture = prepareUpgrade(ReleaseJarFixture.newerVersion());
+        Path sentinel = interruptPlacement(fixture);
+        Files.delete(sentinel);
+        Files.delete(sentinel.getParent());
+        Path published = Files.writeString(fixture.next().folder().resolve("already-published"), "carried forward");
+
+        ReleaseJarFixture.Run resumed = run(fixture.release(), "upgrade");
+        assertEquals(0, resumed.exitCode(), resumed.stdout());
+        assertEquals("carried forward", Files.readString(published), "the runtime was not republished");
+        ReleaseJarFixture.Run completed = run(fixture.release(), "upgrade");
+        assertEquals(1, completed.exitCode(), completed.stdout());
+        assertTrue(completed.stdout().contains("SAME_VERSION"), completed.stdout());
     }
 
     @Test
@@ -226,6 +348,8 @@ class ReleaseJarInstallFlowTest {
         // ---- install
         ReleaseJarFixture.Run install = run(jar, "install", "--state-dir", state.toString());
         assertEquals(0, install.exitCode(), install.stdout());
+        Path claudeSettings = home.resolve(".claude/settings.json");
+        assertEquals("0", JSON.readTree(Files.readString(claudeSettings)).path("env").path(ClaudeStopSettings.KEY).asString());
         // The state folder did not exist before the install: it is made through the port of the storage of secrets, with an access list that has no inheritance (D-0268).
         OwnerOnlyAccess.assertOwnerOnlyFolder(state);
         InstalledVersion installed = installedVersion(root, version);
@@ -296,11 +420,24 @@ class ReleaseJarInstallFlowTest {
         Path newerJar = ReleaseJarFixture.releaseJarWithVersion(temporary.resolve("newer"), newer);
         byte[] settingsBefore = Files.readAllBytes(installed.settingsFile());
         byte[] jvmSettingsBefore = Files.readAllBytes(installed.jvmSettingsFile());
+        ReleaseJarFixture.Run mismatch = run(newerJar, "upgrade");
+        assertEquals(1, mismatch.exitCode(), mismatch.stdout());
+        assertTrue(mismatch.stdout().contains("HOST_PACKAGE_VERSION_MISMATCH"), mismatch.stdout());
+        assertEquals(second, ReleaseJarFixture.liveServer(addressFile));
+        assertFalse(Files.exists(installedVersion(root, newer).folder()));
+
+        writeClaudeBody(claudeCopy, newer);
+        ObjectNode geminiBody = (ObjectNode) JSON.readTree(Files.readString(geminiManifest, StandardCharsets.UTF_8));
+        Files.writeString(geminiManifest, geminiBody.put("version", newer).toString(), StandardCharsets.UTF_8);
+        Files.writeString(claudeSettings, "{\"other\":true}");
         ReleaseJarFixture.Run upgrade = run(newerJar, "upgrade");
         assertEquals(0, upgrade.exitCode(), upgrade.stdout());
+        JsonNode upgradedClaudeSettings = JSON.readTree(Files.readString(claudeSettings));
+        assertEquals("0", upgradedClaudeSettings.path("env").path(ClaudeStopSettings.KEY).asString());
+        assertTrue(upgradedClaudeSettings.path("other").asBoolean());
         InstalledVersion upgraded = installedVersion(root, newer);
         assertTrue(Files.isRegularFile(upgraded.appJar()), upgrade.stdout());
-        assertFalse(Files.exists(installed.folder()), "the old folder is gone only after the new server answered");
+        assertTrue(Files.isRegularFile(installed.appJar()), "a host may still run an older definition");
         assertArrayEquals(settingsBefore, Files.readAllBytes(upgraded.settingsFile()), "the settings came along");
         assertArrayEquals(jvmSettingsBefore, Files.readAllBytes(upgraded.jvmSettingsFile()), "the upgrade keeps the saved preset and does not read the memory again");
         assertEquals(jvm, JvmSettingsFile.read(upgraded.jvmSettingsFile()).orElseThrow());
@@ -315,7 +452,7 @@ class ReleaseJarInstallFlowTest {
         // The installed jar belongs to its installation wherever the environment's root points; run from it, the status says the same.
         JsonNode upgradedStatus = status(upgraded.appJar());
         assertEquals(commandOf(upgraded), upgradedStatus.path("command").asString(), "the command is the newest version's jar");
-        assertEquals(List.of(newer), versionsOf(upgradedStatus));
+        assertEquals(List.of(newer, version), versionsOf(upgradedStatus));
         assertEquals(third.port(), upgradedStatus.path("port").intValue());
 
         // ---- uninstall

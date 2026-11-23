@@ -18,8 +18,19 @@ public interface HostPackageLocation {
     /** The host this location belongs to: the host of the adapter whose definition is placed in it. */
     HostId host();
 
-    /** Every installed copy of the Sennard plugin this host loads for this user, of any version; empty when there is none. */
-    List<InstalledPackage> packages(InstallEnvironment environment) throws IOException;
+    /** Identifies the installed copies this host loads and any cache candidates that prevent a selection. */
+    Scan scan(InstallEnvironment environment) throws IOException;
+
+    /** Identified copies and cache candidates whose presence prevents a selection. */
+    record Scan(List<InstalledPackage> packages, List<UndeterminedPackage> undetermined) {
+        public Scan {
+            packages = List.copyOf(packages);
+            undetermined = List.copyOf(undetermined);
+        }
+    }
+
+    record UndeterminedPackage(Path root, String installation) {
+    }
 
     /**
      * One installed copy.
@@ -28,7 +39,13 @@ public interface HostPackageLocation {
      * @param version the plugin version the host records for it, empty when unknown
      * @param hostCopy true for a copy the host made for itself; false for a folder the host loads in place, which is the user's own and
      *     is not written
+     * @param installation the host's installation identifier and scope, when available
      */
-    record InstalledPackage(Path root, String version, boolean hostCopy) {
+    record InstalledPackage(Path root, String version, boolean hostCopy, String installation) {
+    }
+
+    /** The host advertises its version separately from the manifest of the package it actually loads. */
+    interface SeparateVersionRecord extends HostPackageLocation {
+        Path bodyManifest(Path root);
     }
 }

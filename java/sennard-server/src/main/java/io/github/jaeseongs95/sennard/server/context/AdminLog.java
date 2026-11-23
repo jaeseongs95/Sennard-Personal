@@ -87,6 +87,7 @@ public final class AdminLog {
     public static final String BINDING_PREFIX = "binding:";
     public static final String ROOT_APPROVAL_PREFIX = "rootApproval:";
     public static final String ROOT_RELEASE_PREFIX = "rootRelease:";
+    private static final String WORKFLOW_PLAN_UNBLOCK_PREFIX = "workflowPlanUnblock:";
     /** The expression a constraint takes for {@link #DOMAIN} (a constraint needs a constant, and the dot is a metacharacter). */
     static final String DOMAIN_REGEX = "sennard\\.admin";
 
@@ -95,6 +96,7 @@ public final class AdminLog {
     private static final Pattern ROLE_BODY_TARGET = Pattern.compile(ROLE_BODY_PREFIX + AdminChange.ID);
     private static final Pattern ROOT_APPROVAL_TARGET = Pattern.compile(ROOT_APPROVAL_PREFIX + AdminChange.ID);
     private static final Pattern ROOT_RELEASE_TARGET = Pattern.compile(ROOT_RELEASE_PREFIX + AdminChange.ID);
+    private static final Pattern WORKFLOW_PLAN_UNBLOCK_TARGET = Pattern.compile(WORKFLOW_PLAN_UNBLOCK_PREFIX + "[a-f0-9-]{36}");
     private static final Pattern BINDING_TARGET = Pattern.compile(BINDING_PREFIX + "([^:]+):([^:]+)");
     private static final Logger LOG = LoggerFactory.getLogger(AdminLog.class);
 
@@ -308,12 +310,13 @@ public final class AdminLog {
             case AdminChange.DatabaseLink _ -> TARGET_DATABASE;
             case AdminChange.RootApprove approve -> ROOT_APPROVAL_PREFIX + approve.approvalId();
             case AdminChange.RootRelease release -> ROOT_RELEASE_PREFIX + release.rootId();
+            case AdminChange.WorkflowPlanUnblock unblock -> WORKFLOW_PLAN_UNBLOCK_PREFIX + unblock.recordId();
         };
     }
 
     public static boolean isTarget(String target) {
         if (FIXED_TARGETS.contains(target) || ROLE_BODY_TARGET.matcher(target).matches() || ROOT_APPROVAL_TARGET.matcher(target).matches()
-                || ROOT_RELEASE_TARGET.matcher(target).matches()) {
+                || ROOT_RELEASE_TARGET.matcher(target).matches() || WORKFLOW_PLAN_UNBLOCK_TARGET.matcher(target).matches()) {
             return true;
         }
         Matcher parts = BINDING_TARGET.matcher(target);
@@ -415,7 +418,7 @@ public final class AdminLog {
                 }
             }
             case AdminChange.GlobalSet _, AdminChange.Ack _, AdminChange.JevKeySet _, AdminChange.EditExemptSet _, AdminChange.JvmPresetSet _, AdminChange.ConvergenceLimitsSet _,
-                    AdminChange.ResourceLimitsSet _, AdminChange.AttachmentStorageSet _, AdminChange.RootApprove _, AdminChange.RootRelease _, AdminChange.DatabaseLink _ -> {
+                    AdminChange.ResourceLimitsSet _, AdminChange.AttachmentStorageSet _, AdminChange.RootApprove _, AdminChange.RootRelease _, AdminChange.WorkflowPlanUnblock _, AdminChange.DatabaseLink _ -> {
                 // These have no state-dependent rule.
             }
         }
@@ -499,7 +502,7 @@ public final class AdminLog {
                 state.attachmentDirectories.add(set.settings().directory());
             }
             case AdminChange.DatabaseLink link -> state.databaseLink = new DatabaseLinkState(link, record.seq(), intent.issuedAt());
-            case AdminChange.Ack _, AdminChange.RoleBodySet _, AdminChange.RootApprove _, AdminChange.RootRelease _ -> {
+            case AdminChange.Ack _, AdminChange.RoleBodySet _, AdminChange.RootApprove _, AdminChange.RootRelease _, AdminChange.WorkflowPlanUnblock _ -> {
                 // These stay in the verified chain and change nothing here.
             }
         }

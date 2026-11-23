@@ -4,6 +4,7 @@
 
 package io.github.jaeseongs95.sennard.serverit;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -197,6 +198,21 @@ class HookEndpointTest {
             RawHttp.Response response = post(bare.port, "/hooks/v1/agy/PostToolUse", HookTestSupport.fixture("linux", "agy", "PostToolUse"));
             assertEquals(503, response.status(), response.text());
             assertEquals("STORE_PREPARING", json(response).path("reason").stringValue());
+        }
+    }
+
+    @Test
+    void whileTheStoreIsNotReadyGeminiHooksUseTheCommonRejection() throws Exception {
+        try (RunningServer bare = RunningServer.start(List.of(ServerFixtures.Beans.class))) {
+            JsonNode expected = MAPPER.readTree("{\"reason\":\"STORE_PREPARING\"}");
+            byte[] body = ("{\"session_id\":\"" + HookTestSupport.SESSION + "\",\"prompt\":\"hello\",\"stop_hook_active\":false}")
+                    .getBytes(StandardCharsets.UTF_8);
+
+            assertAll(List.of("SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent").stream().map(event -> () -> {
+                RawHttp.Response response = post(bare.port, "/hooks/v1/gemini/" + event, body);
+                assertEquals(503, response.status(), response.text());
+                assertEquals(expected, json(response), event);
+            }));
         }
     }
 }

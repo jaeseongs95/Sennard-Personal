@@ -6,42 +6,47 @@ package io.github.jaeseongs95.sennard.personal.install;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import org.springframework.stereotype.Component;
 
 import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.host.CodexHost;
+import io.github.jaeseongs95.sennard.server.updates.StableVersion;
 
 /**
- * The installed Codex plugin. Codex copies an installed plugin into {@code <codex home>/plugins/cache/<marketplace>/<plugin>/<version>/}, one folder per marketplace and version, and
- * reads the plugin's files from that copy, so this installation's definitions (the hooks and the MCP server, which the shipped package leaves empty because they name this PC's
- * {@code java} and jar) are written there. The codex home is {@code ~/.codex}, moved by {@code CODEX_HOME}.
+ * Codex keeps plugin versions under {@code <codex home>/plugins/cache/<marketplace>/<plugin>/<version>/}.
+ * This location selects one copy per marketplace. Codex gives {@code local} priority over versioned directories.
+ * Sennard can compare numbered releases and refuses to infer a selection from other admissible version names.
  *
- * <p>Not verified on a machine with Codex: that the cache has exactly this layout and name, and that Codex does not ask the user to trust a hook definition again when a file of the copy
- * changes. The location reports what it finds only; a layout that is not found reports no copy, and {@code sennard hooks} then says the plugin is not installed.
+ * @see <a href="https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/core-plugin-common/src/installed.rs#L18-L62">Codex installed version selection</a>
  */
 @Component
-final class CodexPackageLocation implements HostPackageLocation {
+final class CodexPackageLocation implements HostPackageLocation.SeparateVersionRecord {
     private static final String PLUGIN = "sennard";
+    private static final String LOCAL = "local";
+    private static final Pattern VERSION_DIRECTORY = Pattern.compile("[A-Za-z0-9._+\\-]+");
 
     @Override
     public HostId host() {
         return CodexHost.ID;
     }
 
-    /** Every version of the plugin in every marketplace of the cache; the version is the copy's folder name. */
     @Override
-    public List<InstalledPackage> packages(InstallEnvironment environment) throws IOException {
+    public Scan scan(InstallEnvironment environment) throws IOException {
         Path cache = codexHome(environment).resolve("plugins").resolve("cache");
         if (!Files.isDirectory(cache)) {
-            return List.of();
+            return new Scan(List.of(), List.of());
         }
         List<InstalledPackage> found = new ArrayList<>();
+        List<UndeterminedPackage> undetermined = new ArrayList<>();
         try (Stream<Path> marketplaces = Files.list(cache)) {
             for (Path marketplace : marketplaces.sorted(Comparator.comparing(Path::toString)).toList()) {
                 Path plugin = marketplace.resolve(PLUGIN);
@@ -49,12 +54,50 @@ final class CodexPackageLocation implements HostPackageLocation {
                     continue;
                 }
                 try (Stream<Path> versions = Files.list(plugin)) {
-                    versions.filter(Files::isDirectory).sorted(Comparator.comparing(Path::toString))
-                            .forEach(version -> found.add(new InstalledPackage(version, version.getFileName().toString(), true)));
+                    List<Path> candidates = versions.filter(CodexPackageLocation::isVersionDirectory).sorted().toList();
+                    Scan selection = select(candidates, PLUGIN + "@" + marketplace.getFileName());
+                    found.addAll(selection.packages());
+                    undetermined.addAll(selection.undetermined());
                 }
             }
         }
-        return List.copyOf(found);
+        return new Scan(found, undetermined);
+    }
+
+    private static boolean isVersionDirectory(Path path) {
+        return Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) && VERSION_DIRECTORY.matcher(path.getFileName().toString()).matches();
+    }
+
+    private static Scan select(List<Path> candidates, String installation) {
+        for (Path candidate : candidates) {
+            if (LOCAL.equals(candidate.getFileName().toString())) {
+                return new Scan(List.of(new InstalledPackage(candidate, LOCAL, true, installation)), List.of());
+            }
+        }
+        List<UndeterminedPackage> undetermined = new ArrayList<>();
+        Path selected = null;
+        StableVersion latest = null;
+        for (Path candidate : candidates) {
+            Optional<StableVersion> parsed = StableVersion.tryParse(candidate.getFileName().toString());
+            if (parsed.isEmpty()) {
+                undetermined.add(new UndeterminedPackage(candidate, installation));
+                continue;
+            }
+            StableVersion version = parsed.orElseThrow();
+            if (latest == null || version.compareTo(latest) > 0) {
+                latest = version;
+                selected = candidate;
+            }
+        }
+        if (selected == null || !undetermined.isEmpty()) {
+            return new Scan(List.of(), undetermined);
+        }
+        return new Scan(List.of(new InstalledPackage(selected, selected.getFileName().toString(), true, installation)), List.of());
+    }
+
+    @Override
+    public Path bodyManifest(Path root) {
+        return root.resolve(".codex-plugin/plugin.json");
     }
 
     private static Path codexHome(InstallEnvironment environment) {

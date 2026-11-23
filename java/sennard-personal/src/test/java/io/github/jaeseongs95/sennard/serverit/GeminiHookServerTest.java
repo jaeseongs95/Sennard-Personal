@@ -17,7 +17,11 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import io.github.jaeseongs95.sennard.hookclient.HookHeaders;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict;
@@ -38,6 +42,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <li>the host process id the launcher sends reaches the handler</li>
  * </ol>
  */
+@Tag("business-db")
 class GeminiHookServerTest {
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
@@ -46,8 +51,17 @@ class GeminiHookServerTest {
 
     @BeforeAll
     static void start() throws Exception {
-        server = RunningServer.start(List.of(ServerFixtures.Beans.class, HookTestSupport.HandlerBeans.class));
+        server = SessionServerSupport.started(List.of(ServerFixtures.Beans.class, Verdicts.class));
         handler = server.bean(HookTestSupport.ScriptedHostEventHandler.class);
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class Verdicts {
+        @Bean
+        @Primary
+        HookTestSupport.ScriptedHostEventHandler scriptedHostEventHandler() {
+            return new HookTestSupport.ScriptedHostEventHandler();
+        }
     }
 
     @AfterAll
@@ -119,8 +133,21 @@ class GeminiHookServerTest {
         handler.next.set(new HookVerdict.ContinueTurn("Check the open item first."));
         RawHttp.Response continued = post("AfterAgent", input("AfterAgent", "\"prompt\":\"hi\",\"prompt_response\":\"done\",\"stop_hook_active\":false"));
         assertEquals(200, continued.status(), continued.text());
-        assertEquals(MAPPER.readTree("{\"decision\":\"deny\",\"reason\":\"Check the open item first.\"}"), json(continued));
+        assertEquals("deny", json(continued).path("decision").asString());
+        String reason = json(continued).path("reason").asString();
+        assertTrue(reason.matches("Check the open item first\\.\\n\\n\\[Sennard retry: [0-9a-f-]{36}\\]"), reason);
         assertEquals(false, assertInstanceOf(HostEvent.TurnEnded.class, List.copyOf(handler.calls).getLast().event()).alreadyContinued());
+
+        handler.next.set(new HookVerdict.Proceed());
+        String callback = "\"prompt\":" + MAPPER.writeValueAsString(reason);
+        post("BeforeAgent", input("BeforeAgent", callback));
+        assertInstanceOf(HostEvent.ModelCallStarting.class, List.copyOf(handler.calls).getLast().event());
+
+        handler.next.set(new HookVerdict.TerminateTurn("No workflow was selected."));
+        RawHttp.Response terminated = post("AfterAgent", input("AfterAgent", ""));
+        assertEquals(200, terminated.status(), terminated.text());
+        assertEquals(MAPPER.readTree("{\"continue\":false,\"reason\":\"No workflow was selected.\"}"), json(terminated));
+        assertTrue(assertInstanceOf(HostEvent.TurnEnded.class, List.copyOf(handler.calls).getLast().event()).alreadyContinued());
     }
 
     @Test

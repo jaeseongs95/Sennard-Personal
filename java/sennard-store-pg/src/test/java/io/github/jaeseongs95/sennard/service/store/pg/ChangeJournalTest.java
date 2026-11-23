@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.AclEntry;
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.function.Executable;
 
 import io.github.jaeseongs95.sennard.app.journal.ChangeJournalService;
 import io.github.jaeseongs95.sennard.app.journal.ChangeSource;
@@ -508,6 +510,67 @@ class ChangeJournalTest {
         HookBasis inside = service.hookBasis("captured", file).orElseThrow();
         assertEquals(file, inside.file());
         assertEquals(directory, inside.root());
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void inaccessibleNestedJunctionAllowsBaselineAndPlanRevision() throws Throwable {
+        Path root = Files.createDirectory(directory.resolve("junction-root"));
+        Path target = Files.createDirectory(directory.resolve("junction-target"));
+        Path file = Files.writeString(root.resolve("planned.txt"), "contents");
+        Path junction = root.resolve("nested-junction");
+        createJunction(junction, target);
+        try {
+            JournalFlow flow = journal();
+            flow.submitPlan("denied-junction", Set.of(file));
+            withDirectoryListingDenied(target, junction, () -> {
+                assertEquals(List.of(new JournalScanner.ReadFailure(junction, JournalScanner.FailureReason.LINK_OR_SPECIAL_SKIPPED)),
+                        flow.captureBaseline("denied-junction", Set.of(root)));
+                assertEquals(List.of(file), flow.baseline("denied-junction").stream().map(ChangeJournalService.BaselineEntry::path).toList());
+                assertEquals(2, flow.submitPlan("denied-junction", Set.of(file, root.resolve("next.txt"))));
+            });
+        } finally {
+            Files.deleteIfExists(junction);
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void inaccessibleRegularDirectoryStillBlocksBaseline() throws Throwable {
+        Path root = Files.createDirectory(directory.resolve("regular-root"));
+        Path blocked = Files.createDirectory(root.resolve("regular-directory"));
+        Path file = Files.writeString(root.resolve("planned.txt"), "contents");
+        JournalFlow flow = journal();
+        flow.submitPlan("denied-directory", Set.of(file));
+        withDirectoryListingDenied(blocked, blocked, () -> {
+            var failures = flow.captureBaseline("denied-directory", Set.of(root));
+            assertEquals(1, failures.size());
+            var failure = failures.getFirst();
+            assertEquals(blocked, failure.path());
+            assertEquals(JournalScanner.FailureReason.ACCESS_DENIED, failure.reason());
+            assertInstanceOf(AccessDeniedException.class, failure.cause());
+            assertEquals(WorkflowPhase.PLANNING, flow.phase("denied-directory").orElseThrow());
+        });
+    }
+
+    private static void withDirectoryListingDenied(Path target, Path entry, Executable check) throws Throwable {
+        AclFileAttributeView acl = Files.getFileAttributeView(target, AclFileAttributeView.class);
+        assertNotNull(acl);
+        List<AclEntry> original = acl.getAcl();
+        List<AclEntry> restricted = new ArrayList<>(original);
+        restricted.addFirst(AclEntry.newBuilder().setType(AclEntryType.DENY).setPrincipal(Files.getOwner(target))
+                .setPermissions(AclEntryPermission.LIST_DIRECTORY).build());
+        try {
+            acl.setAcl(restricted);
+            assertThrows(AccessDeniedException.class, () -> {
+                try (var entries = Files.newDirectoryStream(entry)) {
+                    entries.iterator().hasNext();
+                }
+            });
+            check.execute();
+        } finally {
+            acl.setAcl(original);
+        }
     }
 
     @Test

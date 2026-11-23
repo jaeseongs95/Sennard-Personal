@@ -161,6 +161,9 @@ public class SessionEventHandler implements HostEventHandler {
                 case HookVerdict.ContinueTurn turn -> {
                     return turn;
                 }
+                case HookVerdict.TerminateTurn turn -> {
+                    return turn;
+                }
             }
         }
         return blocks.isEmpty() ? new HookVerdict.Proceed() : new HookVerdict.AddContext(blocks);

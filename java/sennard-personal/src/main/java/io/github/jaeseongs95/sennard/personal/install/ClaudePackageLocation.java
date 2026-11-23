@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 
 import org.springframework.stereotype.Component;
 
@@ -36,7 +37,7 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code CLAUDE_CODE_PLUGIN_CACHE_DIR}, and follows {@code CLAUDE_CONFIG_DIR} when that moves the whole configuration folder.
  */
 @Component
-final class ClaudePackageLocation implements HostPackageLocation {
+final class ClaudePackageLocation implements HostPackageLocation.SeparateVersionRecord {
     private static final String PLUGIN = "sennard";
 
     /** What the host's record holds, the fields this class needs: {@code plugins} maps {@code <plugin>@<marketplace>} to its installs. */
@@ -45,7 +46,17 @@ final class ClaudePackageLocation implements HostPackageLocation {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Install(String installPath, String version) {
+    record Install(String installPath, String version, String scope, String projectPath) {
+        String installation(String pluginId) {
+            StringJoiner details = new StringJoiner(", ", " (", ")").setEmptyValue("");
+            if (scope != null && !scope.isBlank()) {
+                details.add("scope=" + scope);
+            }
+            if (projectPath != null && !projectPath.isBlank()) {
+                details.add("projectPath=" + projectPath);
+            }
+            return pluginId + details;
+        }
     }
 
     /**
@@ -85,11 +96,11 @@ final class ClaudePackageLocation implements HostPackageLocation {
     }
 
     @Override
-    public List<InstalledPackage> packages(InstallEnvironment environment) throws IOException {
+    public Scan scan(InstallEnvironment environment) throws IOException {
         Path plugins = pluginsRoot(environment);
         Path record = plugins.resolve("installed_plugins.json");
         if (!Files.isRegularFile(record)) {
-            return List.of();
+            return new Scan(List.of(), List.of());
         }
         InstalledPlugins installs;
         try {
@@ -98,7 +109,7 @@ final class ClaudePackageLocation implements HostPackageLocation {
             throw new IOException("Could not read " + record + ": " + unreadable.getMessage(), unreadable);
         }
         if (installs == null || installs.plugins() == null) {
-            return List.of();
+            return new Scan(List.of(), List.of());
         }
         Path cache = plugins.resolve("cache").toAbsolutePath().normalize();
         Map<Path, InstalledPackage> found = new LinkedHashMap<>();
@@ -113,17 +124,19 @@ final class ClaudePackageLocation implements HostPackageLocation {
                 }
                 Path root = Path.of(entry.installPath()).toAbsolutePath().normalize();
                 String version = entry.version() == null ? "" : entry.version();
+                String installation = entry.installation(plugin.getKey());
                 // The record may name a copy in the cache for a plugin that Claude Code does not read from there: one of a marketplace added from a local path is loaded from the
                 // marketplace's own folder, and that folder is the one that holds the hook definition the host runs.
                 Optional<Path> loadedInPlace = root.startsWith(cache) ? inPlaceRoot(plugins, marketplace) : Optional.empty();
                 if (loadedInPlace.isPresent()) {
-                    found.putIfAbsent(loadedInPlace.get(), new InstalledPackage(loadedInPlace.get(), version, false));
-                } else if (Files.isDirectory(root)) {
-                    found.putIfAbsent(root, new InstalledPackage(root, version, root.startsWith(cache)));
+                    found.putIfAbsent(loadedInPlace.get(), new InstalledPackage(loadedInPlace.get(), version, false, installation));
+                } else if (!Files.notExists(root)) {
+                    // Keep unverified paths in the inventory so preflight still rejects an unreadable installation.
+                    found.putIfAbsent(root, new InstalledPackage(root, version, root.startsWith(cache), installation));
                 }
             }
         }
-        return List.copyOf(found.values());
+        return new Scan(List.copyOf(found.values()), List.of());
     }
 
     /**
@@ -173,12 +186,22 @@ final class ClaudePackageLocation implements HostPackageLocation {
         }
     }
 
+    @Override
+    public Path bodyManifest(Path root) {
+        return root.resolve(".claude-plugin/plugin.json");
+    }
+
     private static Path pluginsRoot(InstallEnvironment environment) {
         String cache = environment.environment().get("CLAUDE_CODE_PLUGIN_CACHE_DIR");
         if (cache != null && !cache.isBlank()) {
             return Path.of(cache);
         }
+        return userSettings(environment).resolveSibling("plugins");
+    }
+
+    static Path userSettings(InstallEnvironment environment) {
         String config = environment.environment().get("CLAUDE_CONFIG_DIR");
-        return (config != null && !config.isBlank() ? Path.of(config) : environment.home().resolve(".claude")).resolve("plugins");
+        Path folder = config != null && !config.isBlank() ? Path.of(config) : environment.home().resolve(".claude");
+        return folder.resolve("settings.json");
     }
 }

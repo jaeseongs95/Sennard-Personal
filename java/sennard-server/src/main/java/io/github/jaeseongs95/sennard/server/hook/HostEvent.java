@@ -13,10 +13,10 @@ public sealed interface HostEvent {
 
     default HostEvent withContext(HostContext replacement) {
         return switch (this) {
-            case SessionStarted event -> new SessionStarted(replacement, event.kind());
+            case SessionStarted event -> new SessionStarted(replacement, event.kind(), event.restoresContext());
             case SessionEnded event -> new SessionEnded(replacement, event.reason());
-            case UserPromptSubmitted event -> new UserPromptSubmitted(replacement, event.prompt());
-            case TurnStarted event -> new TurnStarted(replacement, event.provisionalInput());
+            case UserPromptSubmitted event -> new UserPromptSubmitted(replacement, event.prompt(), event.restoresContext());
+            case TurnStarted event -> new TurnStarted(replacement, event.provisionalInput(), event.restoresContext());
             case ModelCallStarting event -> new ModelCallStarting(replacement);
             case ModelCallFinished event -> new ModelCallFinished(replacement, event.carriesContext());
             case ToolRequested event -> new ToolRequested(replacement, event.tool());
@@ -32,7 +32,10 @@ public sealed interface HostEvent {
     }
 
     /** The session began, or a compaction, resume, clear or fork restarted it. */
-    record SessionStarted(HostContext context, StartKind kind) implements HostEvent {
+    record SessionStarted(HostContext context, StartKind kind, boolean restoresContext) implements HostEvent {
+        public SessionStarted(HostContext context, StartKind kind) {
+            this(context, kind, kind == StartKind.STARTUP || kind == StartKind.RESUME || kind == StartKind.COMPACT);
+        }
     }
 
     /** The host is ending the session. */
@@ -40,11 +43,18 @@ public sealed interface HostEvent {
     }
 
     /** A user prompt opens a turn. */
-    record UserPromptSubmitted(HostContext context, String prompt) implements HostEvent {
+    record UserPromptSubmitted(HostContext context, String prompt, boolean restoresContext) implements HostEvent {
+        public UserPromptSubmitted(HostContext context, String prompt) {
+            this(context, prompt, false);
+        }
     }
 
     /** A turn began. Any text is provisional until the raw conversation's actor is known. */
-    record TurnStarted(HostContext context, String provisionalInput) implements HostEvent {
+    record TurnStarted(HostContext context, String provisionalInput, boolean restoresContext) implements HostEvent {
+        public TurnStarted(HostContext context, String provisionalInput) {
+            this(context, provisionalInput, false);
+        }
+
         public TurnStarted(HostContext context) {
             this(context, null);
         }
@@ -57,6 +67,11 @@ public sealed interface HostEvent {
 
     default boolean startsTurn() {
         return this instanceof UserPromptSubmitted || this instanceof TurnStarted;
+    }
+
+    /** Whether this boundary calls for restoring the current full context. */
+    default boolean restoresContext() {
+        return false;
     }
 
     /** The model is about to be called again inside a turn, on a host that reports each model call. */

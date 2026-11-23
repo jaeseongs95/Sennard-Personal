@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,7 @@ import io.github.jaeseongs95.sennard.domain.jvm.JvmPreset;
  *
  * <pre>
  * v1  folder    the folder is absolute and normalized; its name is the version; every file is named from it
- * v2  at        a folder is a version when its application jar is there; a leftover folder without it is not
+ * v2  at        a folder is a version when its required runtime files are present
  * v3  ofJar     a jar is the application jar of a version only as versions/&lt;v&gt;/sennard-&lt;v&gt;.jar; the same jar anywhere else, or another version's name, is a release that runs where it is
  * v4  ofFolder  the folder a server's sennard.home names is that version
  * v5  root      the installation's folder is two levels above the application jar; a folder that was only extracted has none
@@ -54,16 +55,60 @@ class InstalledVersionTest {
     }
 
     @Test
-    void aFolderIsAVersionWhenItsApplicationJarIsThere() throws IOException {
+    void aFolderIsAVersionWhenItsRequiredFilesAreThere() throws IOException {
         Path installed = folder("root", "6.0.0");
         Path leftover = folder("root", ".publishing-6.0.1");
-        Files.writeString(installed.resolve("sennard-6.0.0.jar"), "the application jar");
+        InstallStandIns.installedRuntime(installed, "6.0.0");
 
         assertEquals(Optional.of(new InstalledVersion(installed)), InstalledVersion.at(installed));
         assertEquals(Optional.empty(), InstalledVersion.at(leftover), "a leftover of a publish that failed holds no application jar");
         assertEquals(Optional.empty(), InstalledVersion.at(temporary.resolve("root").resolve("versions").resolve("6.0.2")), "a folder that is not there");
         Files.writeString(leftover.resolve("sennard-6.0.0.jar"), "the jar of another version's name");
         assertEquals(Optional.empty(), InstalledVersion.at(leftover), "the application jar is named for the version of the folder");
+    }
+
+    @Test
+    void legacyPartialVersionIsNotReportedAsInstalled() throws IOException {
+        Path version = folder("root", "6.0.0");
+        InstallStandIns.installedRuntime(version, "6.0.0");
+        assertTrue(InstalledVersion.at(version).isPresent());
+
+        Files.delete(version.resolve("lib/sennard-server-6.0.0.jar"));
+
+        assertTrue(Files.isRegularFile(version.resolve("sennard-6.0.0.jar")));
+        assertTrue(Files.isRegularFile(version.resolve("lib/sennard-hook-client-6.0.0.jar")));
+        assertTrue(InstalledVersion.at(version).isEmpty(), "an incomplete library set does not count as installed");
+    }
+
+    @Test
+    void aMissingInventoryIsLegacyButAnUnreadableInventoryDoesNotCountAsInstalled() throws IOException {
+        Path version = folder("root", "6.0.0");
+        InstallStandIns.installedRuntime(version, "6.0.0");
+        Path inventory = version.resolve(".runtime-files");
+        Files.deleteIfExists(inventory);
+        assertTrue(InstalledVersion.at(version).isPresent());
+
+        Files.createDirectory(inventory);
+        assertTrue(InstalledVersion.at(version).isEmpty());
+    }
+
+    @Test
+    void anExtraClientJarDisqualifiesBothTheInstalledVersionAndTheHook() throws IOException {
+        Path folder = folder("root", "6.0.0");
+        InstallStandIns.installedRuntime(folder, "6.0.0");
+        InstalledVersion installed = new InstalledVersion(folder);
+        Path java = temporary.resolve("java");
+        Path serverFile = temporary.resolve("server.json");
+        Path client = folder.resolve("lib/sennard-hook-client-6.0.0.jar");
+
+        Files.writeString(folder.resolve("lib/unrelated.jar"), "another module");
+        assertEquals(Optional.of(installed), InstalledVersion.at(folder));
+        List<String> command = HookClientCommand.hookProgram(java, installed, serverFile);
+        assertEquals(client.toString(), command.get(command.indexOf("-cp") + 1));
+
+        Files.writeString(folder.resolve("lib/sennard-hook-client-6.0.1.jar"), "an additional hook client");
+        assertThrows(UnavailableException.class, () -> HookClientCommand.hookProgram(java, installed, serverFile));
+        assertEquals(Optional.empty(), InstalledVersion.at(folder));
     }
 
     @Test

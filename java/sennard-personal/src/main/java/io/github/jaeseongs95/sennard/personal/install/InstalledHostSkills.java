@@ -68,7 +68,7 @@ final class InstalledHostSkills implements HostInstalledSkills {
                 continue;
             }
             try {
-                return location.packages(environment.get()).stream().map(installed -> installed.root().resolve(SKILLS).toAbsolutePath().normalize()).toList();
+                return location.scan(environment.get()).packages().stream().map(installed -> installed.root().resolve(SKILLS).toAbsolutePath().normalize()).toList();
             } catch (IOException unreadable) {
                 LOG.warn("Where {} keeps the Sennard plugin could not be read, so its skill reads are not counted: {}", host, unreadable.getMessage(), unreadable);
                 return List.of();

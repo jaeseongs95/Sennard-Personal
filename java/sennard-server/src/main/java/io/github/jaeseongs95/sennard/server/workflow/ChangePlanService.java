@@ -91,7 +91,7 @@ class ChangePlanService {
         }
         WorkflowService.RunScope run = workflows.runScope(input.id(), written.isPresent() ? null : input.expectedRevision());
         Set<Path> plan = scopes.plan(run.scope(), input.files(), "files");
-        long planRevision = written.isPresent() ? written.get().planRevision() : revise(run.runId(), plan, operation);
+        long planRevision = written.isPresent() ? written.get().planRevision() : revise(run, plan, operation);
         List<String> unreadable = List.of();
         if (journal.phase(run.runId()).orElseThrow() == WorkflowPhase.PLANNING) {
             unreadable = capture(run.runId(), run.scope());
@@ -124,13 +124,15 @@ class ChangePlanService {
         return Optional.of(new Observation(changes.plannedChanges().size(), changes.plannedUnchanged().size(), unplanned, scan.failures().stream().map(ChangePlanService::describe).sorted().toList()));
     }
 
-    private long revise(String runId, Set<Path> plan, OperationKey operation) {
+    private long revise(WorkflowService.RunScope run, Set<Path> plan, OperationKey operation) {
+        String runId = run.runId();
         try {
             if (journal.phase(runId).filter(phase -> phase == WorkflowPhase.EXECUTING).isEmpty()) {
-                return journal.submitPlan(runId, plan, operation).planRevision();
+                return workflows.writeChangePlan(run, plan, () -> journal.submitPlan(runId, plan, operation).planRevision());
             }
             ScanBasis basis = journal.revisionBasis(runId, plan);
-            return journal.revisePlan(basis, scanner.rescan(basis), plan, operation).planRevision();
+            var scan = scanner.rescan(basis);
+            return workflows.writeChangePlan(run, plan, () -> journal.revisePlan(basis, scan, plan, operation).planRevision());
         } catch (IllegalStateException unscannable) {
             throw new WorkflowFailure(WorkflowCode.INVALID_TRANSITION, msg("workflow.journal.planRescanFailed", "detail", String.valueOf(unscannable.getMessage())),
                     details("reason", "PLAN_RESCAN_FAILED"), unscannable);

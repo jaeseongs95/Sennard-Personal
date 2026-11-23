@@ -135,8 +135,7 @@ class InstallerJvmPresetTest {
     void anUpgradeCarriesTheSavedPresetAndTheUsersSettingsAndDoesNotReadTheMemory() throws IOException {
         Path root = temporary.resolve("upgrade").resolve("root");
         InstalledVersion previous = new InstalledVersion(root.resolve("versions").resolve("6.0.0"));
-        Files.createDirectories(previous.folder());
-        Files.writeString(previous.appJar(), "the application jar of the installed version");
+        InstallStandIns.installedRuntime(previous.folder(), previous.version());
         JvmSettingsFile.Content chosen = new JvmSettingsFile.Content(JvmPreset.ZGC_4G, 8L << 30);
         JvmSettingsFile.write(previous.jvmSettingsFile(), chosen);
         Files.writeString(previous.settingsFile(), "sennard:\n  scheduled-probes: false\n", StandardCharsets.UTF_8);
@@ -181,8 +180,7 @@ class InstallerJvmPresetTest {
 
     private static InstalledVersion installedVersion(Path root) throws IOException {
         InstalledVersion version = new InstalledVersion(root.resolve("versions").resolve("6.0.0"));
-        Files.createDirectories(version.folder());
-        Files.writeString(version.appJar(), "the application jar");
+        InstallStandIns.installedRuntime(version.folder(), version.version());
         return version;
     }
 

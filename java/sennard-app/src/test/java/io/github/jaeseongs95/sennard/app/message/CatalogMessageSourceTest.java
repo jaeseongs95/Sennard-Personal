@@ -89,11 +89,11 @@ class CatalogMessageSourceTest {
 
     @Test
     void aSelectPicksItsWordingByTheValueAndOtherForTheRest() {
-        assertEquals("[Sennard turn check] Work record: present.", status(Locale.ENGLISH, "saved"));
-        assertEquals("[Sennard turn check] No prior save: this does not restore what compaction lost.", status(Locale.ENGLISH, "missing"));
-        assertEquals("[Sennard turn check] Work record: none.", status(Locale.ENGLISH, "unheard-of"));
-        assertEquals("[Sennard turn check] Work record: none.", status(Locale.ENGLISH, Presence.MYSTERY));
-        assertEquals("[Sennard turn check] Work record: none.", status(Locale.ENGLISH, null));
+        assertEquals("[Sennard checkpoint status] Work record: present.", status(Locale.ENGLISH, "saved"));
+        assertEquals("[Sennard checkpoint status] No prior save: this does not restore what compaction lost.", status(Locale.ENGLISH, "missing"));
+        assertEquals("[Sennard checkpoint status] Work record: none.", status(Locale.ENGLISH, "unheard-of"));
+        assertEquals("[Sennard checkpoint status] Work record: none.", status(Locale.ENGLISH, Presence.MYSTERY));
+        assertEquals("[Sennard checkpoint status] Work record: none.", status(Locale.ENGLISH, null));
         assertEquals(status(Locale.ENGLISH, "other"), status(Locale.ENGLISH, Presence.ONLINE));
         assertTrue(status(Locale.KOREAN, "saved").length() > 0 && !status(Locale.KOREAN, "saved").equals(status(Locale.ENGLISH, "saved")));
     }

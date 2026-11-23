@@ -47,13 +47,23 @@ The extension folder is `gemini-extension/` (`gemini-extension.json`, `hooks/hoo
 | AfterModel | Not received | Official: the event fires for every response chunk, so it does not mean "the model call finished" |
 | BeforeToolSelection, Notification | Not received | No corresponding Sennard collected event exists |
 
-Note: every Gemini hook costs one JVM start. BeforeModel fires on every model call and its input carries `llm_request` (the whole conversation). The server currently returns no context for this event, so if the cost outweighs the benefit, the event is removed with a one-line change in `GeminiHookAdapter.Event`.
+Every Gemini hook starts one JVM. `BeforeModel` fires on each model call. The hook client forwards the model name from `llm_request`, and the server uses it for observation.
 
 ### 1.4 Antigravity (https://antigravity.google/docs/hooks)
 
 | Event | How it is received |
 |---|---|
 | SessionStart (host PID passed), PreInvocation, PostInvocation, Stop, PreToolUse, PostToolUse | Sennard client (official: only `type: "command"` exists). All six events are received |
+
+### 1.5 Context restoration
+
+The adapter marks a normalized event for full restoration. Common handlers deliver the verified global and role layers with the current situational snapshot and workflow card when available. Successful workflow entries return the intake pointer and skill target list.
+
+| Host | Restoration signal and output |
+|---|---|
+| Claude Code and Codex | `SessionStart` with `source=startup`, `resume`, or `compact` returns `hookSpecificOutput.additionalContext`. `PostCompact` records the outcome. |
+| Antigravity | `PreInvocation` with integer `invocationNum=0` returns context as ephemeral `injectSteps`. Recorded fixtures contain a zero first invocation. Reset timing across requests and resumes remains unverified. Restoration after in-request automatic compaction waits for the next zero. |
+| Gemini CLI | `SessionStart` with `source=startup` or `resume` and every `BeforeAgent` return `hookSpecificOutput.additionalContext`. Both hooks can deliver the same context. In-request automatic compaction is covered at the next `BeforeAgent`. The hook client excludes `llm_request.messages` and `llm_request.config` from what it sends to Sennard. |
 
 ## 2. Sennard Hook Client
 

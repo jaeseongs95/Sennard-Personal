@@ -46,6 +46,7 @@ import io.github.jaeseongs95.sennard.domain.jvm.MemoryEstimate;
 import io.github.jaeseongs95.sennard.hookclient.ServerAddress;
 import io.github.jaeseongs95.sennard.personal.SennardPersonalApplication;
 import io.github.jaeseongs95.sennard.server.hook.HookInstallation;
+import io.github.jaeseongs95.sennard.server.updates.HostPackageStatus.Mismatch;
 import io.github.jaeseongs95.sennard.server.workflow.HostIdentity;
 import io.github.jaeseongs95.sennard.service.secret.PrivateStorage;
 import io.github.jaeseongs95.sennard.service.store.StoreCode;
@@ -64,6 +65,8 @@ public final class Installer {
     /** One readiness request of a session start: short, so that something on the port that never answers does not use up the hook's time. */
     private static final Duration SESSION_ANSWER = Duration.ofSeconds(2);
     private static final String HOST_PACKAGES = "host-packages";
+    private static final String UPGRADE_PENDING = ".upgrade-pending";
+    private static final String RETIREMENT_PENDING = ".upgrade-retirement-pending";
 
     /**
      * What {@code sennard status} prints, as one JSON document.
@@ -77,39 +80,61 @@ public final class Installer {
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Status(String installRoot, String command, List<String> versions, JvmPreset jvmPreset, Integer port, Boolean healthy, StoreStatus store, String adminPage,
-            List<String> hostCopiesWithoutDefinitions) {
+            List<String> hostCopiesWithoutDefinitions, List<Mismatch> hostPackageMismatches) {
+        public Status(String installRoot, String command, List<String> versions, JvmPreset jvmPreset, Integer port, Boolean healthy, StoreStatus store, String adminPage,
+                List<String> hostCopiesWithoutDefinitions) {
+            this(installRoot, command, versions, jvmPreset, port, healthy, store, adminPage, hostCopiesWithoutDefinitions, null);
+        }
+
+        public boolean hasHostPackageMismatch() {
+            return hostPackageMismatches != null && !hostPackageMismatches.isEmpty();
+        }
+
+        Status withHostPackageMismatches(List<Mismatch> mismatches) {
+            return new Status(installRoot, command, versions, jvmPreset, port, false, store, adminPage, hostCopiesWithoutDefinitions, mismatches);
+        }
+
         Status withPort(int serverPort) {
-            return new Status(installRoot, command, versions, jvmPreset, serverPort, healthy, store, adminPage, hostCopiesWithoutDefinitions);
+            return new Status(installRoot, command, versions, jvmPreset, serverPort, healthy, store, adminPage, hostCopiesWithoutDefinitions, hostPackageMismatches);
         }
 
         Status withPreset(JvmPreset preset) {
-            return new Status(installRoot, command, versions, preset, port, healthy, store, adminPage, hostCopiesWithoutDefinitions);
+            return new Status(installRoot, command, versions, preset, port, healthy, store, adminPage, hostCopiesWithoutDefinitions, hostPackageMismatches);
         }
 
         Status withStore(StoreStatus status) {
-            return new Status(installRoot, command, versions, jvmPreset, port, healthy, status, adminPage, hostCopiesWithoutDefinitions);
+            return new Status(installRoot, command, versions, jvmPreset, port, healthy, status, adminPage, hostCopiesWithoutDefinitions, hostPackageMismatches);
         }
 
         Status withAdminPage(String address) {
-            return new Status(installRoot, command, versions, jvmPreset, port, healthy, store, address, hostCopiesWithoutDefinitions);
+            return new Status(installRoot, command, versions, jvmPreset, port, healthy, store, address, hostCopiesWithoutDefinitions, hostPackageMismatches);
         }
 
         Status withEmptyCopies(List<String> copies) {
-            return new Status(installRoot, command, versions, jvmPreset, port, healthy, store, adminPage, copies.isEmpty() ? null : copies);
+            return new Status(installRoot, command, versions, jvmPreset, port, healthy, store, adminPage, copies.isEmpty() ? null : copies, hostPackageMismatches);
         }
     }
 
     private final InstallEnvironment environment;
+    private static final Runnable KEEP_CLAUDE_SETTINGS = () -> {
+    };
+
     private final RunningProgram running;
     private final String version;
     private final PrintStream out;
+    private final ClaudeStopConfirmation claudeStopConfirmation;
 
     /** @param running what this command runs from: a release jar (an installed version's jar included) or anything else */
     public Installer(InstallEnvironment environment, RunningProgram running, String version, PrintStream out) {
+        this(environment, running, version, out, ClaudeStopConfirmation.interactive());
+    }
+
+    Installer(InstallEnvironment environment, RunningProgram running, String version, PrintStream out, ClaudeStopConfirmation claudeStopConfirmation) {
         this.environment = environment;
         this.running = running;
         this.version = version;
         this.out = out;
+        this.claudeStopConfirmation = claudeStopConfirmation;
     }
 
     /**
@@ -126,11 +151,25 @@ public final class Installer {
 
     public void install(String givenStateDirectory) {
         Path root = root();
+        requireFreshInstall(root);
+        String stateDirectory = givenStateDirectory == null ? null : checkedStateDirectory(givenStateDirectory, Path.of("").toAbsolutePath());
+        Path versions = root.resolve(InstalledVersion.VERSIONS);
+        preflightHostPackages(versions.resolve(version), version);
+        Runnable applyClaudeSettings = prepareClaudeSettings();
+        ReleaseJar release = release();
+        VersionRetirement.withLock(versions, () -> install(root, stateDirectory, release, applyClaudeSettings));
+    }
+
+    private static void requireFreshInstall(Path root) {
         if (!installedVersions(root).isEmpty()) {
             throw new ConflictException(ConflictCode.ALREADY_INSTALLED, SennardException.args("root", root));
         }
-        String stateDirectory = givenStateDirectory == null ? null : checkedStateDirectory(givenStateDirectory, Path.of("").toAbsolutePath());
-        InstalledVersion installed = publish(root);
+    }
+
+    private void install(Path root, String stateDirectory, ReleaseJar release, Runnable applyClaudeSettings) {
+        requireFreshInstall(root);
+        preflightHostPackages(root.resolve(InstalledVersion.VERSIONS).resolve(version), version);
+        InstalledVersion installed = publish(root, release, null);
         if (stateDirectory != null) {
             writeStateDirectory(installed, stateDirectory);
         }
@@ -142,6 +181,7 @@ public final class Installer {
             startServer(installed, preset, java, server);
             awaitStore(settings, server);
             ensureHostIdentity(settings.stateDirectory(), environment.privateStorage());
+            applyClaudeSettings.run();
             HostFiles.Placement placement = placeHostFiles(settings, root, installed, java);
             out.println("Installed version " + version + " in " + root + ".");
             out.println("State folder: " + settings.stateDirectory());
@@ -193,11 +233,32 @@ public final class Installer {
      */
     public void hooks() {
         InstalledVersion installed = activeVersion();
-        Path java = environment.java().path();
-        new CommandAotCache(environment.commands(), out).make(installed, java);
         try (InstalledSettings settings = InstalledSettings.at(installed.folder())) {
-            placeHostFiles(settings, root(), installed, java).requireReached();
+            hostFiles(settings, installed).requireMatchingVersions(environment);
+            Runnable applyClaudeSettings = prepareClaudeSettings();
+            Path root = root();
+            VersionRetirement.withLock(root.resolve(InstalledVersion.VERSIONS), () -> {
+                if (!installed.equals(activeVersion())) {
+                    throw new UnavailableException(UnavailableCode.INSTALL_FAILED, SennardException.args("what", "unreadable", "file", installed.folder()));
+                }
+                hostFiles(settings, installed).requireMatchingVersions(environment);
+                Path java = environment.java().path();
+                new CommandAotCache(environment.commands(), out).make(installed, java);
+                applyClaudeSettings.run();
+                placeHostFiles(settings, root, installed, java).requireReached();
+            });
         }
+    }
+
+    private Runnable prepareClaudeSettings() {
+        return ClaudeStopSettings.prepare(environment, claudeStopConfirmation)
+                .<Runnable>map(change -> () -> applyClaudeSettings(change))
+                .orElse(KEEP_CLAUDE_SETTINGS);
+    }
+
+    private void applyClaudeSettings(ClaudeStopSettings.Change change) {
+        change.apply();
+        out.println("Set env." + ClaudeStopSettings.KEY + " to \"0\" in " + change.file() + ".");
     }
 
     /**
@@ -209,10 +270,25 @@ public final class Installer {
     private HostFiles.Placement placeHostFiles(InstalledSettings settings, Path root, InstalledVersion installed, Path java) {
         Path serverFile = settings.serverAddressFile();
         HookInstallation installation = HookClientCommand.installation(java, installed, serverFile);
-        HostFiles.Placement placement = new HostFiles(settings.hostLocations(), installed.version(), command(installed) + " hooks", settings.jsonMapper())
+        try {
+            VersionRetirement.protect(installed);
+        } catch (IOException cause) {
+            throw new UnavailableException(UnavailableCode.HOST_FILES_FAILED, SennardException.args("cause", cause.toString()), cause);
+        }
+        HostFiles.Placement placement = hostFiles(settings, installed)
                 .place(settings.hostAdapters(), environment, installation, hostPackages(root));
         placement.report().forEach(out::println);
         return placement;
+    }
+
+    private static HostFiles hostFiles(InstalledSettings settings, InstalledVersion installed) {
+        return new HostFiles(settings.hostLocations(), installed.version(), command(installed) + " hooks", settings.jsonMapper());
+    }
+
+    private void preflightHostPackages(Path folder, String expected) {
+        try (InstalledSettings settings = InstalledSettings.quietlyAt(folder)) {
+            new HostFiles(settings.hostLocations(), expected, "", settings.jsonMapper()).requireMatchingVersions(environment);
+        }
     }
 
     private static Path hostPackages(Path root) {
@@ -354,24 +430,57 @@ public final class Installer {
         }
     }
 
-    /** Runs from the new jar: publish and train its version, stop the old server, start the new one, and only then remove the old folder. */
+    /** Publishes the runtime and settings together, then records placement and retirement progress for retries. */
     public void upgrade() {
         Path root = root();
+        InstalledVersion newest = upgradeCandidate(root);
+        preflightHostPackages(newest.folder(), version);
+        boolean needsPlacement = !newest.version().equals(version) || Files.isRegularFile(newest.folder().resolve(UPGRADE_PENDING));
+        Runnable applyClaudeSettings = needsPlacement ? prepareClaudeSettings() : KEEP_CLAUDE_SETTINGS;
+        VersionRetirement.withLock(root.resolve(InstalledVersion.VERSIONS), () -> upgrade(root, applyClaudeSettings));
+    }
+
+    private InstalledVersion upgradeCandidate(Path root) {
         List<InstalledVersion> versions = installedVersions(root);
         if (versions.isEmpty()) {
             throw new NotFoundException(NotFoundCode.NOT_INSTALLED, SennardException.args("what", "upgrade", "root", root));
         }
-        InstalledVersion previous = versions.get(0);
-        Version installedVersion = Version.parse(previous.version());
-        Version incoming = Version.parse(version);
-        if (incoming.compareTo(installedVersion) < 0) {
+        InstalledVersion newest = versions.getFirst();
+        Version installedVersion = Version.parse(newest.version());
+        int order = Version.parse(version).compareTo(installedVersion);
+        if (order < 0) {
             throw new GateRefusedException(GateCode.DOWNGRADE_REFUSED, SennardException.args("version", version, "installed", installedVersion));
         }
-        if (incoming.compareTo(installedVersion) == 0) {
+        boolean pending = newest.version().equals(version) && (Files.isRegularFile(newest.folder().resolve(UPGRADE_PENDING))
+                || Files.isRegularFile(newest.folder().resolve(RETIREMENT_PENDING)));
+        if (order == 0 && !pending) {
             throw new ConflictException(ConflictCode.SAME_VERSION, SennardException.args("version", version));
         }
-        InstalledVersion published = publish(root);
-        copySettings(previous, published);
+        return newest;
+    }
+
+    private void upgrade(Path root, Runnable applyClaudeSettings) {
+        InstalledVersion previous = upgradeCandidate(root);
+        preflightHostPackages(previous.folder(), version);
+        InstalledVersion published = previous.version().equals(version) ? previous : publish(root, release(), previous);
+        Path placementPending = published.folder().resolve(UPGRADE_PENDING);
+        Path retirementPending = published.folder().resolve(RETIREMENT_PENDING);
+        try {
+            if (Files.isRegularFile(placementPending)) {
+                finishUpgradePlacement(published, root, applyClaudeSettings);
+                Files.move(placementPending, retirementPending, StandardCopyOption.ATOMIC_MOVE);
+            }
+            List<InstalledVersion> older = installedVersions(root).stream().filter(old -> !old.equals(published)).toList();
+            new VersionRetirement().collect(root.resolve(InstalledVersion.VERSIONS), older);
+            Files.delete(retirementPending);
+        } catch (IOException cause) {
+            throw new UnavailableException(UnavailableCode.INSTALL_FAILED, SennardException.args("what", "unwritable", "file", published.folder()), cause);
+        }
+        out.println("Upgraded to " + version + ".");
+        out.println("Run Sennard commands with: " + command(published));
+    }
+
+    private void finishUpgradePlacement(InstalledVersion published, Path root, Runnable applyClaudeSettings) {
         JvmPreset preset = savedOrChosenPreset(published, true);
         Path java = environment.java().path();
         train(published, preset, java);
@@ -380,26 +489,8 @@ public final class Installer {
             server.shutdown();
             startServer(published, preset, java, server);
             awaitStore(settings, server);
-            for (InstalledVersion old : versions) {
-                removeOld(old);
-            }
-            HostFiles.Placement placement = placeHostFiles(settings, root, published, java);
-            out.println("Upgraded to " + version + ".");
-            out.println("Run Sennard commands with: " + command(published));
-            placement.requireReached();
-        }
-    }
-
-    /**
-     * Removes an old version's folder. A program that still runs from it holds its jar open on some file systems (a host's MCP server that was started before the upgrade runs
-     * the old hook client jar until the host ends it), and the new version is already running, so a folder that cannot be removed now is reported, not an end of the upgrade;
-     * every upgrade removes the older versions it finds, so the next one removes it.
-     */
-    private void removeOld(InstalledVersion old) {
-        try {
-            FileSystemUtils.deleteRecursively(old.folder());
-        } catch (IOException held) {
-            out.println("warning: could not remove " + old.folder() + " (" + held + "); the next upgrade removes it");
+            applyClaudeSettings.run();
+            placeHostFiles(settings, root, published, java).requireReached();
         }
     }
 
@@ -421,8 +512,12 @@ public final class Installer {
             Status withPreset = preset.map(withPort::withPreset).orElse(withPort);
             Status withStore = server.storeStatus().map(withPreset::withStore).orElse(withPreset);
             Status withAdminPage = server.adminPage().map(withStore::withAdminPage).orElse(withStore);
-            List<String> empty = new HostFiles(settings.hostLocations(), newest.version(), command(newest) + " hooks", settings.jsonMapper()).emptyCopies(settings.hostAdapters(), environment).stream()
-                    .map(Path::toString).toList();
+            HostFiles files = hostFiles(settings, newest);
+            List<Mismatch> mismatches = files.mismatches(environment);
+            if (!mismatches.isEmpty()) {
+                return withAdminPage.withHostPackageMismatches(mismatches);
+            }
+            List<String> empty = files.emptyCopies(settings.hostAdapters(), environment).stream().map(Path::toString).toList();
             return withAdminPage.withEmptyCopies(empty);
         }
     }
@@ -441,16 +536,15 @@ public final class Installer {
         return versions.get(0);
     }
 
-    /** Newest first. A leftover temporary folder of a failed publish is not a version, and neither is a folder that holds no application jar. */
+    /** Newest first. Temporary and incomplete runtime directories are excluded. */
     private static List<InstalledVersion> installedVersions(Path root) {
         Path versions = root.resolve(InstalledVersion.VERSIONS);
         if (!Files.isDirectory(versions)) {
             return List.of();
         }
         try (Stream<Path> entries = Files.list(versions)) {
-            return entries.filter(entry -> Files.isDirectory(entry) && !entry.getFileName().toString().startsWith("."))
-                    .sorted(Comparator.comparing((Path entry) -> Version.parse(entry.getFileName().toString())).reversed())
-                    .flatMap(entry -> InstalledVersion.at(entry).stream()).toList();
+            return entries.flatMap(entry -> InstalledVersion.at(entry).stream())
+                    .sorted(Comparator.comparing((InstalledVersion entry) -> Version.parse(entry.version())).reversed()).toList();
         } catch (IOException cause) {
             throw new UnavailableException(UnavailableCode.INSTALL_FAILED, SennardException.args("what", "unreadable", "file", versions), cause);
         }
@@ -460,8 +554,7 @@ public final class Installer {
      * Makes {@code versions/<version>} from the release jar this command runs from: extracted into a folder of its own ({@link ReleaseJar}), which is moved into place when it is
      * complete, so that the version is never seen half made.
      */
-    private InstalledVersion publish(Path root) {
-        ReleaseJar release = running.jar().flatMap(ReleaseJar::of).orElseThrow(() -> new GateRefusedException(GateCode.NOT_A_RELEASE_JAR));
+    private InstalledVersion publish(Path root, ReleaseJar release, InstalledVersion previous) {
         Path versions = root.resolve(InstalledVersion.VERSIONS);
         Path target = versions.resolve(version);
         Path temporary = versions.resolve(".publishing-" + version + "-" + UUID.randomUUID());
@@ -472,6 +565,12 @@ public final class Installer {
                 throw new UnavailableException(UnavailableCode.INSTALL_FAILED, SennardException.args("what", "folderExists", "folder", target));
             }
             release.extractInto(temporary, version, environment.java().path(), environment.commands(), environment.environment());
+            InstalledVersion.recordRuntime(temporary, version);
+            Files.createFile(temporary.resolve(VersionRetirement.UNEXPOSED));
+            if (previous != null) {
+                copySettings(previous, InstalledVersion.ofFolder(temporary));
+                Files.createFile(temporary.resolve(UPGRADE_PENDING));
+            }
             Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
             moved = true;
         } catch (IOException cause) {
@@ -482,6 +581,10 @@ public final class Installer {
             }
         }
         return new InstalledVersion(target);
+    }
+
+    private ReleaseJar release() {
+        return running.jar().flatMap(ReleaseJar::of).orElseThrow(() -> new GateRefusedException(GateCode.NOT_A_RELEASE_JAR));
     }
 
     /**

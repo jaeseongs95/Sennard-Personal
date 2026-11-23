@@ -133,6 +133,7 @@ interface SessionIdSchemaAdapter<I extends SessionIdInput> extends ServerHookAda
             case HookVerdict.Proceed ignored -> SessionIdOutput.NOTHING;
             case HookVerdict.AddContext context -> addContext(eventName, read, context.blocks().stream().map(ContextBlock::text).collect(Collectors.joining("\n\n")));
             case HookVerdict.ContinueTurn turn -> continueTurn(eventName, turn.instruction());
+            case HookVerdict.TerminateTurn turn -> SessionIdOutput.terminate(turn.reason());
             case HookVerdict.Refuse refuse when read instanceof HostEvent.ToolRequested -> SessionIdOutput.denyTool(refuse.reason());
             case HookVerdict.Refuse refuse -> SessionIdOutput.block(refuse.reason());
         };

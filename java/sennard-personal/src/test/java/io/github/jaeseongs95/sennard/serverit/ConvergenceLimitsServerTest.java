@@ -58,7 +58,8 @@ class ConvergenceLimitsServerTest {
         }
         workspaces = Path.of("build", "convergence-limits-it", UUID.randomUUID().toString()).toAbsolutePath();
         Files.createDirectories(workspaces);
-        sennard = ToolServerSupport.startWith("--sennard.content-root=" + repository, "--sennard.skills-dir=" + repository.resolve("skills"));
+        sennard = ToolServerSupport.startWith("--sennard.content-root=" + repository, "--sennard.skills-dir=" + repository.resolve("skills"),
+                "--sennard.test.workflow-gate=on");
         owner = sennard.owner();
     }
 
@@ -96,6 +97,26 @@ class ConvergenceLimitsServerTest {
     private static void assertLimits(JsonNode limits, int attempts, int epochs) {
         assertEquals(attempts, limits.path("maxAttemptsPerEpoch").asInt(-1), limits.toString());
         assertEquals(epochs, limits.path("maxEpochs").asInt(-1), limits.toString());
+    }
+
+    private static void assertStopHolds(int expectedHolds) throws Exception {
+        String session = sennard.session();
+        RawHttp.Response prompt = DomainServerSupport.hook(sennard.server.port, "windows", "codex", "UserPromptSubmit", null, session, body -> {});
+        assertEquals(200, prompt.status(), prompt.text());
+        for (int attempt = 0; attempt <= expectedHolds; attempt++) {
+            boolean alreadyContinued = attempt > 0;
+            RawHttp.Response stop = DomainServerSupport.hook(sennard.server.port, "windows", "codex", "Stop", null, session,
+                    body -> body.put("stop_hook_active", alreadyContinued));
+            assertEquals(200, stop.status(), stop.text());
+            JsonNode output = SessionServerSupport.json(stop);
+            assertEquals(attempt < expectedHolds, output.path("reason").asString("").contains("[Sennard workflow gate]"), stop.text());
+            if (attempt < expectedHolds) {
+                assertEquals("block", output.path("decision").asString(), stop.text());
+            } else {
+                assertFalse(output.path("continue").asBoolean(true), stop.text());
+                assertTrue(output.path("stopReason").asString("").contains("within the recheck limit"), stop.text());
+            }
+        }
     }
 
     /** The arguments of a minimal start in a workspace of its own, so that two roots never share a write surface. */
@@ -160,6 +181,7 @@ class ConvergenceLimitsServerTest {
         assertEquals(1, status.path("attemptsUsedInEpoch").asInt(), status.toString());
         assertEquals(2, status.path("attemptsRemainingInEpoch").asInt(), status.toString());
         early = started;
+        assertStopHolds(3);
     }
 
     @Test
@@ -193,6 +215,7 @@ class ConvergenceLimitsServerTest {
         assertLimits(view.path("defaults"), 3, 2);
         assertTrue(view.path("signed").asBoolean(false), view.toString());
         assertLimits(sennard.state().path("signedSettings").path("convergenceLimits").path("limits"), 1, 1);
+        assertStopHolds(1);
     }
 
     @Test
@@ -278,6 +301,63 @@ class ConvergenceLimitsServerTest {
         zero.put("operationalSettings", Map.of("maxAttemptsPerEpoch", 0, "maxEpochs", 2, "leaseTtlSeconds", 3600));
         JsonNode refused = sennard.call("open_convergence_root", arguments("schemaVersion", "1.0.0", "parentRootId", null, "taskEnvelope", task, "frame", zero, "userApprovalRefs", List.of()), sennard.session());
         assertFalse(refused.path("ok").asBoolean(true), refused.toString());
+    }
+
+    @Test
+    @Order(9)
+    void onlyASignedReleasePermitsAnIdenticalBlockedPlanAgain() throws Exception {
+        String session = sennard.session();
+        String workspace = Files.createDirectories(workspaces.resolve(UUID.randomUUID().toString())).toString();
+        String tool = "start_operation_workflow";
+        Map<String, Object> plan = DomainServerSupport.operationArguments("Inspect this release workspace", "read-only inventory", workspace,
+                "session-board", "Inspect concurrent work in the release workspace");
+        RawHttp.Response prompt = DomainServerSupport.hook(sennard.server.port, "windows", "codex", "UserPromptSubmit", null, session, body -> {});
+        assertEquals(200, prompt.status(), prompt.text());
+        JsonNode initial = ok(sennard.callAsNewHostCall(tool, plan, session));
+        String runId = initial.path("runId").asString();
+        RawHttp.Response stop = DomainServerSupport.hook(sennard.server.port, "windows", "codex", "Stop", null, session, body -> {});
+        assertEquals("block", SessionServerSupport.json(stop).path("decision").asString(), stop.text());
+        abort(Started.of(initial, session, plan));
+
+        String another = sennard.session();
+        RawHttp.Response nextPrompt = DomainServerSupport.hook(sennard.server.port, "windows", "codex", "UserPromptSubmit", null, another, body -> {});
+        assertEquals(200, nextPrompt.status(), nextPrompt.text());
+        JsonNode refused = sennard.callAsNewHostCall(tool, plan, another);
+        assertFalse(refused.path("ok").asBoolean(true), refused.toString());
+        assertEquals(runId, refused.path("error").path("details").path("blockedRunId").asString(), refused.toString());
+
+        JsonNode denial = null;
+        for (JsonNode row : sennard.state().path("blockedPlans")) {
+            if (row.path("runId").asString().equals(runId)) denial = row;
+        }
+        assertTrue(denial != null && denial.path("reason").asString().equals("ABORTED_AFTER_STOP_VIOLATION"));
+        ObjectNode unblock = ToolServerSupport.MAPPER.createObjectNode().put("op", "WORKFLOW_PLAN_UNBLOCK");
+        for (String field : List.of("workspaceId", "kind", "planDigest", "recordId")) {
+            unblock.set(field, denial.get(field));
+        }
+        String intent = sennard.prepare(unblock, false).path("intent").asString();
+        String staleIntent = sennard.prepare(unblock, false).path("intent").asString();
+        RawHttp.Response unsigned = sennard.commit(intent, ToolServerSupport.MAPPER.createObjectNode(), UUID.randomUUID().toString(), null, null);
+        assertTrue(unsigned.status() >= 400, unsigned.text());
+        assertFalse(sennard.callAsNewHostCall(tool, plan, another).path("ok").asBoolean(true));
+
+        JsonNode committed = sennard.sign(owner, unblock);
+        assertEquals("workflowPlanUnblock:" + denial.path("recordId").asString(), committed.path("record").path("target").asString(), committed.toString());
+        for (JsonNode row : sennard.state().path("blockedPlans")) {
+            assertFalse(row.path("runId").asString().equals(runId), row.toString());
+        }
+        JsonNode blocked = ok(sennard.call("get_workflow_status", arguments("runId", runId), session));
+        assertEquals("BLOCKED", blocked.path("state").asString(), blocked.toString());
+        JsonNode accepted = ok(sennard.callAsNewHostCall(tool, plan, another));
+        assertFalse(runId.equals(accepted.path("runId").asString()), accepted.toString());
+
+        RawHttp.Response secondStop = DomainServerSupport.hook(sennard.server.port, "windows", "codex", "Stop", null, another, body -> {});
+        assertEquals("block", SessionServerSupport.json(secondStop).path("decision").asString(), secondStop.text());
+        abort(Started.of(accepted, another, plan));
+        RawHttp.Response stale = sennard.commit(staleIntent, owner.assertion(staleIntent, sennard.adminOrigin), UUID.randomUUID().toString(), null, null);
+        assertEquals("ADMIN_TARGET_STALE", SessionServerSupport.json(stale).path("code").asString(), stale.text());
+        JsonNode stillRefused = sennard.callAsNewHostCall(tool, plan, sennard.session());
+        assertEquals(accepted.path("runId"), stillRefused.path("error").path("details").path("blockedRunId"), stillRefused.toString());
     }
 
     @Test

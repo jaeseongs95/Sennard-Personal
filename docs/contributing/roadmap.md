@@ -3,7 +3,7 @@
 # Sennard Roadmap
 
 <!-- release-version:start -->
-The current public release is `v1.2.0`. The first personal release is described in the [1.0.0 release notes](../release-notes/release-notes-v1.0.0.md). The personal edition runs one resident server (Java 25, Spring Boot) per PC and connects to Claude Code, Codex, and Antigravity through their hooks and MCP. Local settings are stored in H2, and business state is stored in a separately connected database.
+The current public release is `v1.3.0`. The first personal release is described in the [1.0.0 release notes](../release-notes/release-notes-v1.0.0.md). The personal edition runs one resident server (Java 25, Spring Boot) per PC and connects to Claude Code, Codex, and Antigravity through their hooks and MCP. Local settings are stored in H2, and business state is stored in a separately connected database.
 <!-- release-version:end -->
 
 This document describes the direction after personal edition 1.0.0. Schedules are managed by the exit conditions of each stage rather than by dates, and work is not moved to the next release scope before the required verification is complete. The current behavior and limits are defined by [Architecture](architecture.md), and the release procedure by [Release](release.md). When this document differs from the implementation, the implementation state and its verification evidence take precedence, and this document is corrected together with them.

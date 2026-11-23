@@ -29,6 +29,7 @@ public enum AdminOp {
     ATTACHMENT_STORAGE_SET,
     ROOT_APPROVE,
     ROOT_RELEASE,
+    WORKFLOW_PLAN_UNBLOCK,
     DATABASE_LINK;
 
     /** The kind of a change; the switch is exhaustive, so a variant added to {@link AdminChange} is a compile error here until it has its kind. */
@@ -53,6 +54,7 @@ public enum AdminOp {
             case AdminChange.AttachmentStorageSet _ -> ATTACHMENT_STORAGE_SET;
             case AdminChange.RootApprove _ -> ROOT_APPROVE;
             case AdminChange.RootRelease _ -> ROOT_RELEASE;
+            case AdminChange.WorkflowPlanUnblock _ -> WORKFLOW_PLAN_UNBLOCK;
             case AdminChange.DatabaseLink _ -> DATABASE_LINK;
         };
     }

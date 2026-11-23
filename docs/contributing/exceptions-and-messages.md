@@ -72,7 +72,7 @@ An advice around service methods converts Spring and Jakarta Validation exceptio
 | `DataIntegrityViolationException` | `IntegrityException(REFERENCE_VIOLATION or VALUE_NOT_ALLOWED)` |
 | Any other `DataAccessException` | `UnavailableException(STORE_UNAVAILABLE)` |
 
-The order of the advice is inside the retry and outside the transaction. A commit failure is also translated, and the retry sees the translated kind (`ErrorTranslationAdvisor.java:24`). To distinguish a foreign key violation from a CHECK violation, only the ISO standard SQLSTATE 23503 is read (`isForeignKey` in `PersistenceErrors.java`). There is no hand-built SQLSTATE table. The earlier `StoreException` (`sennard-api`) thrown at commit is read by its code, and when the earlier store disappears, this branch disappears as well.
+`ErrorTranslationAdvisor` runs outside the transaction and translates commit failures too. A database concurrency failure is translated to `CONCURRENT_UPDATE` in `PersistenceErrors`. The product reports the conflict without rerunning the transaction. To distinguish a foreign key violation from a CHECK violation, only the ISO standard SQLSTATE 23503 is read (`isForeignKey` in `PersistenceErrors.java`). There is no hand-built SQLSTATE table. The earlier `StoreException` (`sennard-api`) thrown at commit is read by its code, and when the earlier store disappears, this branch disappears as well.
 
 ### MCP Result Conversion: One Exhaustive `switch`
 

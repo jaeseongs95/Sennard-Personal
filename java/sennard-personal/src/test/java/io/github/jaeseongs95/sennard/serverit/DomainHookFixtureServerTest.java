@@ -101,7 +101,7 @@ class DomainHookFixtureServerTest {
         String session = SessionServerSupport.uniqueSession();
         JsonNode output = ok(hook(os, host, event, session));
         String context = contextOf(host, output);
-        assertTrue(context.contains("[Sennard turn check]"), output.toString());
+        assertTrue(context.contains("[Sennard checkpoint status]"), output.toString());
         assertTrue(context.contains("checkpoint_context"), output.toString());
     }
 

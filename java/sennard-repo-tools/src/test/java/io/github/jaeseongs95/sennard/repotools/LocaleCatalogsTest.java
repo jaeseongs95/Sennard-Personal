@@ -6,6 +6,7 @@ package io.github.jaeseongs95.sennard.repotools;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -72,6 +73,29 @@ class LocaleCatalogsTest {
         return result;
     }
 
+    private static JsonNode translationLock(String locale) {
+        String file = "locales/" + locale + "/translations.lock.json";
+        return REPO.exists(file) ? REPO.json(file) : Repo.JSON.createObjectNode();
+    }
+
+    private static List<String> sourceLockProblems(String domain, String sourceLocale, JsonNode lock) {
+        return lock.properties().stream()
+                .map(Map.Entry::getKey)
+                .filter(key -> key.startsWith(domain + "."))
+                .map(key -> sourceLocale + " " + key + ": source locale must not lock reviews of its own domain")
+                .toList();
+    }
+
+    @Test
+    void codeModeRefusalIncludesRecoveryInstructionsInBothLocales() {
+        String key = "hooks.workflowGate.unsupportedToolScript";
+        for (String locale : List.of("en", "ko")) {
+            String text = REPO.json("locales/" + locale + "/hooks.json").path(key).stringValue("");
+            assertTrue(text.contains("CLAUDE_CODE_EXPERIMENTAL_CODE_MODE"), locale);
+            assertTrue(text.contains("AGS3-D-0411"), locale);
+        }
+    }
+
     @Test
     void shippedCatalogsAreCompleteAndReviewed() {
         JsonNode catalog = REPO.json("locales/catalog.json");
@@ -114,6 +138,7 @@ class LocaleCatalogsTest {
             });
             for (String locale : locales) {
                 if (locale.equals(sourceLocale)) {
+                    problems.addAll(sourceLockProblems(domain, sourceLocale, translationLock(locale)));
                     continue;
                 }
                 String file = "locales/" + locale + "/" + domain + ".json";
@@ -123,8 +148,7 @@ class LocaleCatalogsTest {
                 }
                 Map<String, String> translated = messages(REPO.json(file));
                 wordingProblems(translated).forEach(problem -> problems.add(locale + " " + problem));
-                String lockFile = "locales/" + locale + "/translations.lock.json";
-                JsonNode lock = REPO.exists(lockFile) ? REPO.json(lockFile) : Repo.JSON.createObjectNode();
+                JsonNode lock = translationLock(locale);
                 source.keySet().stream().filter(key -> !translated.containsKey(key)).forEach(key -> problems.add(locale + " " + key + ": missing translation"));
                 translated.forEach((key, text) -> {
                     if (!source.containsKey(key)) {
@@ -158,6 +182,19 @@ class LocaleCatalogsTest {
             }
         });
         assertEquals(List.of(), problems);
+    }
+
+    @Test
+    void sourceLocaleLockAllowsReviewsOnlyForOtherDomains() {
+        var lock = Repo.JSON.createObjectNode();
+        lock.put("workflow.example", "reviewed");
+        String key = "connector.turnEvidence.head";
+        lock.put(key, "reviewed");
+        assertEquals(List.of("en connector.turnEvidence.head: source locale must not lock reviews of its own domain"),
+                sourceLockProblems("connector", "en", lock));
+
+        lock.remove(key);
+        assertEquals(List.of(), sourceLockProblems("connector", "en", lock));
     }
 
     private static List<String> concat(List<String> values, String more) {

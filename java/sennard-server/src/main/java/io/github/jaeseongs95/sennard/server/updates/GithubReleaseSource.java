@@ -127,13 +127,13 @@ class GithubReleaseSource implements ReleaseSource {
         if (refs.size() > MAX_TAG_REFERENCES) {
             throw new UpdateCheckFailure(PluginUpdateService.Reason.INVALID_RESPONSE);
         }
-        record Tag(PluginUpdateService.StableVersion version, GitObject object) {
+        record Tag(StableVersion version, GitObject object) {
         }
         List<Tag> stable = new ArrayList<>();
         for (GitRef item : refs) {
             Matcher match = item.ref() == null ? null : STABLE_TAG.matcher(item.ref());
             if (match != null && match.matches() && item.object() != null && item.object().complete()) {
-                stable.add(new Tag(PluginUpdateService.StableVersion.of(match), item.object()));
+                stable.add(new Tag(StableVersion.of(match), item.object()));
             }
         }
         if (stable.isEmpty()) {

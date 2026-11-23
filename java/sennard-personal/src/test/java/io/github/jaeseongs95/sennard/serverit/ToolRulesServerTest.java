@@ -26,8 +26,12 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 
 import io.github.jaeseongs95.sennard.server.contract.CanonicalJson;
+import io.github.jaeseongs95.sennard.server.updates.HostPackageStatus;
 import io.github.jaeseongs95.sennard.app.board.BoardService;
 import io.github.jaeseongs95.sennard.service.store.modules.TrustStore;
 import tools.jackson.databind.JsonNode;
@@ -410,6 +414,36 @@ class ToolRulesServerTest {
         JsonNode failed = awaitUpdateCheck(status -> !status.path("lastErrorCode").isNull());
         assertEquals("99.1.0", failed.path("latestVersion").asString(), "the last good result stays");
         remote.tagStatus = 200;
+    }
+
+    @Test
+    void updateCheckReportsLocalHostMismatchWithoutInstalling() throws Exception {
+        try (ToolServerSupport local = ToolServerSupport.startWithSources(List.of(LocalHostDiagnostic.class))) {
+            int before = local.remote.tagCalls.get();
+            JsonNode status = data(local.call("check_for_updates", new HashMap<>(), "unused"));
+            assertFalse(status.path("automaticInstall").asBoolean(true));
+            assertTrue(status.has("comparison"), status.toString());
+            JsonNode mismatch = status.path("hostPackageMismatches").path(0);
+            assertEquals("claude", mismatch.path("host").asString());
+            assertEquals(status.path("currentVersion").asString(), mismatch.path("expectedVersion").asString());
+            assertEquals("0.0.0", mismatch.path("actualVersion").asString());
+            assertEquals("sennard@sennard-claude (scope=project, projectPath=fixture/project)", mismatch.path("installation").asString());
+            JsonNode withoutInstallation = status.path("hostPackageMismatches").path(1);
+            assertEquals("gemini", withoutInstallation.path("host").asString());
+            assertFalse(withoutInstallation.has("installation"));
+            assertEquals(before, local.remote.tagCalls.get());
+        }
+    }
+
+    @TestConfiguration
+    static class LocalHostDiagnostic {
+        @Bean
+        @Primary
+        HostPackageStatus localHostDiagnostic() {
+            return version -> List.of(
+                    new HostPackageStatus.Mismatch("claude", "fixture/host-copy", version, "0.0.0", "sennard@sennard-claude (scope=project, projectPath=fixture/project)"),
+                    new HostPackageStatus.Mismatch("gemini", "fixture/extension", version, "0.0.0", null));
+        }
     }
 
     /** Waits for the background check's own outcome on the row the tool reads; the deadline only ends a hung run. */

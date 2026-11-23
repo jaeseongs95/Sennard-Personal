@@ -61,10 +61,13 @@ import io.github.jaeseongs95.sennard.app.board.BoardService;
 import io.github.jaeseongs95.sennard.app.journal.ChangeJournalService;
 import io.github.jaeseongs95.sennard.app.journal.JournalScanner;
 import io.github.jaeseongs95.sennard.app.journal.ScanBasis;
+import io.github.jaeseongs95.sennard.domain.Digests;
 import io.github.jaeseongs95.sennard.domain.board.BoardEntry;
 import io.github.jaeseongs95.sennard.domain.secret.SecretValue;
 import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore;
 import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore.ActiveRootRow;
+import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore.BlockedPlanKey;
+import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore.BlockedPlanOrigin;
 import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore.GuardedBinding;
 import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore.IdentityRow;
 import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore.LeaseRow;
@@ -1042,7 +1045,8 @@ public class WorkflowService {
         assertNoPlaceholders(skills);
         GuardedInput input = guardedRequest(raw);
         // The longer path opens a change: the kind it is counted under, as the observation of its start is (WorkflowContinuity.prepareWorkflowStart).
-        return startRun(input.request(), skills, input.issued(), null, WorkflowKind.CHANGE);
+        store.requireBlockedPlanGuardForUpdate();
+        return startRun(input.request(), skills, input.issued(), null, WorkflowKind.CHANGE, true);
     }
 
     /**
@@ -1052,7 +1056,7 @@ public class WorkflowService {
      * @param issued the attempt, when finding the plan in the request already had to read it
      * @param kind the kind the run is opened as; it and the skills the start declared are stored with the run in this transaction, which is what the statistics count (V22)
      */
-    private WorkflowReceipt startRun(GuardedStartRequest request, List<SkillDeclaration> skills, IssuedAttempt issued, ClassificationAdvice.StartAdvice advice, WorkflowKind kind) {
+    private WorkflowReceipt startRun(GuardedStartRequest request, List<SkillDeclaration> skills, IssuedAttempt issued, ClassificationAdvice.StartAdvice advice, WorkflowKind kind, boolean checkBlockedPlan) {
         WorkflowPlan plan = request.plan();
         planner.assertIntegrity(plan, signingKey());
         assurance.assertStrictPlan(plan, "guardedStart");
@@ -1071,6 +1075,9 @@ public class WorkflowService {
         }
         if (!Objects.equals(plan.integrityToken(), lease.planIntegrityToken())) {
             throw new WorkflowFailure(WorkflowCode.LEASE_CONFLICT, msg("workflow.service.attemptLeaseBoundDifferentWorkflow"), details("leaseId", leaseId));
+        }
+        if (checkBlockedPlan) {
+            assertPlanUsable(planComparison(attempt.root(), kind, plan, Set.of()));
         }
         WorkflowReceipt receipt = newRunningReceipt(plan, skillDeclaration(skills, request.classificationOperationKey(), advice));
         if (store.insertGuardedRun(runRow(receipt), leaseId, expected, clock.instant().toString(), kind.name(), skills.stream().map(SkillDeclaration::bareId).toList()) == null) {
@@ -1262,6 +1269,7 @@ public class WorkflowService {
         if (workspace.isEmpty() && rootId == null) {
             throw new WorkflowFailure(WorkflowCode.INVALID_INPUT, msg("workflow.service.workspaceRequiredHostReportedSession"), details("field", "workspace"));
         }
+        store.requireBlockedPlanGuardForUpdate();
         int priorFileCount = continuity.priorFileCount(call);
         continuity.settle(call);
         Fresh fresh = rootId == null ? minimalTask(request, workspace.orElseThrow(), priorFileCount) : null;
@@ -1283,7 +1291,19 @@ public class WorkflowService {
         if (plan.state() != RunState.READY) {
             throw bodyError(plan.errors().get(0));
         }
+        String minimalTarget = request.target() == null ? "" : request.target().strip();
+        if (continued == null) {
+            ConvergenceFrame frame = fresh.frame();
+            List<String> surface = ConvergenceLogic.writeSurface(task, frame);
+            Path physical = reads.identity(frame.workspace().locator(), surface, false).workspacePhysical();
+            assertPlanUsable(planComparison(kind, task, plan, frame, physical, changePlan, surface, minimalTarget));
+        } else {
+            assertPlanUsable(planComparison(continued.root(), kind, plan, changePlan));
+        }
         ConvergenceRoot root = continued != null ? continued.root() : openForStart(fresh, call, reads);
+        if (continued == null) {
+            store.recordPlanTarget(root.rootId(), minimalTarget);
+        }
         AttemptProposal proposal = new AttemptProposal(ContractValidator.CONTRACT_VERSION, root.rootId(), root.revision(), null, null, plan,
                 continued != null ? continued.outputTargets() : request.writeTargets(), continued != null ? continued.priorFailure() : null);
         // A start is one transaction: a claim that is refused here rolls the whole start back.
@@ -1291,7 +1311,7 @@ public class WorkflowService {
             case ClaimOutcome.Leased leased -> leased.lease();
             case ClaimOutcome.Refused refused -> throw refused.failure();
         };
-        WorkflowReceipt receipt = startRun(new GuardedStartRequest(ContractValidator.CONTRACT_VERSION, lease.leaseId(), lease.rootRevision(), plan, skills, request.classificationOperationKey()), skills, null, advice, kind);
+        WorkflowReceipt receipt = startRun(new GuardedStartRequest(ContractValidator.CONTRACT_VERSION, lease.leaseId(), lease.rootRevision(), plan, skills, request.classificationOperationKey()), skills, null, advice, kind, false);
         continuity.prepareWorkflowStart(call, root.rootId(), isChild(call), kind);
         // Only database rows here (no file is read): the journal row makes the run's phase planning, and the baseline the entry walked before this transaction is written with it, so a start
         // whose baseline cannot be written leaves no run. A start without a change plan has none to take and stays in planning.
@@ -1339,6 +1359,18 @@ public class WorkflowService {
         }
         ConvergenceRoot root = binding.root();
         return new RunScope(runId, receipt.revision(), journalScopes.scope(root.frame().workspace().locator(), root.taskEnvelope().scope().included()));
+    }
+
+    /** Linearizes the plan submission with Stop and abort, after the file walk has completed. */
+    @Transactional
+    public <T> T writeChangePlan(RunScope run, Set<Path> files, Supplier<T> write) {
+        store.requireBlockedPlanGuardForUpdate();
+        store.readRunIdForUpdate(run.runId());
+        runScope(run.runId(), run.revision());
+        ConvergenceRoot root = guardedBinding(run.runId()).root();
+        WorkflowReceipt receipt = requireRun(run.runId());
+        assertPlanUsable(planComparison(root, storedKind(run.runId()), receipt.plan(), files));
+        return write.get();
     }
 
     /** One failed start: a Sennard infrastructure failure must not leave the session's edits refused. Runs in its own transaction, after the start rolled back. */
@@ -2150,6 +2182,47 @@ public class WorkflowService {
         return receipts.once(operation, WorkflowReceipt.class, () -> observeTransition(runId, call, WorkflowEvents.Transition.ABORT, () -> abortRun(runId, expectedRevision)));
     }
 
+    private static final String STOP_RECHECK_LIMIT_EXHAUSTED = "STOP_RECHECK_LIMIT_EXHAUSTED";
+    private static final String ABORTED_AFTER_STOP_VIOLATION = "ABORTED_AFTER_STOP_VIOLATION";
+
+    public enum StopRecheck { SETTLED, RECHECK, LAST_RECHECK, BLOCKED }
+
+    /** Charges a workflow's open run once. A pause, completion or a different run is not charged by a stale Stop. */
+    @Transactional
+    public StopRecheck recheckAtStop(String rootId, String runId, WorkflowKind kind, int limit) {
+        store.requireBlockedPlanGuardForUpdate();
+        if (store.readRunIdForUpdate(runId) == null) {
+            return StopRecheck.SETTLED;
+        }
+        WorkflowReceipt receipt = requireRun(runId);
+        if (receipt.state() == RunState.BLOCKED && receipt.blockers().contains(STOP_RECHECK_LIMIT_EXHAUSTED)) {
+            return StopRecheck.BLOCKED;
+        }
+        GuardedRun binding = guardedBinding(runId);
+        if (receipt.state() != RunState.RUNNING || !openForStop(binding, rootId)) {
+            return StopRecheck.SETTLED;
+        }
+        int claimed = store.claimStopRecheck(rootId, limit);
+        if (claimed != 0) {
+            store.markStopViolation(runId);
+            return claimed == limit ? StopRecheck.LAST_RECHECK : StopRecheck.RECHECK;
+        }
+        binding = guardedBinding(runId);
+        if (!openForStop(binding, rootId)) {
+            return StopRecheck.SETTLED;
+        }
+        PlanComparison plan = planComparison(binding.root(), kind, receipt.plan(), submittedFiles(runId));
+        store.markStopViolation(runId);
+        change(runId, receipt.revision(), current -> current.withState(RunState.BLOCKED).withPlan(current.plan().blocked())
+                .withBlocked(List.of(STOP_RECHECK_LIMIT_EXHAUSTED)).withError(null));
+        recordBlockedPlan(plan, runId, STOP_RECHECK_LIMIT_EXHAUSTED);
+        return StopRecheck.BLOCKED;
+    }
+
+    private static boolean openForStop(GuardedRun binding, String rootId) {
+        return binding != null && binding.outcome() == null && binding.root().state() == RootState.OPEN && binding.root().rootId().equals(rootId);
+    }
+
     private WorkflowReceipt observeTransition(String runId, WorkflowCall call, WorkflowEvents.Transition action, Supplier<WorkflowReceipt> mutate) {
         Optional<WorkflowContinuity.TransitionTurn> turn = Optional.ofNullable(guardedBinding(runId))
                 .flatMap(binding -> continuity.transitionTurn(call, binding.root().rootId(), isChild(call)));
@@ -2159,13 +2232,62 @@ public class WorkflowService {
     }
 
     private WorkflowReceipt abortRun(String runId, long expectedRevision) {
-        return change(runId, expectedRevision, receipt -> {
+        store.requireBlockedPlanGuardForUpdate();
+        store.readRunIdForUpdate(runId);
+        GuardedRun binding = guardedBinding(runId);
+        WorkflowReceipt aborted = change(runId, expectedRevision, receipt -> {
             RunState state = receipt.state();
             if (!state.canMoveTo(RunState.BLOCKED)) {
                 throw new WorkflowFailure(WorkflowCode.INVALID_TRANSITION, msg("workflow.service.terminalWorkflowAborted"), details("state", state));
             }
             return receipt.withState(RunState.BLOCKED).withPlan(receipt.plan().blocked()).withBlocked(List.of(AbortBlocker.ABORTED_BY_CALLER.wire())).withError(null);
         });
+        if (binding != null && store.hasStopViolation(runId)) {
+            PlanComparison plan = planComparison(binding.root(), storedKind(runId), aborted.plan(), submittedFiles(runId));
+            recordBlockedPlan(plan, runId, ABORTED_AFTER_STOP_VIOLATION);
+        }
+        return aborted;
+    }
+
+    private Set<Path> submittedFiles(String runId) {
+        return journal.phase(runId).isPresent() ? journal.plan(runId).files() : Set.of();
+    }
+
+    private WorkflowKind storedKind(String runId) {
+        String kind = store.runKind(runId);
+        return kind == null ? WorkflowKind.CHANGE : WorkflowKind.valueOf(kind);
+    }
+
+    private record PlanComparison(BlockedPlanKey key, String workspacePath) {
+    }
+
+    private PlanComparison planComparison(ConvergenceRoot root, WorkflowKind kind, WorkflowPlan plan, Set<Path> files) {
+        ConvergenceFrame frame = root.frame();
+        IdentityRow identity = store.rootIdentity(root.rootId());
+        // New and already resolved roots carry the JVM's physical workspace identity.
+        Path physical = identity == null ? WorkspaceIdentity.identify(frame.workspace().locator())
+                : ConvergenceLogic.storedIdentity(mapper, identity.identityJson(), identity.surfaceDigest()).identity().workspacePhysical();
+        return planComparison(kind, root.taskEnvelope(), plan, frame, physical, files, ConvergenceLogic.writeSurface(root), store.planTarget(root.rootId()));
+    }
+
+    private PlanComparison planComparison(WorkflowKind kind, TaskEnvelope task, WorkflowPlan plan, ConvergenceFrame frame, Path physical,
+            Set<Path> files, List<String> surface, String minimalTarget) {
+        Path workspace = Path.of(frame.workspace().locator()).normalize();
+        String digest = WorkflowPlanDigest.of(mapper, kind, task, plan, workspace, files, surface, minimalTarget);
+        String physicalPath = physical.toString();
+        return new PlanComparison(new BlockedPlanKey(Digests.sha256Hex(physicalPath), kind.name(), digest), physicalPath);
+    }
+
+    private void assertPlanUsable(PlanComparison plan) {
+        BlockedPlanOrigin blocked = store.blockedPlan(plan.key());
+        if (blocked != null) {
+            throw new WorkflowFailure(WorkflowCode.INVALID_TRANSITION, msg("workflow.service.identicalBlockedPlan", "runId", blocked.runId(), "reason", blocked.reason()),
+                    details("reason", blocked.reason(), "blockedRunId", blocked.runId(), "planDigest", plan.key().planDigest()));
+        }
+    }
+
+    private void recordBlockedPlan(PlanComparison plan, String runId, String reason) {
+        store.recordBlockedPlan(plan.key(), plan.workspacePath(), runId, reason, clock.instant().toString());
     }
 
     /** One change of a run: the receipt the caller saw is changed once, and what comes of it is stored as the next revision, with the outcome of the attempt when the change ends it. */

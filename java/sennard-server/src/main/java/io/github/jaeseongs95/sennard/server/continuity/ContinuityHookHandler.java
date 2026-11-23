@@ -89,12 +89,14 @@ public class ContinuityHookHandler implements HookDomain {
     private final ClassificationAdvice classification;
     private final WorkflowGate workflowGate;
     private final ChildSessionRoots childRoots;
+    private final SubagentRoster subagents;
 
     public ContinuityHookHandler(ContinuityService continuity, ProductEditTargets editTargets, Messages messages,
             SennardProperties skills, JsonMapper mapper, List<HostWorkFacts> facts, SharedContextHookHandler sharedContext, JournalHookRecorder journal, ClassificationAdvice classification,
-            WorkflowGate workflowGate, ChildSessionRoots childRoots) {
+            WorkflowGate workflowGate, ChildSessionRoots childRoots, SubagentRoster subagents) {
         this.workflowGate = workflowGate;
         this.childRoots = childRoots;
+        this.subagents = subagents;
         this.classification = classification;
         this.journal = journal;
         this.sharedContext = sharedContext;
@@ -153,6 +155,10 @@ public class ContinuityHookHandler implements HookDomain {
         HostWorkFacts host = facts.getOrDefault(context.hostLabel(), HostWorkFacts.NONE);
         String sessionHost = context.hostLabel().sessionHost();
         // A hook opens no transaction: each branch calls service methods, and the one that reads and changes the session's task makes it when the session has none.
+        Set<String> addresses = host.subagentAddresses(event);
+        if (!addresses.isEmpty()) {
+            subagents.record(context, addresses);
+        }
         if (event instanceof HostEvent.SubagentStarted) {
             return subagentStart(session, sessionHost, context);
         }
@@ -179,13 +185,13 @@ public class ContinuityHookHandler implements HookDomain {
                 continuity.recordPostCompact(session, finished.turnId(), finished.successful());
                 yield PROCEED;
             }
-            case HostEvent ignored when event.startsTurn() -> context(promptLines(host, session, event, continuity.onPromptSubmitted(session, host.checksTurnWork(), rootActor)), true);
+            case HostEvent ignored when event.startsTurn() -> turnStarted(event, host, session, rootActor);
             case HostEvent.ToolFinished finished when hasNoToolBoundary(host) -> PROCEED;
             case HostEvent.ToolFinished finished when finished.tool().sennardTool() != null && PROGRESS_TOOLS.contains(finished.tool().sennardTool()) ->
                 context(continuity.checkpointCueAfterProgress(session, finished.tool().callId()), false);
             case HostEvent.ToolFinished finished -> environmentFailure(session, finished);
             case HostEvent.ToolRequested request -> gate(request, host, session, null);
-            case HostEvent.TurnEnded ended -> continueTurn(turnEndLines(ended, host, session, rootActor));
+            case HostEvent.TurnEnded ended -> turnEnd(ended, host, session, rootActor);
             default -> PROCEED;
         };
     }
@@ -195,15 +201,34 @@ public class ContinuityHookHandler implements HookDomain {
         host.turnWork(finished.tool(), finished.reportedFailure()).ifPresent(work -> continuity.recordTurnWork(session, work));
     }
 
+    private HookVerdict turnStarted(HostEvent event, HostWorkFacts host, String session, String rootActor) {
+        List<MessageRef> lines = promptLines(host, session, event, continuity.onPromptSubmitted(session, host.checksTurnWork(), rootActor));
+        if (event.restoresContext()) {
+            lines = joined(lines, continuity.resumeContext(session));
+        }
+        return context(lines, true);
+    }
+
     /**
-     * A turn that ended in a way that cannot be continued is not continued, and is not counted as the turn's one continuation. What the stage check, the turn evidence and the save
-     * check each find is said in one continuation ({@link ContinuityService#onTurnEnded}).
+     * A missing procedure can cause a continuation or end the turn. While the turn can continue, report the other checks along with the gate guidance.
      */
-    private List<MessageRef> turnEndLines(HostEvent.TurnEnded ended, HostWorkFacts host, String session, String rootActor) {
+    private HookVerdict turnEnd(HostEvent.TurnEnded ended, HostWorkFacts host, String session, String rootActor) {
         // Whether an instance serves the request is asked before the instances of the kind that closes with the turn are closed: a closed instance serves no request.
-        List<MessageRef> held = workflowGate.stopLines(session, null, ended.alreadyContinued(), ended.continuable());
+        WorkflowGate.StopCheck check = workflowGate.stopCheck(session, null, ended.continuable());
+        if (check.terminationReason() != null) {
+            return new HookVerdict.TerminateTurn(messages.render(check.terminationReason()));
+        }
         workflowGate.closeTurn(session);
-        return joined(held, continuity.onTurnEnded(session, rootActor, ended.alreadyContinued(), ended.continuable(), host.checksTurnWork()));
+        ContinuityService.PhaseCheck phase = continuity.onTurnEnded(session, rootActor, ended.alreadyContinued(), ended.continuable(), host.checksTurnWork());
+        return stopWorkflows(check.guidance(), phase, ended.continuable());
+    }
+
+    private HookVerdict stopWorkflows(List<MessageRef> selection, ContinuityService.PhaseCheck phase, boolean continuable) {
+        WorkflowGate.StopCheck check = workflowGate.stopWorkflows(phase.violations(), continuable);
+        if (check.terminationReason() != null) {
+            return new HookVerdict.TerminateTurn(messages.render(check.terminationReason()));
+        }
+        return continuable ? continueTurn(orEmpty(joined(joined(selection, check.guidance()), phase.guidance()))) : PROCEED;
     }
 
     /** What a prompt adds: the workflow gate's lines (the request needs a workflow, the open ones, how to open one), then what the prompt's use case says. */
@@ -233,10 +258,10 @@ public class ContinuityHookHandler implements HookDomain {
             case FORK -> continuity.startFork(session);
             case CLEAR -> continuity.clear(session);
             case STARTUP, RESUME -> {
-                return context(continuity.resumeContext(session), false);
+                return started.restoresContext() ? context(continuity.resumeContext(session), false) : PROCEED;
             }
             case COMPACT -> {
-                return context(continuity.compactContext(session), false);
+                return started.restoresContext() ? context(continuity.compactContext(session), false) : PROCEED;
             }
             case OTHER -> {
             }
@@ -252,10 +277,15 @@ public class ContinuityHookHandler implements HookDomain {
         if (turnEnd) {
             boolean quiet = event instanceof HostEvent.TurnEnded ended ? ended.alreadyContinued() : ((HostEvent.SubagentEnded) event).alreadyContinued();
             // A subagent is held to the same rule: its own end needs an instance it opened or resumed.
-            List<MessageRef> held = workflowGate.stopLines(session, actor, quiet, true);
+            boolean continuable = !(event instanceof HostEvent.TurnEnded ended) || ended.continuable();
+            WorkflowGate.StopCheck check = workflowGate.stopCheck(session, actor, continuable);
+            if (check.terminationReason() != null) {
+                return new HookVerdict.TerminateTurn(messages.render(check.terminationReason()));
+            }
             // What the subagent opened and the turn closes is closed with the subagent, not with the main agent's turn: the instances are independent.
             workflowGate.closeSubagent(session, actor);
-            return continueTurn(orEmpty(joined(held, continuity.phaseCheck(session, quiet, actor))));
+            ContinuityService.PhaseCheck phase = continuity.phaseCheck(session, quiet, actor);
+            return stopWorkflows(check.guidance(), phase, continuable);
         }
         HookVerdict failure = event instanceof HostEvent.ToolFinished finished ? environmentFailure(session, finished) : PROCEED;
         boolean step = event instanceof HostEvent.ToolFinished finished && finished.stepBoundary();
@@ -370,6 +400,10 @@ public class ContinuityHookHandler implements HookDomain {
             if (card != null) {
                 text.append(BLOCK_SEPARATOR).append(card);
             }
+        } catch (RuntimeException unavailable) {
+            LOG.warn("SUBAGENT_WORKFLOW_CARD_UNAVAILABLE", unavailable);
+        }
+        try {
             int used = text.length();
             String situation = messages.renderLines(continuity.situationForActor(session, actor, candidate -> used + BLOCK_SEPARATOR.length() + candidate.length() <= HOOK_CONTEXT_MAX_CHARACTERS));
             if (situation != null) {

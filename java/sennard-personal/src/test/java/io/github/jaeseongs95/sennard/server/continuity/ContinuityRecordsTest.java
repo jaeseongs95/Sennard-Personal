@@ -24,8 +24,6 @@ import io.github.jaeseongs95.sennard.server.continuity.ContinuityService.Memory;
 import io.github.jaeseongs95.sennard.server.continuity.ContinuityService.PurgeReceipt;
 import io.github.jaeseongs95.sennard.server.continuity.ContinuityService.ReasonCode;
 import io.github.jaeseongs95.sennard.server.continuity.ContinuityService.RestoreToken;
-import io.github.jaeseongs95.sennard.server.continuity.ContinuityService.RootDoc;
-import io.github.jaeseongs95.sennard.server.continuity.ContinuityService.RunDoc;
 import io.github.jaeseongs95.sennard.server.continuity.ContinuityService.SnapshotView;
 import io.github.jaeseongs95.sennard.server.continuity.ContinuityService.VerifiedToken;
 import io.github.jaeseongs95.sennard.server.continuity.ContinuityService.WorkflowCard;
@@ -34,10 +32,12 @@ import io.github.jaeseongs95.sennard.domain.error.BindingException;
 import io.github.jaeseongs95.sennard.service.store.ContextSource;
 import io.github.jaeseongs95.sennard.service.store.MemoryStatus;
 import io.github.jaeseongs95.sennard.service.store.RequestReceiptKind;
-import io.github.jaeseongs95.sennard.service.store.RootState;
+import io.github.jaeseongs95.sennard.server.workflow.ConvergenceRoot;
+import io.github.jaeseongs95.sennard.server.workflow.WorkflowReceipt;
 import io.github.jaeseongs95.sennard.service.store.RunState;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.cfg.EnumFeature;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -194,7 +194,7 @@ class ContinuityRecordsTest {
 
     // ------------------------------------------------------------------------------------------------------------ workflow card
 
-    private static final String ROOT = "{\"state\":\"OPEN\",\"revision\":5,\"rootId\":\"root-1\",\"updatedAt\":\"2026-01-02T00:00:00Z\",\"ignored\":{\"a\":1},"
+    private static final String ROOT = "{\"state\":\"OPEN\",\"revision\":5,\"currentEpoch\":2,\"rootId\":\"root-1\",\"updatedAt\":\"2026-01-02T00:00:00Z\",\"ignored\":{\"a\":1},"
             + "\"taskEnvelope\":{\"taskId\":\"task-1\",\"objective\":\"Do the thing\",\"scope\":{\"included\":[\"a\",\"b\"],\"excluded\":[]},"
             + "\"acceptanceCriteria\":[\"c1\",\"c2\",\"c3\",\"c4\",\"c5\",\"c6\"],\"constraints\":[\"k\"],"
             + "\"authorization\":{\"allowedActions\":[\"edit\"],\"prohibitedActions\":[],\"approvalRequired\":[\"deploy\"]}}}";
@@ -212,20 +212,25 @@ class ContinuityRecordsTest {
     private static String receipt(int artifacts, String checkSource, String check, String checkedAttachment) {
         StringBuilder list = new StringBuilder();
         for (int index = 0; index < artifacts; index++) {
-            list.append(index == 0 ? "" : ",").append("{\"artifactId\":\"a").append(index).append("\",\"attachmentId\":\"").append(attachment(index)).append("\",\"digest\":\"d").append(index).append("\"}");
+            list.append(index == 0 ? "" : ",").append("{\"artifactId\":\"a").append(index).append("\",\"attachmentId\":\"").append(attachment(index)).append("\",\"digest\":\"d").append(index).append("\",\"verified\":false}");
         }
-        return "{\"state\":\"RUNNING\",\"blockers\":[\"b1\"],\"unresolved\":[],\"plan\":{\"stages\":[{\"stageId\":\"s1\"},{\"stageId\":\"s2\"}],\"currentStageId\":\"s1\",\"nextStageId\":\"s2\"},"
-                + "\"stageResults\":[{\"stageId\":\"s1\",\"state\":\"PASSED\",\"output\":{\"artifacts\":[" + list + "]},"
+        return "{\"revision\":1,\"state\":\"RUNNING\",\"blockers\":[\"b1\"],\"unresolved\":[],\"plan\":{\"stages\":["
+                + "{\"stageId\":\"s1\",\"order\":1,\"phaseOrder\":1},{\"stageId\":\"s2\",\"order\":2,\"phaseOrder\":1}],\"currentStageId\":\"s1\",\"nextStageId\":\"s2\"},"
+                + "\"stageResults\":[{\"stageId\":\"s1\",\"expectedRevision\":0,\"state\":\"PASSED\",\"output\":{\"artifacts\":[" + list + "]},"
                 + "\"artifactChecks\":[{\"source\":\"" + checkSource + "\",\"check\":\"" + check + "\",\"artifactId\":\"a0\",\"attachmentId\":\"" + checkedAttachment + "\"}]}]}";
     }
 
-    private static WorkflowCard card(RunDoc run) {
-        return ContinuityService.card(MAPPER, "c1", 2, MAPPER.readValue(ROOT, RootDoc.class), run);
+    private static WorkflowReceipt readReceipt(String text) {
+        return MAPPER.readerFor(WorkflowReceipt.class).with(EnumFeature.READ_UNKNOWN_ENUM_VALUES_AS_NULL).readValue(text);
+    }
+
+    private static WorkflowCard card(WorkflowReceipt run) {
+        return ContinuityService.card(MAPPER, "c1", 2, MAPPER.readValue(ROOT, ConvergenceRoot.class), run);
     }
 
     @Test
     void theCardOfARootAndItsRunKeepsItsKeysBoundsAndDigest() {
-        WorkflowCard card = card(MAPPER.readValue(receipt(2, "ARTIFACT", "SHA256_MATCHED"), RunDoc.class));
+        WorkflowCard card = card(readReceipt(receipt(2, "ARTIFACT", "SHA256_MATCHED")));
         JsonNode tree = wire(card);
 
         assertEquals(new TreeSet<>(List.of("schemaVersion", "source", "taskCorrelation", "epoch", "revision", "rootId", "rootState", "taskId", "objective", "includedScope", "excludedScope",
@@ -259,12 +264,12 @@ class ContinuityRecordsTest {
         assertEquals(json("[]"), tree.path("blockers"));
         assertEquals(json("[]"), tree.path("evidenceRefs"));
         // a null that the digest sees: the same card with a run has another digest
-        assertFalse(card.snapshotDigest().equals(card(MAPPER.readValue(receipt(0, "ARTIFACT", "SHA256_MATCHED"), RunDoc.class)).snapshotDigest()));
+        assertFalse(card.snapshotDigest().equals(card(readReceipt(receipt(0, "ARTIFACT", "SHA256_MATCHED"))).snapshotDigest()));
     }
 
     @Test
     void onlyTheFirstSixEvidenceRefsAreShownAndTheRestCounted() {
-        WorkflowCard card = card(MAPPER.readValue(receipt(9, "ARTIFACT", "SHA256_MATCHED"), RunDoc.class));
+        WorkflowCard card = card(readReceipt(receipt(9, "ARTIFACT", "SHA256_MATCHED")));
 
         assertEquals(6, card.evidenceRefs().size());
         assertEquals(3, card.evidenceRefsOmitted());
@@ -273,17 +278,17 @@ class ContinuityRecordsTest {
 
     @Test
     void anArtifactIsVerifiedOnlyByAnArtifactCheckThatMatched() {
-        assertTrue(card(MAPPER.readValue(receipt(1, "ARTIFACT", "SHA256_MATCHED"), RunDoc.class)).evidenceRefs().getFirst().verified());
-        assertFalse(card(MAPPER.readValue(receipt(1, "EVIDENCE", "SHA256_MATCHED"), RunDoc.class)).evidenceRefs().getFirst().verified());
-        assertFalse(card(MAPPER.readValue(receipt(1, "ARTIFACT", "NOT_CHECKED"), RunDoc.class)).evidenceRefs().getFirst().verified());
+        assertTrue(card(readReceipt(receipt(1, "ARTIFACT", "SHA256_MATCHED"))).evidenceRefs().getFirst().verified());
+        assertFalse(card(readReceipt(receipt(1, "EVIDENCE", "SHA256_MATCHED"))).evidenceRefs().getFirst().verified());
+        assertFalse(card(readReceipt(receipt(1, "ARTIFACT", "NOT_CHECKED"))).evidenceRefs().getFirst().verified());
         // a check text that names no constant is no check, and no exception
-        assertFalse(card(MAPPER.readValue(receipt(1, "SOMETHING", "SHA256_MATCHED"), RunDoc.class)).evidenceRefs().getFirst().verified());
-        assertFalse(card(MAPPER.readValue(receipt(1, "ARTIFACT", "SOMETHING"), RunDoc.class)).evidenceRefs().getFirst().verified());
+        assertFalse(card(readReceipt(receipt(1, "SOMETHING", "SHA256_MATCHED"))).evidenceRefs().getFirst().verified());
+        assertFalse(card(readReceipt(receipt(1, "ARTIFACT", "SOMETHING"))).evidenceRefs().getFirst().verified());
     }
 
     @Test
     void aMatchedCheckOfAnotherAttachmentThanTheOneTheArtifactNamesDoesNotVerifyIt() {
-        WorkflowCard card = card(MAPPER.readValue(receipt(1, "ARTIFACT", "SHA256_MATCHED", attachment(7)), RunDoc.class));
+        WorkflowCard card = card(MAPPER.readValue(receipt(1, "ARTIFACT", "SHA256_MATCHED", attachment(7)), WorkflowReceipt.class));
         assertFalse(card.evidenceRefs().getFirst().verified());
         assertEquals(attachment(0), card.evidenceRefs().getFirst().locator(), "the card still shows the attachment the artifact names");
     }
@@ -299,7 +304,7 @@ class ContinuityRecordsTest {
                 .replace("\"artifactId\":\"a0\",\"attachmentId\":\"" + bundle + "\"}]", "\"artifactId\":\"a0\",\"attachmentId\":\"" + bundle + "\",\"seq\":1}]");
         assertTrue(text.contains("\"seq\":1,\"digest\"") && text.contains("\"seq\":1}]"), "both the artifact and its check name file 1: " + text);
 
-        WorkflowCard card = card(MAPPER.readValue(text, RunDoc.class));
+        WorkflowCard card = card(readReceipt(text));
 
         JsonNode first = wire(card).path("evidenceRefs").get(0);
         assertEquals(bundle, first.path("locator").asString());
@@ -308,30 +313,20 @@ class ContinuityRecordsTest {
     }
 
     @Test
-    void aWorkflowDocumentWithMissingValuesGetsTheDefaultsTheTreeReadingGave() {
-        RootDoc root = MAPPER.readValue("{\"state\":\"COMPLETED\",\"unknown\":[1,2]}", RootDoc.class);
+    void optionalListsOmittedFromStoredReceiptsLeaveTheCardEmpty() {
+        WorkflowCard card = card(readReceipt("{\"revision\":0,\"state\":\"PASSED\",\"plan\":{}}"));
 
-        assertEquals(RootState.COMPLETED, root.state());
-        assertEquals(0L, root.revision());
-        assertEquals("", root.rootId());
-        assertEquals("", root.updatedAt());
-        assertEquals("", root.taskEnvelope().objective());
-        assertEquals(List.of(), root.taskEnvelope().scope().included());
-        assertEquals(List.of(), root.taskEnvelope().authorization().approvalRequired());
-
-        RunDoc run = MAPPER.readValue("{\"state\":\"PASSED\"}", RunDoc.class);
-        assertEquals(RunState.PASSED, run.state());
-        assertEquals(List.of(), run.stageResults());
-        assertEquals(List.of(), run.plan().stages());
-        assertNull(run.plan().currentStageId());
-        assertEquals(List.of(), run.blockers());
+        assertEquals(RunState.PASSED, card.workflowState());
+        assertNull(card.currentStageId());
+        assertEquals(List.of(), card.blockers());
+        assertEquals(List.of(), card.evidenceRefs());
     }
 
     @Test
     void aStateThatNamesNoConstantIsABindingError() {
-        assertThrows(JacksonException.class, () -> MAPPER.readValue("{\"state\":\"BOGUS\"}", RunDoc.class));
-        assertThrows(JacksonException.class, () -> MAPPER.readValue("{\"state\":\"BOGUS\"}", RootDoc.class));
-        assertThrows(JacksonException.class, () -> MAPPER.readValue("{\"state\":\"RUNNING\",\"stageResults\":{\"a\":1}}", RunDoc.class));
+        assertThrows(JacksonException.class, () -> MAPPER.readValue("{\"revision\":0,\"state\":\"BOGUS\"}", WorkflowReceipt.class));
+        assertThrows(JacksonException.class, () -> MAPPER.readValue("{\"revision\":0,\"currentEpoch\":1,\"state\":\"BOGUS\"}", ConvergenceRoot.class));
+        assertThrows(JacksonException.class, () -> MAPPER.readValue("{\"revision\":0,\"state\":\"RUNNING\",\"stageResults\":{\"a\":1}}", WorkflowReceipt.class));
     }
 
     @Test

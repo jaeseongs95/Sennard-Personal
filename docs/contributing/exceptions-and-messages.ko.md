@@ -72,7 +72,7 @@ throw new InvalidInputException(InputCode.SUMMARY_INVALID, SennardException.args
 | `DataIntegrityViolationException` | `IntegrityException(REFERENCE_VIOLATION 또는 VALUE_NOT_ALLOWED)` |
 | 그 밖의 `DataAccessException` | `UnavailableException(STORE_UNAVAILABLE)` |
 
-어드바이스의 순서는 재시도 안쪽, 트랜잭션 바깥입니다. 커밋 실패도 번역되고, 재시도가 번역된 종류를 봅니다(`ErrorTranslationAdvisor.java:24`). 외래키 위반과 CHECK 위반을 가르는 데에 ISO 표준 SQLSTATE 23503 하나만 읽습니다(`PersistenceErrors.java`의 `isForeignKey`). 직접 만든 SQLSTATE 표는 없습니다. 커밋 때 던지는 옛 `StoreException`(`sennard-api`)은 코드로 읽으며, 옛 스토어가 사라지면 이 분기도 사라집니다.
+`ErrorTranslationAdvisor`는 트랜잭션 바깥에서 실행되어 커밋 실패도 번역합니다. 데이터베이스 경합 오류는 `PersistenceErrors`에서 `CONCURRENT_UPDATE`로 번역합니다. 제품은 경합 결과를 반환하며 트랜잭션을 다시 실행하지 않습니다. 외래키 위반과 CHECK 위반을 가르는 데에 ISO 표준 SQLSTATE 23503 하나만 읽습니다(`PersistenceErrors.java`의 `isForeignKey`). 직접 만든 SQLSTATE 표는 없습니다. 커밋 때 던지는 옛 `StoreException`(`sennard-api`)은 코드로 읽으며, 옛 스토어가 사라지면 이 분기도 사라집니다.
 
 ### MCP 결과 변환: 완전 `switch` 한 곳
 

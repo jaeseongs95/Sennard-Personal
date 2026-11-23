@@ -66,7 +66,6 @@ import tools.jackson.databind.node.ObjectNode;
 @Tag("business-db")
 class TurnSaveCheckServerTest {
     private static final String CHECK = "[Sennard save check]";
-    private static final String WARNING = "previous turn";
     private static final Map<String, Object> CORE = Map.of("objective", "keep the user's correction", "completionCriteria", List.of("c"), "constraints", List.of(), "decisions", List.of(),
             "progress", List.of(), "blockers", List.of(), "nextActions", List.of());
 
@@ -386,7 +385,7 @@ class TurnSaveCheckServerTest {
         assertAsks(host, host.continuation(stopAnswer(host, session, false)));
         assertQuiet(host, host.continuation(stopAnswer(host, session, true)));
         String next = prompt(host, session, "second");
-        assertTrue(next.contains(CHECK) && next.contains(WARNING) && next.contains("checkpoint_context"), "the warning is in the turn start of the next prompt: " + next);
+        assertTrue(next.contains(CHECK) && next.contains(previousInputWarning()) && next.contains("checkpoint_context"), "the warning is in the turn start of the next prompt: " + next);
     }
 
     @ParameterizedTest
@@ -396,7 +395,7 @@ class TurnSaveCheckServerTest {
         prompt(host, session, "first");
         assertQuiet(host, host.continuation(stopAnswer(host, session, true)));
         String next = prompt(host, session, "second");
-        assertTrue(next.contains(CHECK) && next.contains(WARNING), next);
+        assertTrue(next.contains(CHECK) && next.contains(previousInputWarning()), next);
     }
 
     static Stream<Host> claudeAndCodex() {
@@ -408,9 +407,9 @@ class TurnSaveCheckServerTest {
     void aTurnWithNoTurnEndIsWarnedAboutAtTheNextPrompt(Host host) throws Exception {
         String session = started(host);
         String first = prompt(host, session, "first");
-        assertFalse(first.contains(WARNING), "the first prompt of a session has no earlier turn: " + first);
+        assertFalse(first.contains(previousInputWarning()), "the first prompt of a session has no earlier turn: " + first);
         String next = prompt(host, session, "second");
-        assertTrue(next.contains(CHECK) && next.contains(WARNING), next);
+        assertTrue(next.contains(CHECK) && next.contains(previousInputWarning()), next);
     }
 
     @ParameterizedTest
@@ -419,12 +418,12 @@ class TurnSaveCheckServerTest {
         String saved = started(host);
         prompt(host, saved, "first");
         save(host, saved, false);
-        assertFalse(prompt(host, saved, "second").contains(WARNING));
+        assertFalse(prompt(host, saved, "second").contains(previousInputWarning()));
 
         String marked = started(host);
         prompt(host, marked, "first");
         mark(host, marked, false);
-        assertFalse(prompt(host, marked, "second").contains(WARNING));
+        assertFalse(prompt(host, marked, "second").contains(previousInputWarning()));
     }
 
     @ParameterizedTest
@@ -464,6 +463,10 @@ class TurnSaveCheckServerTest {
         JsonNode suppressed = call(host, "suppress_context_restore", arguments("expectedEpoch", 1), session, false);
         assertOk(suppressed);
         assertQuiet(host, stop(host, session));
-        assertFalse(prompt(host, session, "next").contains(WARNING));
+        assertFalse(prompt(host, session, "next").contains(previousInputWarning()));
+    }
+
+    private static String previousInputWarning() {
+        return DomainServerSupport.englishMessage(sennard.server, "hooks.turnCheck.previous", Map.of());
     }
 }

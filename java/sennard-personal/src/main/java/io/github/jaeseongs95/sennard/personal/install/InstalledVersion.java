@@ -5,11 +5,19 @@
 package io.github.jaeseongs95.sennard.personal.install;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.jar.Attributes;
+import java.util.jar.JarInputStream;
 import java.util.stream.Stream;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.github.jaeseongs95.sennard.domain.error.SennardException;
 import io.github.jaeseongs95.sennard.domain.error.UnavailableCode;
@@ -25,19 +33,102 @@ import io.github.jaeseongs95.sennard.domain.jvm.Collector;
  * @param folder the version's folder; its name is the version
  */
 public record InstalledVersion(Path folder) {
+    private static final Logger LOG = LoggerFactory.getLogger(InstalledVersion.class);
     /** The folder of an installation that holds one folder per version. */
     public static final String VERSIONS = "versions";
     /** The start of the file name of the hook client's jar (Gradle names a module's jar {@code <module>-<version>.jar}). */
     static final String HOOK_CLIENT_JAR_PREFIX = "sennard-hook-client-";
+    private static final String RUNTIME_FILES = ".runtime-files";
 
     public InstalledVersion {
         folder = folder.toAbsolutePath().normalize();
     }
 
-    /** The version at {@code folder}, when its application jar is there; empty for a folder that is no installed version (a leftover of a failed publish, for one). */
+    /** A published version has its extracted runtime files. A legacy directory can be incomplete after an interrupted deletion. */
     public static Optional<InstalledVersion> at(Path folder) {
+        if (folder.getFileName() == null || folder.getFileName().toString().startsWith(".") || !Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) {
+            return Optional.empty();
+        }
         InstalledVersion version = new InstalledVersion(folder);
-        return Files.isRegularFile(version.appJar()) ? Optional.of(version) : Optional.empty();
+        try {
+            return completeRuntime(version.folder(), version.appJar()) ? Optional.of(version) : Optional.empty();
+        } catch (IOException | IllegalArgumentException incomplete) {
+            LOG.debug("Could not validate the installed runtime at {}", version.folder(), incomplete);
+            return Optional.empty();
+        }
+    }
+
+    /** Record the files extracted by the release before publishing the staging folder. Settings and generated caches are added later. */
+    static void recordRuntime(Path staging, String version) throws IOException {
+        Path folder = staging.toAbsolutePath().normalize();
+        if (!completeRuntime(folder, folder.resolve(jarName(version)))) {
+            throw new IOException("Extracted runtime is incomplete: " + staging);
+        }
+        List<String> files;
+        try (Stream<Path> paths = Files.walk(staging)) {
+            files = paths.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                    .map(staging::relativize).map(Path::toString).sorted().toList();
+        }
+        Files.write(staging.resolve(RUNTIME_FILES), files);
+    }
+
+    private static boolean completeRuntime(Path folder, Path app) throws IOException {
+        if (!regularRuntimeFile(app) || !regularRuntimeFile(folder.resolve("skills/registry.json"))
+                || !regularRuntimeFile(folder.resolve("contracts/workflow-plan.v1.schema.json"))) {
+            return false;
+        }
+        Path lib = folder.resolve("lib");
+        if (!Files.isDirectory(lib, LinkOption.NOFOLLOW_LINKS)) {
+            return false;
+        }
+        Optional<Path> clientJar = findHookClientJar(lib);
+        if (clientJar.isEmpty()) {
+            return false;
+        }
+        try (JarInputStream jar = new JarInputStream(Files.newInputStream(app))) {
+            if (jar.getManifest() == null) {
+                return false;
+            }
+            String classPath = jar.getManifest().getMainAttributes().getValue(Attributes.Name.CLASS_PATH);
+            if (classPath == null || classPath.isBlank()) {
+                return false;
+            }
+            int hookEntries = 0;
+            for (String entry : classPath.strip().split("\\s+")) {
+                URI relative = URI.create(entry);
+                if (relative.isAbsolute() || relative.getRawAuthority() != null || relative.getRawQuery() != null || relative.getRawFragment() != null) {
+                    return false;
+                }
+                Path dependency = folder.resolve(relative.getPath()).normalize();
+                if (!lib.equals(dependency.getParent()) || !dependency.getFileName().toString().endsWith(".jar") || !regularRuntimeFile(dependency)) {
+                    return false;
+                }
+                if (dependency.equals(clientJar.get())) {
+                    hookEntries++;
+                }
+            }
+            return hookEntries == 1 && inventoryPresent(folder);
+        }
+    }
+
+    private static boolean inventoryPresent(Path folder) throws IOException {
+        Path inventory = folder.resolve(RUNTIME_FILES);
+        List<String> files;
+        try {
+            files = Files.readAllLines(inventory);
+        } catch (NoSuchFileException legacy) {
+            // Legacy versions have an application manifest but no extracted content inventory.
+            LOG.trace("No extracted file inventory at {}; accepting the legacy runtime layout.", inventory, legacy);
+            return true;
+        }
+        return !files.isEmpty() && files.stream().allMatch(entry -> {
+            Path file = folder.resolve(entry).normalize();
+            return file.startsWith(folder) && Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS);
+        });
+    }
+
+    private static boolean regularRuntimeFile(Path path) throws IOException {
+        return Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && Files.size(path) > 0;
     }
 
     /**
@@ -78,18 +169,25 @@ public record InstalledVersion(Path folder) {
      * The jar of the hook client ({@code sennard-hook-client-<version>.jar}), which the folder's {@code lib} holds with the other modules' jars: what a command hook and the MCP relay put
      * on their class path, and the only thing on it.
      *
-     * @throws UnavailableException when there is not exactly one
+     * @throws UnavailableException unless exactly one candidate exists and is a nonempty regular file
      */
     public Path hookClientJar() {
         Path lib = folder.resolve("lib");
-        try (Stream<Path> found = Files.list(lib)) {
-            List<Path> jars = found.filter(path -> path.getFileName().toString().startsWith(HOOK_CLIENT_JAR_PREFIX) && path.getFileName().toString().endsWith(".jar")).toList();
-            if (jars.size() != 1) {
-                throw new UnavailableException(UnavailableCode.INSTALL_FAILED, SennardException.args("what", "unreadable", "file", lib));
-            }
-            return jars.get(0);
+        try {
+            return findHookClientJar(lib).orElseThrow(
+                    () -> new UnavailableException(UnavailableCode.INSTALL_FAILED, SennardException.args("what", "unreadable", "file", lib)));
         } catch (IOException cause) {
             throw new UnavailableException(UnavailableCode.INSTALL_FAILED, SennardException.args("what", "unreadable", "file", lib), cause);
+        }
+    }
+
+    private static Optional<Path> findHookClientJar(Path lib) throws IOException {
+        try (Stream<Path> found = Files.list(lib)) {
+            List<Path> jars = found.filter(path -> {
+                String name = path.getFileName().toString();
+                return name.startsWith(HOOK_CLIENT_JAR_PREFIX) && name.endsWith(".jar");
+            }).limit(2).toList();
+            return jars.size() == 1 && regularRuntimeFile(jars.getFirst()) ? Optional.of(jars.getFirst()) : Optional.empty();
         }
     }
 

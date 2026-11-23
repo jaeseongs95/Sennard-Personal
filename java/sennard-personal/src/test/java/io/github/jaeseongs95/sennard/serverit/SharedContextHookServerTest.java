@@ -97,7 +97,11 @@ class SharedContextHookServerTest {
     }
 
     private static String sessionStart(Host host, String session) throws IOException {
-        return post(host.label(), "SessionStart", session, body -> body.put("source", "startup"));
+        return sessionStart(host, session, "startup");
+    }
+
+    private static String sessionStart(Host host, String session, String source) throws IOException {
+        return post(host.label(), "SessionStart", session, body -> body.put("source", source));
     }
 
     private static String turnStart(Host host, String session) throws IOException {
@@ -162,7 +166,7 @@ class SharedContextHookServerTest {
 
     @ParameterizedTest
     @MethodSource("hosts")
-    void allThreeSavedBodiesTravelAtContextStartAndStayOutOfOrdinaryHooks(Host host) throws Exception {
+    void allThreeSavedBodiesTravelAtTheHostsRestorationBoundaries(Host host) throws Exception {
         String global = setGlobal("전역 지시 " + UUID.randomUUID() + " {not-a-placeholder}");
         String roleId = role();
         String roleBody = "역할 판단 기준 " + UUID.randomUUID();
@@ -170,27 +174,67 @@ class SharedContextHookServerTest {
 
         String session = boundSession(host, roleId);
         sessionStart(host, session);
+        String objective = saveSituation(host, session);
+        List<String> restored = switch (host.label()) {
+            case "agy" -> List.of(turnStart(host, session), turnStart(host, session));
+            case "gemini" -> List.of(sessionStart(host, session), sessionStart(host, session, "resume"), turnStart(host, session), turnStart(host, session));
+            default -> List.of(sessionStart(host, session), sessionStart(host, session, "resume"), sessionStart(host, session, "compact"));
+        };
+        for (String answer : restored) {
+            assertTrue(answer.contains(GLOBAL_HEADER) && answer.contains(global), answer);
+            assertTrue(answer.contains(ROLE_HEADER + roleName(roleId)) && answer.contains(roleBody), answer);
+            assertTrue(answer.contains(objective), answer);
+            assertFalse(answer.contains("Sennard intake (") || answer.contains("Skill targets."), answer);
+        }
+
+        String ordinary = switch (host.label()) {
+            case "agy" -> post(host.label(), "PreInvocation", session, body -> body.put("invocationNum", 1));
+            case "gemini" -> post(host.label(), "PreCompress", session, body -> {});
+            default -> turnStart(host, session);
+        };
+        for (String answer : List.of(ordinary, step(host, session))) {
+            assertFalse(answer.contains(global) || answer.contains(roleBody) || answer.contains(objective), answer);
+        }
+        if (host == AGY) {
+            String started = sessionStart(host, session);
+            assertFalse(started.contains(global) || started.contains(roleBody) || started.contains(objective), started);
+        }
+    }
+
+    private static String saveSituation(Host host, String session) {
         String objective = "saved-session-" + UUID.randomUUID();
         ContinuityService continuity = sennard.bean(ContinuityService.class);
         var caller = new ContinuityService.Caller(session, WorkflowCall.actorId(host.sessionHost(), session, null));
         var initial = (ContinuityService.SnapshotView) continuity.load(caller, null);
         var core = new ContinuityTools.Core(objective, List.of("checked"), List.of(), List.of(), List.of(), List.of(), List.of());
         continuity.checkpoint(caller, new ContinuityService.Checkpoint(UUID.randomUUID().toString(), initial.stateToken(), MemoryStatus.ACTIVE, core, List.of()));
-        String answer = sessionStart(host, session);
+        return objective;
+    }
 
-        assertTrue(answer.contains(GLOBAL_HEADER), answer);
-        assertTrue(answer.contains(global), answer);
-        assertTrue(answer.contains(ROLE_HEADER + roleName(roleId)), answer);
-        assertTrue(answer.contains(roleBody), answer);
-        assertTrue(answer.contains(objective), answer);
-        assertFalse(answer.contains(CHANGED), answer);
-        for (String ordinary : List.of(turnStart(host, session), step(host, session))) {
-            assertFalse(ordinary.contains(global) || ordinary.contains(roleBody) || ordinary.contains(objective), ordinary);
+    @Test
+    void sessionStartRestoresTheWorkflowCardWithOrWithoutASavedSituation() throws Exception {
+        String session = SessionServerSupport.uniqueSession();
+        sessionStart(CODEX, session);
+        String objective = "workflow-situation-" + UUID.randomUUID();
+        var started = sennard.call("start_inquiry_workflow", Map.of("goal", objective, "workspace", System.getProperty("user.dir")), session);
+        assertTrue(started.path("ok").asBoolean(), started.toString());
+        String root = started.path("data").path("rootId").asString();
+        assertFalse(root.isBlank(), started.toString());
+        String workflowOnly = sessionStart(CODEX, session, "resume");
+        assertTrue(workflowOnly.contains(root) && workflowOnly.contains(objective), workflowOnly);
+
+        String saved = saveSituation(CODEX, session);
+        for (String source : List.of("startup", "resume", "compact")) {
+            String both = sessionStart(CODEX, session, source);
+            assertTrue(both.contains(root) && both.contains(objective) && both.contains(saved), both);
         }
+        RawHttp.Response observed = DomainServerSupport.hookFrom("SessionStart", sennard.server.port, "windows", "codex", "PostCompact", null, session, body -> body.put("turn_id", "observed-compaction"));
+        assertEquals(200, observed.status());
+        assertEquals("{}", DomainServerSupport.text(observed).strip());
     }
 
     @ParameterizedTest
-    @MethodSource("hosts")
+    @MethodSource("compactionHosts")
     void aTurnStartOmitsBodiesAndStillCuesTheRoleSave(Host host) throws Exception {
         String global = setGlobal("턴 시작 대조 " + UUID.randomUUID());
         String roleId = role();
@@ -205,7 +249,7 @@ class SharedContextHookServerTest {
     }
 
     @ParameterizedTest
-    @MethodSource("hosts")
+    @MethodSource("compactionHosts")
     void aGlobalChangeWaitsForTheNextContextStart(Host host) throws Exception {
         setGlobal("변경 전 " + UUID.randomUUID());
         String session = SessionServerSupport.uniqueSession();
@@ -231,6 +275,9 @@ class SharedContextHookServerTest {
         setGlobal("지울 내용 " + UUID.randomUUID());
         String session = SessionServerSupport.uniqueSession();
         sessionStart(host, session);
+        if (host == AGY) {
+            turnStart(host, session);
+        }
 
         setGlobal("");
         String cleared = "[Sennard global context was cleared]";
@@ -560,7 +607,7 @@ class SharedContextHookServerTest {
         assertTrue(answer.contains(ROLE_HEADER + roleName(roleId)), answer);
         assertTrue(answer.contains(roleBody), answer);
         // The root is untouched: its own hooks still read its own binding, and a conversation that holds a role is not asked to link.
-        String rootStart = sessionStart(AGY, root);
+        String rootStart = turnStart(AGY, root);
         assertTrue(rootStart.contains(ROLE_HEADER + roleName(roleId)));
         assertFalse(rootStart.contains(PARENT_CUE), rootStart);
     }
@@ -614,21 +661,4 @@ class SharedContextHookServerTest {
         assertEquals(200, sennard.commit(intent, owner.assertion(intent, sennard.adminOrigin), UUID.randomUUID().toString(), null, value).status());
     }
 
-    @Test
-    void theIntakePointerAndSkillTargetsTravelAtAContextStartWithTheHostsInvocationLine() throws Exception {
-        String claude = sessionStart(CLAUDE, SessionServerSupport.uniqueSession());
-        assertTrue(claude.contains("Sennard intake ("), claude);
-        assertTrue(claude.contains("Skill targets."), claude);
-        assertTrue(claude.contains("- orchestrator:"), claude);
-        assertTrue(claude.contains("Claude Code: invoke chosen installed skills"), claude);
-
-        String codex = sessionStart(CODEX, SessionServerSupport.uniqueSession());
-        assertTrue(codex.contains("Sennard intake ("), codex);
-        assertFalse(codex.contains("Claude Code: invoke"), codex);
-
-        String agySession = SessionServerSupport.uniqueSession();
-        assertFalse(sessionStart(AGY, agySession).contains("Sennard intake ("), "this host's context start is the turn's first model call");
-        assertTrue(turnStart(AGY, agySession).contains("Sennard intake ("));
-        assertFalse(turnStart(CLAUDE, SessionServerSupport.uniqueSession()).contains("Sennard intake ("), "a later turn does not repeat it");
-    }
 }

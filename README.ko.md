@@ -36,12 +36,12 @@ Sennard는 이 컴퓨터의 사용자당 한 번 설치하는 서버와 호스�
 릴리스는 모든 운영체제가 실행하는 jar 하나이며 운영체제별 압축 파일과 동봉 런타임은 없습니다. 지원 환경은 JDK 25가 도는 컴퓨터입니다. 검증한 호스트 환경은 릴리스 노트에 정리했습니다.
 
 <!-- release-version:start -->
-현재 공개 릴리스는 `v1.2.0`이며 아래 설치 예시는 이 버전 기준입니다. 설치하거나 업그레이드하기 전에 [1.2.0 릴리스 노트](docs/release-notes/release-notes-v1.2.0.md#sennard-120-릴리스-노트)를 읽습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
+현재 공개 릴리스는 `v1.3.0`이며 아래 설치 예시는 이 버전 기준입니다. 설치하거나 업그레이드하기 전에 [1.3.0 릴리스 노트](docs/release-notes/release-notes-v1.3.0.md#sennard-130-릴리스-노트)를 읽습니다. JEV는 관리자 페이지에서만 설정합니다. 개인판의 버전별 변경 사항은 [GitHub 릴리스](https://github.com/jaeseongs95/Sennard-Personal/releases)와 영한 `docs/release-notes/release-notes-v<버전>.md`에 있습니다.
 <!-- release-version:end -->
 
 ### 서버
 
-[릴리스 페이지](https://github.com/jaeseongs95/Sennard-Personal/releases)에서 `sennard-<판>.jar`와 `sennard-<판>.jar.sha256`(`sha256sum --check` 형식의 SHA-256)을 받습니다. jar를 체크섬과 대조한 뒤 JDK 25로 설치 명령을 실행합니다.
+[릴리스 페이지](https://github.com/jaeseongs95/Sennard-Personal/releases)에서 `sennard-<판>.jar`와 `sennard-<판>.jar.sha256`(`sha256sum --check` 형식의 SHA-256)을 받습니다. JDK 25로 실행하기 전에 JAR를 체크섬과 대조합니다. 새로 설치하려면 다음 명령을 실행합니다.
 
 ```bash
 sha256sum --check sennard-<판>.jar.sha256
@@ -50,15 +50,26 @@ java -jar sennard-<판>.jar install
 
 Windows에서는 체크섬 파일의 값을 `Get-FileHash -Algorithm SHA256 sennard-<판>.jar`의 출력과 대조합니다.
 
-데스크톱에서는 체크섬을 확인한 JAR에 `java -jar sennard-<판>.jar setup` 명령을 실행해 설치 창을 엽니다. 창에는 설치된 버전, 패키지 버전, 설치 폴더가 표시됩니다. 업데이트할 때는 연동 중인 호스트 세션을 닫고 Sennard 상태 폴더와 연결된 업무 데이터베이스를 백업합니다. 새 JAR로 설치 창을 열어 **업데이트 및 재시작**을 선택합니다. 서버가 시작되면 창에서 데이터베이스 상태를 확인하고 아래의 호스트 플러그인 안내를 따릅니다. 플러그인을 설치하거나 업데이트한 뒤에는 **훅 등록**을 선택하고 새 호스트 세션을 시작합니다.
+데스크톱에서 새로 설치할 때는 `java -jar sennard-<판>.jar setup`으로 설치 창을 열 수도 있습니다. 창에는 설치된 버전, 패키지 버전, 설치 폴더가 표시됩니다. 서버를 설치한 뒤 아래의 호스트별 플러그인 안내를 따릅니다.
 
-터미널에서 업데이트하려면 위와 같이 백업한 뒤 체크섬을 확인한 새 릴리스 JAR에 `upgrade` 명령을 사용합니다.
+#### 기존 설치 업데이트
+
+1. 연동 중인 호스트 세션을 닫습니다. Sennard 상태 폴더와 연결된 업무 데이터베이스를 백업합니다.
+2. 아래 호스트별 안내에 따라 설치된 모든 Sennard 호스트 플러그인을 대상 JAR와 정확히 같은 버전으로 업데이트합니다. 플러그인 업데이트에 사용한 호스트 세션을 닫습니다.
+3. 체크섬을 확인한 대상 JAR를 JDK 25로 실행합니다. 데스크톱에서는 `java -jar sennard-<판>.jar setup`으로 설치 창을 열고 세션 종료와 백업을 확인하는 체크박스에 표시한 뒤 **업데이트 및 재시작**을 선택합니다. 터미널에서는 `java -jar sennard-<판>.jar upgrade`를 실행합니다. Sennard가 기존 Claude Code Stop 설정을 바꿀지 묻는다면 변경 내용을 검토하고 동의해 계속합니다.
+4. 새 서버가 시작되면 서버와 데이터베이스의 상태를 확인합니다. 서버 업데이트 뒤에 같은 버전의 플러그인을 설치하거나 업데이트했다면 설치 창에서 **훅 등록**을 선택하거나 새 설치본으로 `sennard hooks`를 실행합니다. 그다음 새 호스트 세션을 시작합니다. Codex에서는 `/hooks`에서 훅을 다시 검토하고 신뢰합니다.
+
+복구와 재시도 방법은 [업데이트 절차](docs/user/update.ko.md#업데이트-절차)를 참고합니다.
+
+`HOST_PACKAGE_VERSION_MISMATCH` 오류로 서버 업데이트가 중단되면 오류에 표시된 필요 버전과 플러그인 사본을 확인합니다. 아래의 호스트별 안내에 따라 해당 사본의 버전을 맞추고, 수정에 사용한 세션을 닫은 뒤 서버 업데이트를 다시 실행합니다.
 
 설치 명령은 jar를 설치 폴더 `~/.sennard/install`(`SENNARD_INSTALL_ROOT`로 바꿉니다)에 풀고, 시작 캐시를 학습하고, 서버를 시작해 준비를 기다린 뒤, 설치된 호스트의 플러그인에 hook·MCP 정의를 씁니다. 상태 폴더의 기본값은 `~/.sennard`입니다(`SENNARD_STATE_DIR` 또는 `--state-dir`로 바꿉니다). `~`는 JVM의 `user.home`이며 모든 운영체제에서 같은 질문의 답입니다. 설치 폴더를 시스템의 파일 이름 인코딩(`native.encoding`)으로 쓸 수 없으면 설치 명령은 `INSTALL_ROOT_NOT_REPRESENTABLE`로 끝나며 다른 폴더를 고르지 않습니다. `SENNARD_INSTALL_ROOT`를 그 인코딩으로 쓸 수 있는 폴더로 설정합니다. OS 서비스에 등록하거나 `PATH`에 무엇을 넣지는 않습니다.
 
 `sennard`라는 프로그램은 없습니다. 이 문서에서 `sennard <명령>`은 `java -jar <설치 폴더>/versions/<판>/sennard-<판>.jar <명령>`을 뜻합니다. 설치·업그레이드가 출력하고 `sennard status`의 `command` 필드에 표시되는 명령입니다. 업그레이드하면 경로가 바뀝니다. `sennard status`로 서버 상태를 보고 `sennard stop`과 `sennard start`로 끄고 켭니다. 상태 폴더 하나에는 서버가 하나만 실행됩니다(`SERVER_ALREADY_RUNNING`).
 
-다음으로 호스트마다 플러그인을 설치합니다. 플러그인에는 스킬과 빈 hook·MCP 정의가 들어 있습니다. `sennard install`, `sennard upgrade`, `sennard hooks`가 이 PC의 `java`와 jar의 절대 경로를 적은 정의를 호스트의 플러그인 사본에 씁니다. 서버가 없으면 Sennard 도구가 연결되지 않습니다.
+플러그인에는 스킬과 빈 hook·MCP 정의가 들어 있습니다. `sennard install`, `sennard upgrade`, `sennard hooks`는 감지된 각 플러그인 사본의 버전이 명령의 대상 Sennard 버전과 정확히 일치할 때 이 PC의 정의를 호스트 사본에 씁니다. 정의에는 이 PC의 `java`와 JAR의 절대 경로가 들어 있습니다. Sennard 도구는 로컬 서버에 연결합니다.
+
+Sennard 개인판 1.3.0의 GitHub 릴리스 첨부 파일에는 Gemini CLI 설치용 별도 패키지가 없습니다. 공개 소스에는 `gemini-extension/`이 포함됩니다. `~/.gemini/extensions/sennard`에 이전 버전의 Sennard 확장이 남아 있으면 `HOST_PACKAGE_VERSION_MISMATCH` 오류로 업그레이드가 중단됩니다. 터미널에서 `gemini extensions uninstall sennard`로 이전 확장을 제거합니다. `gemini extensions list`에 Sennard가 표시되지 않는지 확인한 뒤 업그레이드를 계속합니다. [Gemini CLI 확장 관리 안내](https://geminicli.com/docs/extensions/reference/)를 참고합니다.
 
 ### 패키지와 언어
 
@@ -72,14 +83,18 @@ Windows에서는 체크섬 파일의 값을 `Get-FileHash -Algorithm SHA256 senn
 
 ### Claude Code
 
-Claude Code 안에서 실행하고, 설치 뒤 새 세션을 시작합니다.
+새로 설치할 때는 Claude Code 안에서 다음 명령을 실행합니다.
 
 ```text
 /plugin marketplace add jaeseongs95/Sennard-Personal
 /plugin install sennard@sennard-claude
 ```
 
-플러그인을 설치하거나 업데이트한 뒤, 새 세션을 시작하기 전에 `sennard hooks`를 실행합니다(모든 운영체제 공통). 플러그인에는 빈 hook·MCP 정의만 들어 있으며, `sennard hooks`가 Claude Code가 읽는 플러그인 사본에 이 PC의 정의를 씁니다.
+기존 설치를 업데이트하려면 터미널에서 `claude plugin list --json`을 실행해 Sennard 설치 항목을 확인합니다. 서버에서 버전 불일치 오류가 발생하면 오류에 표시된 플러그인 ID, 설치 범위, 프로젝트 경로로 해당 항목을 찾습니다. `claude plugin update <ID> --scope <범위>`에 해당 ID와 `claude plugin list --json`에 표시된 범위를 그대로 넣어 실행하고, 프로젝트 경로가 표시된 항목은 해당 프로젝트에서 실행합니다. Claude Code의 [플러그인 목록](https://code.claude.com/docs/en/plugins/cli-reference#plugin-list)과 [업데이트](https://code.claude.com/docs/en/plugins/cli-reference#plugin-update) 명령을 참고합니다.
+
+`claude plugin list --json`을 다시 실행해 각 설치 항목의 버전이 대상 JAR 버전과 정확히 일치하는지 확인합니다. 로컬 폴더에서 등록한 마켓플레이스가 그 폴더의 Sennard를 직접 불러오는 경우 오류가 가리키는 경로의 패키지를 확인하고 해당 폴더를 대상 버전으로 업데이트합니다. 서버를 업데이트하기 전에 플러그인 업데이트나 버전 확인에 사용한 Claude Code 세션을 닫습니다.
+
+플러그인과 서버의 버전을 맞춥니다. 플러그인을 서버보다 나중에 설치하거나 업데이트했다면 `sennard hooks`를 실행합니다. 이 명령은 Claude Code가 읽는 플러그인 사본에 이 PC의 훅과 MCP 정의를 씁니다. 그다음 새 세션을 시작합니다.
 
 ### Codex
 
@@ -87,12 +102,16 @@ Claude Code 안에서 실행하고, 설치 뒤 새 세션을 시작합니다.
 
 <!-- release-install:start -->
 ```bash
-codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.2.0
+codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.3.0
 codex plugin add sennard@sennard
 ```
 <!-- release-install:end -->
 
-새 Codex 세션을 시작한 뒤 `/hooks`에서 Sennard hook을 검토하고 신뢰합니다. 신뢰하기 전에는 플러그인 hook이 실행되지 않아 턴 안내, 작업 기록, 현황판, 메시지 전달이 동작하지 않습니다. hook 정의가 바뀐 판으로 업데이트하면 다시 검토합니다. 플러그인을 설치하거나 업데이트한 뒤 `sennard hooks`를 실행해 Codex의 플러그인 사본에 이 PC의 정의를 쓰게 합니다. Codex가 그 사본을 두는 위치(`~/.codex/plugins/cache/<마켓플레이스>/sennard/<판>/`)와 파일이 바뀐 뒤 Codex가 신뢰를 다시 묻는지는 실제 Codex에서 확인하지 않았습니다.
+기존 설치를 업데이트하려면 `codex plugin marketplace list`를 실행합니다. 목록에 `sennard` 마켓플레이스가 있으면 대상 태그를 등록하기 전에 `codex plugin marketplace remove sennard`로 기존 등록을 제거합니다. 그런 다음 위 명령 두 개를 실행하되 `--ref`에는 대상 릴리스 태그를 지정합니다. `codex plugin list --marketplace sennard`를 실행해 `sennard@sennard`가 설치되어 있으며 그 버전이 대상 JAR 버전과 정확히 일치하는지 확인합니다. [Codex 마켓플레이스 명령 안내](https://developers.openai.com/plugins/build/plugins#add-a-marketplace-from-the-cli)를 참고합니다.
+
+서버에서 버전 불일치 오류가 발생하면 오류에 표시된 설치 ID와 캐시 경로로 해당 마켓플레이스를 찾습니다. `codex plugin list --marketplace <마켓플레이스>`로 플러그인을 확인합니다. 계속 사용하는 설치는 해당 마켓플레이스에서 대상 릴리스 버전을 다시 설치합니다. 사용하지 않는 설치는 `codex plugin remove sennard@<마켓플레이스>`로 제거합니다. Sennard가 버전을 `[?]`로 표시하면 해당 ID에도 같은 재설치 또는 제거 절차를 따릅니다. 같은 ID에서 Codex가 선택하지 않는 이전 버전 캐시는 그대로 둘 수 있습니다. [Codex 플러그인 CLI 안내](https://learn.chatgpt.com/docs/developer-commands?surface=cli#cli-codex-plugin)를 참고합니다.
+
+플러그인과 서버의 버전을 맞춥니다. 플러그인을 서버보다 나중에 설치하거나 업데이트했다면 `sennard hooks`를 실행합니다. 새 Codex 세션을 시작한 뒤 `/hooks`에서 Sennard 훅을 검토하고 신뢰합니다. 턴 안내, 작업 기록, 현황판, 메시지 전달은 신뢰한 훅을 통해 동작합니다. 훅 정의가 바뀐 판으로 업데이트하면 다시 검토합니다. 파일이 바뀐 뒤 Codex가 신뢰 여부를 다시 묻는 동작은 실제 Codex에서 확인이 필요합니다.
 
 ### Antigravity (`agy`)
 
@@ -100,16 +119,20 @@ codex plugin add sennard@sennard
 
 <!-- release-agy:start -->
 ```bash
-curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.2.0/sennard-antigravity-v1.2.0.zip
-unzip sennard-antigravity-v1.2.0.zip
+curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.3.0/sennard-antigravity-v1.3.0.zip
+unzip sennard-antigravity-v1.3.0.zip
 agy plugin install ./sennard
 agy plugin list
 ```
 <!-- release-agy:end -->
 
+업데이트할 때는 대상 릴리스의 ZIP을 사용합니다. Antigravity CLI 세션에서 `/plugin`을 열고 **Installed** 탭에서 Sennard를 선택한 뒤 **Version**을 대상 JAR 버전과 대조합니다. 서버를 업데이트하기 전에 해당 세션을 닫습니다. [Antigravity CLI 플러그인 관리자 안내](https://antigravity.google/docs/marketplace?tab=cli)를 참고합니다.
+
 `agy` CLI가 없는 Antigravity 네이티브 앱에서는 [공식 수동 설치 안내](https://antigravity.google/docs/plugins#manual-plugin-installation)를 따릅니다. 앱을 정상 종료하고 기존 Sennard 폴더를 플러그인 검색 경로 밖에 복구용으로 보존한 뒤, 릴리스에 첨부된 Antigravity 설치용 ZIP의 `sennard` 폴더를 `~/.gemini/config/plugins/` 아래에 둡니다(Windows: `%USERPROFILE%/.gemini/config/plugins/sennard`). 앱을 다시 시작하고 `Customizations > Installed`에서 Sennard 버전을 확인합니다. 저장소 전체를 복사하지 마십시오. 이 방식에는 CLI 추가 설치가 필요하지 않습니다.
 
-설치본에는 스킬과 빈 MCP 등록(`mcp_config.json`), 빈 hook(`hooks.json`)이 들어 있습니다. Antigravity 플러그인을 설치하거나 업데이트한 뒤 `sennard hooks`를 실행합니다(이미 설치된 플러그인에는 `sennard install`과 `sennard upgrade`가 같은 일을 합니다). 이 설치의 MCP 등록(서버 이름 `sennard`, `--host=agy`를 준 stdio 중계)과 hook 정의를 플러그인 사본에 씁니다. 이 저장소 최상위의 `GEMINI.md`와 `AGENTS.md`는 Sennard 자체를 개발할 때 쓰는 지침이며 설치본에 들어 있지 않습니다.
+업데이트할 때는 해당 화면에서 설치된 버전이 대상 JAR 버전과 정확히 일치하는지 확인한 뒤 서버를 업데이트하기 전에 앱을 다시 닫습니다.
+
+설치본에는 스킬과 빈 MCP 등록(`mcp_config.json`), 빈 hook(`hooks.json`)이 들어 있습니다. 플러그인과 서버의 버전을 맞춥니다. 플러그인을 서버보다 나중에 설치하거나 업데이트했다면 `sennard hooks`를 실행합니다. 이 명령은 이 설치의 MCP 등록(서버 이름 `sennard`, `--host=agy`를 준 stdio 중계)과 훅 정의를 플러그인 사본에 씁니다. 그다음 새 세션을 시작합니다. 이 저장소 최상위의 `GEMINI.md`와 `AGENTS.md`는 Sennard 자체를 개발할 때 쓰는 지침이며 설치본에 들어 있지 않습니다.
 
 ### 설치 뒤 확인
 
@@ -120,7 +143,7 @@ agy plugin list
 
 ## 사용하기
 
-원하는 결과와 확인할 조건, 바꾸면 안 되는 대상을 함께 알려 주십시오. 모든 요청에 스킬이나 workflow를 직접 지정할 필요는 없습니다. 에이전트가 요청 목적과 스킬의 적용·제외 조건을 대조하고, 단계가 이어지는 변경에는 workflow를 씁니다.
+원하는 결과와 확인할 조건, 바꾸면 안 되는 대상을 함께 알려 주십시오. 에이전트는 도구 없이 답하는 경우를 포함해 모든 요청에 워크플로 절차를 선택하고, 어떤 스킬이 적용되는지 확인합니다. 스킬과 워크플로 선택은 에이전트에게 맡기면 됩니다.
 
 ```text
 이 기능을 구현하고 검증해 줘. 수정 범위와 완료 기준을 먼저 정리하고,
@@ -176,7 +199,7 @@ Sennard의 스킬 23개는 두 묶음입니다. 묶음은 스킬의 `classificat
 
 | 대상 | 문서 |
 | --- | --- |
-| 사용자 | [사용하기](docs/user/usage.ko.md), [관리자 페이지와 컨텍스트](docs/user/admin-page.ko.md), [세션 협업](docs/user/collaboration.ko.md), [상태 저장과 정리](docs/user/state.ko.md), [업데이트와 이전](docs/user/update.ko.md), [문제 해결](docs/user/troubleshooting.ko.md) |
+| 사용자 | [사용하기](docs/user/usage.ko.md), [전체 흐름도](docs/user/system-flow.ko.md), [관리자 페이지와 컨텍스트](docs/user/admin-page.ko.md), [세션 협업](docs/user/collaboration.ko.md), [상태 저장과 정리](docs/user/state.ko.md), [업데이트와 이전](docs/user/update.ko.md), [문제 해결](docs/user/troubleshooting.ko.md) |
 | 기여자 | [기여 안내](CONTRIBUTING.ko.md)(외부 기여는 받지 않음), [아키텍처](docs/contributing/architecture.ko.md), [개발 참고](docs/contributing/development.ko.md), [시험과 CI](docs/contributing/testing-and-ci.ko.md), [발행](docs/contributing/release.ko.md) |
 | 전체 목록 | [문서 안내](docs/README.ko.md), [릴리스 노트](docs/release-notes/), [보안 정책](SECURITY.ko.md) |
 

@@ -55,6 +55,7 @@ public enum UnavailableCode implements ErrorCode {
     DELETE_FAILED("cli.deleteFailed"),
     HOST_FILES_FAILED("cli.hostFilesFailed"),
     /** A host reads a hook definition from a folder the user owns and this installation does not change; the arguments name the host, the files, the installation's definitions and its launcher. */
+    HOST_PACKAGE_VERSION_MISMATCH("cli.hostPackageVersionMismatch"),
     HOST_HOOKS_NOT_REACHED("cli.hostHooksNotReached"),
     HOST_ID_NOT_WRITTEN("cli.hostIdNotWritten"),
     /** An installation step failed; the {@code what} argument names the step (the wordings of the sentence). */

@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
  * <li>another table has a primary key column of that name and data type, and</li>
  * <li>no foreign key of its own table covers it.</li>
  * </ul>
+ * A name match with no reference relationship is excluded only if it is listed in {@link #NON_REFERENCES} and still meets those criteria.
  *
  * What it misses: a reference whose column is named differently from the key it points at ({@code sender_ref} for {@code session_ref}), and a
  * reference to a key whose name does not end in {@code _id} or {@code _ref}. The ceiling is the number of such columns now; the 6.0.0 schema
@@ -57,6 +58,11 @@ class ForeignKeyCatalogTest {
      * skill_calls.skill_id matches workflow_run_skills.skill_id by name only (V22); skills are files, not rows, so there is no key to refer to.
      */
     private static final int CEILING = 19;
+    private static final Map<String, String> NON_REFERENCES = Map.of(
+            "sennard.convergence_roots.workspace_id",
+            "The root's workspace identifier does not point to a blocked plan. The plan's workspace key is a hash of the physical path.",
+            "sennard.workflow_blocked_plans.run_id",
+            "The run ID records the origin of the block. Removing a run must leave the block in effect until an administrator unblocks it.");
 
     private record Column(String schema, String table, String name, String type) {
         String qualified() {
@@ -111,6 +117,7 @@ class ForeignKeyCatalogTest {
             }
         }
         Map<String, String> missing = new TreeMap<>();
+        Map<String, String> unmatchedExceptions = new TreeMap<>(NON_REFERENCES);
         for (Column column : columns) {
             boolean looksLikeReference = column.name().endsWith("_id") || column.name().endsWith("_ref");
             if (!looksLikeReference || foreignKeyColumns.contains(column.qualified() + "." + column.name())) {
@@ -131,10 +138,11 @@ class ForeignKeyCatalogTest {
                     found = found == null ? owner : found;
                 }
             }
-            if (found != null) {
+            if (found != null && unmatchedExceptions.remove(column.qualified() + "." + column.name()) == null) {
                 missing.put(column.toString(), "refers by name to the key " + found + "." + column.name());
             }
         }
+        assertEquals(Map.of(), unmatchedExceptions, "Each non-reference exception must still match a candidate without a foreign key");
         List<String> places = missing.entrySet().stream().map(entry -> "    " + entry.getKey() + "  " + entry.getValue()).toList();
         if (missing.size() > CEILING) {
             fail("k-missing-foreign-key: " + missing.size() + " reference columns without a foreign key, the ceiling is " + CEILING + ":\n" + String.join("\n", places));

@@ -29,8 +29,8 @@ import tools.jackson.databind.json.JsonMapper;
  * p3  unreadable a record that is not JSON is an IOException that names the file
  * p4  agy        the package's plugin.json gives the version, a package without one has an empty version
  * p5  gemini     the extension's gemini-extension.json gives the version, a plain folder is the host's own copy, no folder is no package, a manifest that is not JSON names the file
- * p6  codex      the plugin cache of the codex home (CODEX_HOME, else the home's .codex): plugins/cache/&lt;marketplace&gt;/sennard/&lt;version&gt;/, one package per version of every marketplace,
- *                all of them the host's own copies; another plugin, a plugin file and no cache are no package
+ * p6  codex      the plugin cache of the codex home (CODEX_HOME, else the home's .codex): one selected copy per marketplace; another plugin, an invalid directory name,
+ *                an ordinary file and no cache are no package
  * </pre>
  */
 class PackageLocationsTest {
@@ -65,57 +65,68 @@ class PackageLocationsTest {
                 + "\"sennard@gone\":[{\"installPath\":" + JSON.writeValueAsString(temporary.resolve("gone").toString()) + ",\"version\":\"1\"}]}}";
         Files.writeString(directory("claude/plugins").resolve("installed_plugins.json"), record, StandardCharsets.UTF_8);
 
-        List<HostPackageLocation.InstalledPackage> found = new ClaudePackageLocation(JSON).packages(environment());
+        List<HostPackageLocation.InstalledPackage> found = new ClaudePackageLocation(JSON).scan(environment()).packages();
 
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(cached.toAbsolutePath().normalize(), "6.0.0", true),
-                new HostPackageLocation.InstalledPackage(inPlace.toAbsolutePath().normalize(), "6.0.1", false)), found);
+        assertEquals(2, found.size());
+        HostPackageLocation.InstalledPackage cachedInstall = found.getFirst();
+        assertEquals(cached.toAbsolutePath().normalize(), cachedInstall.root());
+        assertEquals("6.0.0", cachedInstall.version());
+        assertEquals(true, cachedInstall.hostCopy());
+        HostPackageLocation.InstalledPackage localInstall = found.get(1);
+        assertEquals(inPlace.toAbsolutePath().normalize(), localInstall.root());
+        assertEquals("6.0.1", localInstall.version());
+        assertEquals(false, localInstall.hostCopy());
     }
 
     @Test
     void aRecordThatIsNotJsonIsAnIoFailureThatNamesTheFile() throws IOException {
         Path record = directory("claude/plugins").resolve("installed_plugins.json");
         Files.writeString(record, "not json", StandardCharsets.UTF_8);
-        IOException failure = assertThrows(IOException.class, () -> new ClaudePackageLocation(JSON).packages(environment()));
+        IOException failure = assertThrows(IOException.class, () -> new ClaudePackageLocation(JSON).scan(environment()));
         assertEquals(true, failure.getMessage().contains(record.toString()), failure.getMessage());
     }
 
     @Test
     void antigravitysPackageGivesItsVersionFromItsManifest() throws IOException {
         Path root = directory(".gemini/config/plugins/sennard");
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(root, "", true)), new AntigravityPackageLocation(JSON).packages(environment()));
+        assertEquals(List.of(new HostPackageLocation.InstalledPackage(root, "", true, null)), new AntigravityPackageLocation(JSON).scan(environment()).packages());
         Files.writeString(root.resolve("plugin.json"), "{\"name\":\"sennard\",\"version\":\"6.0.0\"}", StandardCharsets.UTF_8);
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(root, "6.0.0", true)), new AntigravityPackageLocation(JSON).packages(environment()));
+        assertEquals(List.of(new HostPackageLocation.InstalledPackage(root, "6.0.0", true, null)), new AntigravityPackageLocation(JSON).scan(environment()).packages());
     }
 
     @Test
     void geminisExtensionGivesItsVersionFromItsManifestAndNoExtensionIsNoPackage() throws IOException {
-        assertEquals(List.of(), new GeminiPackageLocation(JSON).packages(environment()));
+        assertEquals(List.of(), new GeminiPackageLocation(JSON).scan(environment()).packages());
         Path root = directory(".gemini/extensions/sennard");
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(root, "", true)), new GeminiPackageLocation(JSON).packages(environment()));
+        assertEquals(List.of(new HostPackageLocation.InstalledPackage(root, "", true, null)), new GeminiPackageLocation(JSON).scan(environment()).packages());
         Files.writeString(root.resolve("gemini-extension.json"), "{\"name\":\"sennard\",\"version\":\"6.0.0\",\"mcpServers\":{}}", StandardCharsets.UTF_8);
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(root, "6.0.0", true)), new GeminiPackageLocation(JSON).packages(environment()));
+        assertEquals(List.of(new HostPackageLocation.InstalledPackage(root, "6.0.0", true, null)), new GeminiPackageLocation(JSON).scan(environment()).packages());
     }
 
     @Test
     void aGeminiManifestThatIsNotJsonIsAnIoFailureThatNamesTheFile() throws IOException {
         Path manifest = directory(".gemini/extensions/sennard").resolve("gemini-extension.json");
         Files.writeString(manifest, "not json", StandardCharsets.UTF_8);
-        IOException failure = assertThrows(IOException.class, () -> new GeminiPackageLocation(JSON).packages(environment()));
+        IOException failure = assertThrows(IOException.class, () -> new GeminiPackageLocation(JSON).scan(environment()));
         assertEquals(true, failure.getMessage().contains(manifest.toString()), failure.getMessage());
     }
 
     @Test
-    void codexsPluginCacheYieldsEveryVersionOfThisPluginInEveryMarketplaceAsTheHostsOwnCopy() throws IOException {
-        Path older = directory(".codex/plugins/cache/market-a/sennard/5.1.0");
-        Path current = directory(".codex/plugins/cache/market-a/sennard/6.0.0");
-        Path other = directory(".codex/plugins/cache/market-b/sennard/6.0.0");
-        directory(".codex/plugins/cache/market-a/another-plugin/9.9.9");
-        Files.writeString(directory(".codex/plugins/cache/market-b/sennard").resolve("notes.txt"), "a file of the plugin's folder is no version", StandardCharsets.UTF_8);
+    void codexsPluginCacheYieldsOneSelectedCopyPerMarketplace() throws IOException {
+        directory(".codex/plugins/cache/market-a/sennard/1.2.0");
+        Path current = directory(".codex/plugins/cache/market-a/sennard/1.3.0");
+        directory(".codex/plugins/cache/market-a/sennard/invalid version");
+        directory(".codex/plugins/cache/market-a/another-plugin/1.3.0");
+        directory(".codex/plugins/cache/market-b/sennard/1.3.0");
+        Path local = directory(".codex/plugins/cache/market-b/sennard/local");
+        Files.writeString(local.getParent().resolve("notes.txt"), "an ordinary file is not a version directory", StandardCharsets.UTF_8);
 
-        List<HostPackageLocation.InstalledPackage> found = new CodexPackageLocation().packages(environment(Map.of()));
+        List<HostPackageLocation.InstalledPackage> found = new CodexPackageLocation().scan(environment(Map.of())).packages();
 
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(older, "5.1.0", true), new HostPackageLocation.InstalledPackage(current, "6.0.0", true),
-                new HostPackageLocation.InstalledPackage(other, "6.0.0", true)), found, "sorted by marketplace and version; the folder's name is the version");
+        assertEquals(List.of(current, local), found.stream().map(HostPackageLocation.InstalledPackage::root).toList());
+        assertEquals(List.of("1.3.0", "local"), found.stream().map(HostPackageLocation.InstalledPackage::version).toList());
+        assertEquals(List.of("sennard@market-a", "sennard@market-b"), found.stream().map(HostPackageLocation.InstalledPackage::installation).toList());
+        assertEquals(true, found.stream().allMatch(HostPackageLocation.InstalledPackage::hostCopy));
         assertEquals(CodexHost.ID, new CodexPackageLocation().host());
     }
 
@@ -124,16 +135,18 @@ class PackageLocationsTest {
         Path inHome = directory(".codex/plugins/cache/market/sennard/6.0.0");
         Path moved = directory("elsewhere/plugins/cache/market/sennard/6.1.0");
 
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(moved, "6.1.0", true)),
-                new CodexPackageLocation().packages(environment(Map.of("CODEX_HOME", temporary.resolve("elsewhere").toString()))), "the variable wins over the home's .codex");
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(inHome, "6.0.0", true)), new CodexPackageLocation().packages(environment(Map.of("CODEX_HOME", " "))), "a blank variable is none");
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(inHome, "6.0.0", true)), new CodexPackageLocation().packages(environment(Map.of())));
+        CodexPackageLocation location = new CodexPackageLocation();
+        assertEquals(List.of(moved), location.scan(environment(Map.of("CODEX_HOME", temporary.resolve("elsewhere").toString()))).packages().stream()
+                .map(HostPackageLocation.InstalledPackage::root).toList(), "the variable wins over the home's .codex");
+        assertEquals(List.of(inHome), location.scan(environment(Map.of("CODEX_HOME", " "))).packages().stream()
+                .map(HostPackageLocation.InstalledPackage::root).toList(), "a blank variable is none");
+        assertEquals(List.of(inHome), location.scan(environment(Map.of())).packages().stream().map(HostPackageLocation.InstalledPackage::root).toList());
     }
 
     @Test
     void withoutACodexPluginCacheThereIsNoPackage() throws IOException {
-        assertEquals(List.of(), new CodexPackageLocation().packages(environment(Map.of())), "no codex home");
+        assertEquals(List.of(), new CodexPackageLocation().scan(environment(Map.of())).packages(), "no codex home");
         directory(".codex/plugins/cache/market/another-plugin/1.0.0");
-        assertEquals(List.of(), new CodexPackageLocation().packages(environment(Map.of())), "a cache without this plugin");
+        assertEquals(List.of(), new CodexPackageLocation().scan(environment(Map.of())).packages(), "a cache without this plugin");
     }
 }

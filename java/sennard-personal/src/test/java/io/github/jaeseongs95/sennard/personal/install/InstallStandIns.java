@@ -9,6 +9,9 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.jar.Attributes;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -28,11 +31,36 @@ final class InstallStandIns {
             zip.putNextEntry(new ZipEntry(ReleaseJar.CONTENT + "/skills/a-skill/SKILL.md"));
             zip.write("a skill".getBytes(StandardCharsets.UTF_8));
             zip.closeEntry();
-            zip.putNextEntry(new ZipEntry(ReleaseJar.CONTENT + "/contracts/a-contract.schema.json"));
-            zip.write("{}".getBytes(StandardCharsets.UTF_8));
-            zip.closeEntry();
+            for (String content : new String[] {"skills/registry.json", "contracts/workflow-plan.v1.schema.json"}) {
+                zip.putNextEntry(new ZipEntry(ReleaseJar.CONTENT + "/" + content));
+                zip.write("{}".getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
         }
         return jar;
+    }
+
+    static void installedRuntime(Path folder, String version) throws IOException {
+        runtimeJars(folder, version);
+        Files.createDirectories(folder.resolve("skills"));
+        Files.createDirectories(folder.resolve("contracts"));
+        Files.writeString(folder.resolve("skills/registry.json"), "{}");
+        Files.writeString(folder.resolve("contracts/workflow-plan.v1.schema.json"), "{}");
+    }
+
+    private static void runtimeJars(Path folder, String version) throws IOException {
+        String hook = "lib/" + InstalledVersion.HOOK_CLIENT_JAR_PREFIX + version + ".jar";
+        String server = "lib/sennard-server-" + version + ".jar";
+        Files.createDirectories(folder.resolve("lib"));
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().put(Attributes.Name.CLASS_PATH, hook + " " + server);
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(folder.resolve(InstalledVersion.jarName(version))), manifest)) {
+            jar.putNextEntry(new ZipEntry("fixture"));
+            jar.closeEntry();
+        }
+        Files.writeString(folder.resolve(hook), "the hook client");
+        Files.writeString(folder.resolve(server), "the server module");
     }
 
     /**
@@ -46,9 +74,7 @@ final class InstallStandIns {
             }
             Path destination = Path.of(argv.getLast());
             try {
-                Files.createDirectories(destination.resolve("lib"));
-                Files.writeString(destination.resolve(InstalledVersion.jarName(version)), "the application jar");
-                Files.writeString(destination.resolve("lib").resolve(InstalledVersion.HOOK_CLIENT_JAR_PREFIX + version + ".jar"), "the hook client's jar");
+                runtimeJars(destination, version);
             } catch (IOException cause) {
                 throw new UncheckedIOException(cause);
             }

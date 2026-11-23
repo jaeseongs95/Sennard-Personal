@@ -36,8 +36,8 @@ import io.github.jaeseongs95.sennard.service.store.StoreException;
 /**
  * What the migrations and the start-up check must survive: the runner's own cases (a new database, a restart, a changed script, a failed script, an order that is
  * broken), a schema that is somebody else's, and the start-up check of the encoding. They run on the database the test run names ({@link BusinessDb}: PostgreSQL), whose account
- * may not create a database, a foreign schema or a {@code public} table: every table these cases make is in the {@code sennard} schema, which {@link #empty()} drops
- * before each case (the runner then starts from no history at all).
+ * may not create a database, an application schema outside the test's namespace, or a {@code public} table. {@link #empty()} drops {@code sennard}
+ * and the test-owned {@code sennard_*} schemas before each case. A temporary table exists only on the observing connection.
  *
  * <p>Not here any more: the case of a database in another encoding (LATIN1), which needs a database of its own; the shared database is UTF-8 and nothing may
  * create another. The refusal itself is {@code DataSourceFactory.verifyEncoding}; here the UTF-8 database is shown to pass it.
@@ -74,12 +74,23 @@ class MigrationRobustnessTest {
             s.execute("CREATE TABLE sennard_other_app.expand_history (id integer)");
         }
         Migrations migrations = BusinessDb.migrations();
-        assertEquals(EXPAND_SCRIPTS, migrations.expand(config));
-        // A contract script exists only on the test classpath (src/test/resources/db/contract): 6.0.0 ships none.
-        assertEquals(1, migrations.contract(config));
-        assertEquals(0, migrations.contract(config));
-        assertEquals(0, migrations.expand(config));
         try (Connection owner = BusinessDb.connect(); Statement s = owner.createStatement()) {
+            owner.setAutoCommit(false);
+            s.execute("CREATE TEMP TABLE expand_history (id integer) ON COMMIT DROP");
+            s.execute("INSERT INTO pg_temp.expand_history VALUES (23)");
+            List<String> before = externalTables(s);
+            assertEquals(EXPAND_SCRIPTS, migrations.expand(config));
+            assertEquals(before, externalTables(s), "expand left the external tables in place and added no external history");
+            // A contract script exists only on the test classpath (src/test/resources/db/contract).
+            assertEquals(1, migrations.contract(config));
+            assertEquals(0, migrations.contract(config));
+            assertEquals(0, migrations.expand(config));
+            assertEquals(before, externalTables(s), "contract and restart added no external history and kept the other application's tables");
+            try (ResultSet rows = s.executeQuery("SELECT id FROM pg_temp.expand_history ORDER BY id")) {
+                assertTrue(rows.next());
+                assertEquals(23, rows.getInt(1));
+                assertFalse(rows.next());
+            }
             try (ResultSet rows = s.executeQuery("SELECT count(*) FROM sennard.contract_history WHERE version = 1 AND outcome = 'SUCCEEDED'")) {
                 rows.next();
                 assertEquals(1, rows.getLong(1));
@@ -88,16 +99,21 @@ class MigrationRobustnessTest {
                 rows.next();
                 assertEquals(EXPAND_SCRIPTS, rows.getLong(1), "the contract run did not touch the expand history");
             }
-            try (ResultSet rows = s.executeQuery("SELECT count(*) FROM information_schema.tables WHERE table_name IN ('expand_history', 'contract_history') "
-                    + "AND table_schema NOT IN ('sennard', 'sennard_other_app')")) {
-                rows.next();
-                assertEquals(0, rows.getLong(1), "no history table outside sennard");
-            }
-            try (ResultSet rows = s.executeQuery("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'sennard_other_app'")) {
-                rows.next();
-                assertEquals(2, rows.getLong(1), "the other schema's tables are still there, the one named like a history table included");
+            owner.commit();
+        }
+    }
+
+    /** Includes all the other application's tables and any names reserved for migration history outside the business schema. */
+    private static List<String> externalTables(Statement statement) throws SQLException {
+        List<String> tables = new ArrayList<>();
+        try (ResultSet rows = statement.executeQuery("SELECT table_schema, table_name FROM information_schema.tables "
+                + "WHERE table_schema <> 'sennard' AND (table_schema = 'sennard_other_app' OR table_name IN ('expand_history', 'contract_history')) "
+                + "ORDER BY table_schema, table_name")) {
+            while (rows.next()) {
+                tables.add(rows.getString(1) + "." + rows.getString(2));
             }
         }
+        return tables;
     }
 
     /**

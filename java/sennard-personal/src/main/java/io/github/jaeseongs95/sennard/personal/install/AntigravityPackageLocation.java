@@ -42,10 +42,10 @@ final class AntigravityPackageLocation implements HostPackageLocation {
 
     /** One copy at most; its version is the one in the package's own {@code plugin.json}. */
     @Override
-    public List<InstalledPackage> packages(InstallEnvironment environment) throws IOException {
+    public Scan scan(InstallEnvironment environment) throws IOException {
         Path root = environment.home().resolve(".gemini/config/plugins").resolve(PLUGIN);
         if (!Files.isDirectory(root)) {
-            return List.of();
+            return new Scan(List.of(), List.of());
         }
         Path manifest = root.resolve("plugin.json");
         String version = "";
@@ -57,6 +57,6 @@ final class AntigravityPackageLocation implements HostPackageLocation {
                 throw new IOException("Could not read " + manifest + ": " + unreadable.getMessage(), unreadable);
             }
         }
-        return List.of(new InstalledPackage(root, version, true));
+        return new Scan(List.of(new InstalledPackage(root, version, true, null)), List.of());
     }
 }

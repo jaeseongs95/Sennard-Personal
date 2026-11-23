@@ -69,7 +69,7 @@ import tools.jackson.databind.node.ObjectNode;
 @Tag("business-db")
 class PromptArchiveHookServerTest {
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
-    private static final String QUESTION = "[Sennard turn recap]";
+    private static final String QUESTION = "[Sennard request recap]";
     private static final String SUMMARY_QUESTION = "[Sennard session summary]";
     private static final String STALE_QUESTION = "is older than your last request";
     private static final String NO_NUL_PREFIX = "before ";

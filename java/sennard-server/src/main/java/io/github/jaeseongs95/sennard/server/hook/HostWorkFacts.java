@@ -103,9 +103,28 @@ public interface HostWorkFacts {
         return false;
     }
 
+    /** Whether this call uses a host tool that executes a script with access to other tools. */
+    default boolean runsToolScript(ToolCall tool) {
+        return false;
+    }
+
     /** Whether the host reports a call to one of its native inter-agent send tools. */
     default boolean sendsNativePeerMessage(ToolCall tool) {
         return false;
+    }
+
+    /** A recipient named by a native send. The host identifies addresses that designate the sender's parent. */
+    record NativeRecipient(String address, boolean parent) {
+    }
+
+    /** The recipient named by a native send, if this host describes its address. */
+    default Optional<NativeRecipient> nativeRecipient(ToolCall tool) {
+        return Optional.empty();
+    }
+
+    /** Addresses of subagents whose start this host event reports. */
+    default Set<String> subagentAddresses(HostEvent event) {
+        return Set.of();
     }
 
     /** Present when this tool call edits files; a tool that edits but whose target cannot be read gives an empty list. */

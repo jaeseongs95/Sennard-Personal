@@ -28,6 +28,7 @@ import io.github.jaeseongs95.sennard.server.hook.ToolCall;
 import io.github.jaeseongs95.sennard.server.mcp.McpConfiguration;
 import io.github.jaeseongs95.sennard.server.message.MessageRef;
 import io.github.jaeseongs95.sennard.server.message.Messages;
+import io.github.jaeseongs95.sennard.server.workflow.ConvergenceLimitSource;
 import io.github.jaeseongs95.sennard.server.workflow.WorkflowService;
 import io.modelcontextprotocol.common.McpTransportContext;
 import tools.jackson.databind.json.JsonMapper;
@@ -96,15 +97,14 @@ final class ServerFixtures {
     @Configuration(proxyBeanMethods = false)
     static class Beans {
         /**
-         * The workflow gate of the hooks has tests of its own ({@link WorkflowGateServerTest}, whose server starts with {@code sennard.test.workflow-gate=on}); the hooks of every other test
-         * are about something else (a turn end, a message, a recorded input), and a request of their sessions has no workflow, so on their servers the gate says nothing. This is the one
-         * place that decides it for all of them; the edit gate and the rest of the product are the real ones.
+         * Tests that exercise the workflow gate start their server with {@code sennard.test.workflow-gate=on}. This lets other tests isolate the parts of the hooks they exercise,
+         * such as a turn end, a message, or a recorded input. The edit gate and the rest of the product are the real ones.
          */
         @Bean
         @Primary
-        WorkflowGate testWorkflowGate(ContinuityService continuity, WorkflowService workflows, Messages messages, JsonMapper mapper, Environment environment) {
+        WorkflowGate testWorkflowGate(ContinuityService continuity, WorkflowService workflows, Messages messages, JsonMapper mapper, ConvergenceLimitSource limits, Environment environment) {
             boolean gateOn = "on".equals(environment.getProperty("sennard.test.workflow-gate"));
-            return new WorkflowGate(continuity, workflows, messages, mapper) {
+            return new WorkflowGate(continuity, workflows, messages, mapper, limits) {
                 @Override
                 public List<MessageRef> promptLines(String session, HostWorkFacts host, Supplier<String> changeExample) {
                     return gateOn ? super.promptLines(session, host, changeExample) : List.of();
@@ -116,8 +116,8 @@ final class ServerFixtures {
                 }
 
                 @Override
-                public List<MessageRef> stopLines(String session, String actor, boolean alreadyContinued, boolean continuable) {
-                    return gateOn ? super.stopLines(session, actor, alreadyContinued, continuable) : List.of();
+                public StopCheck stopCheck(String session, String actor, boolean continuable) {
+                    return gateOn ? super.stopCheck(session, actor, continuable) : new StopCheck(List.of(), null);
                 }
             };
         }

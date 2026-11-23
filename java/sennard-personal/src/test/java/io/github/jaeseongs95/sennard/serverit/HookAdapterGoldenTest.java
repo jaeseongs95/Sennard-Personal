@@ -5,6 +5,8 @@
 package io.github.jaeseongs95.sennard.serverit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -361,13 +363,15 @@ class HookAdapterGoldenTest {
     private static List<String> actual() {
         List<String> lines = new ArrayList<>();
         for (Read row : reads()) {
-            lines.add(shorten(row.id()) + " | " + line(() -> seamRead(ADAPTERS.get(row.host()), row.event(), row.input()).toString()));
+            lines.add(shorten(row.id()) + " | " + line(() -> eventFields(seamRead(ADAPTERS.get(row.host()), row.event(), row.input()))));
         }
         for (Respond row : responds()) {
             lines.add(shorten(row.id()) + " | " + line(() -> {
                 HostHookAdapter adapter = ADAPTERS.get(row.host());
                 HostEvent read = seamRead(adapter, row.event(), row.input());
-                return seamRespond(adapter, row.event(), read, row.verdict());
+                String answer = seamRespond(adapter, row.event(), read, row.verdict());
+                return "gemini".equals(row.host()) && row.verdict() instanceof HookVerdict.ContinueTurn
+                        ? answer.replaceFirst("\\\\n\\\\n\\[Sennard retry: [0-9a-f-]{36}\\]", "") : answer;
             }));
         }
         for (Map.Entry<String, HostHookAdapter> adapter : new java.util.TreeMap<>(ADAPTERS).entrySet()) {
@@ -388,6 +392,52 @@ class HookAdapterGoldenTest {
         } catch (IOException unreadable) {
             throw new IllegalStateException(unreadable);
         }
+    }
+
+    /** Freeze the existing event fields separately from the restoration decisions asserted with the host wire fields below. */
+    private static String eventFields(HostEvent event) {
+        return switch (event) {
+            case HostEvent.SessionStarted started -> "SessionStarted[context=" + started.context() + ", kind=" + started.kind() + "]";
+            case HostEvent.UserPromptSubmitted prompt -> "UserPromptSubmitted[context=" + prompt.context() + ", prompt=" + prompt.prompt() + "]";
+            default -> event.toString();
+        };
+    }
+
+    @Test
+    void claudeAndCodexRestoreAtTheThreeSupportedSessionStarts() {
+        for (String host : List.of("claude", "codex")) {
+            HostHookAdapter adapter = ADAPTERS.get(host);
+            for (String source : List.of("startup", "resume", "compact", "clear", "fork", "other")) {
+                HostEvent start = seamRead(adapter, "SessionStart", "{\"session_id\":\"s1\",\"source\":\"" + source + "\"}");
+                assertEquals(List.of("startup", "resume", "compact").contains(source), start.restoresContext(), host + " " + source);
+            }
+            assertFalse(seamRead(adapter, "PostCompact", "{\"session_id\":\"s1\"}").restoresContext(), host);
+        }
+    }
+
+    @Test
+    void antigravityRestoresAtTheFirstInvocationOnly() {
+        HostHookAdapter adapter = ADAPTERS.get("agy");
+        assertFalse(seamRead(adapter, "SessionStart", "{\"conversationId\":\"c1\"}").restoresContext());
+        assertTrue(seamRead(adapter, "PreInvocation", "{\"conversationId\":\"c1\",\"invocationNum\":0}").restoresContext());
+        for (String input : List.of("{\"conversationId\":\"c1\",\"invocationNum\":1}", "{\"conversationId\":\"c1\",\"invocationNum\":\"0\"}",
+                "{\"conversationId\":\"c1\",\"invocationNum\":0.0}", "{\"conversationId\":\"c1\",\"invocationNum\":false}", "{\"conversationId\":\"c1\",\"invocationNum\":null}",
+                "{\"conversationId\":\"c1\"}")) {
+            assertFalse(seamRead(adapter, "PreInvocation", input).restoresContext(), input);
+        }
+    }
+
+    @Test
+    void geminiRestoresAtStartupResumeAndEveryBeforeAgent() {
+        HostHookAdapter adapter = ADAPTERS.get("gemini");
+        for (String source : List.of("startup", "resume", "clear", "compact", "other")) {
+            HostEvent start = seamRead(adapter, "SessionStart", "{\"session_id\":\"s1\",\"source\":\"" + source + "\"}");
+            assertEquals(List.of("startup", "resume").contains(source), start.restoresContext(), source);
+        }
+        HostEvent beforeAgent = seamRead(adapter, "BeforeAgent", "{\"session_id\":\"s1\",\"prompt\":\"continue\"}");
+        assertTrue(beforeAgent.withContext(beforeAgent.context()).restoresContext());
+        assertFalse(seamRead(adapter, "PreCompress", "{\"session_id\":\"s1\"}").restoresContext());
+        assertFalse(seamRead(adapter, "BeforeModel", "{\"session_id\":\"s1\"}").restoresContext());
     }
 
     @Test

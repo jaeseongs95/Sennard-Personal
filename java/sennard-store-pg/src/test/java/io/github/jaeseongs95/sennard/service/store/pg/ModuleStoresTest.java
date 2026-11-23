@@ -105,7 +105,7 @@ class ModuleStoresTest {
             "trust", Set.of("trust_metadata", "input_source_receipts"),
             "context", Set.of("admin_log", "admin_log_requests", "admin_log_archive", "admin_resets", "admin_proposals", "role_contexts", "role_context_history", "session_seen", "context_deliveries", "jev_keys"),
             "continuity", Set.of("continuity_metadata", "continuity_tasks", "continuity_current_memory", "continuity_memory_history", "continuity_requests", "continuity_observations", "continuity_tombstones", "continuity_cleanup_backup"),
-            "workflow", Set.of("workflow_metadata", "workflow_runs", "plugin_update_state", "convergence_roots", "convergence_root_identities", "convergence_epochs", "convergence_leases", "convergence_issued_leases", "convergence_active_surfaces", "convergence_attempts",
+            "workflow", Set.of("workflow_metadata", "workflow_runs", "workflow_blocked_plans", "plugin_update_state", "convergence_roots", "convergence_root_identities", "convergence_epochs", "convergence_leases", "convergence_issued_leases", "convergence_active_surfaces", "convergence_attempts",
                     "convergence_reviews", "workflow_attempt_links", "state_cleanup_claims", "execution_observation_claims", "root_approval_decisions", "workflow_cleanup_backup", "workflow_run_skills"),
             "messaging", Set.of("messages", "prepared_messages", "wake_paths", "input_observations", "peer_wait_snapshots", "native_wake_reservations"),
             "core", Set.of("background_job"));
@@ -179,8 +179,9 @@ class ModuleStoresTest {
             "glossary_metadata", "glossary_entries", "glossary_forms", "recap_nudge", "transcript_anchor", "turn_recap", "user_prompt",
             "baseline_file", "change_event", "journal_workflow", "observed_file", "plan_file", "plan_revision", "scan_failure", "write_root",
             "attachment", "attachment_file", "attachment_storage", "upload_staging", "operation_receipt");
+    private static final Set<String> MODULE_TABLE_NAMES = TABLES.values().stream().flatMap(Set::stream).collect(java.util.stream.Collectors.toUnmodifiableSet());
     /** The tables of the eight modules ({@link #TABLES}) as the list of an SQL {@code IN}. */
-    private static final String MODULE_TABLES = quoted(TABLES.values().stream().flatMap(Set::stream).collect(java.util.stream.Collectors.toSet()));
+    private static final String MODULE_TABLES = quoted(MODULE_TABLE_NAMES);
 
     private static String quoted(Set<String> names) {
         return names.stream().sorted().map(name -> "'" + name + "'").collect(java.util.stream.Collectors.joining(", "));
@@ -198,10 +199,10 @@ class ModuleStoresTest {
             }
         }
         Set<String> designed = new TreeSet<>(OTHER_TABLES);
-        TABLES.values().forEach(designed::addAll);
+        designed.addAll(MODULE_TABLE_NAMES);
         assertEquals(designed, found);
-        assertEquals(48 + OTHER_TABLES.size(), found.size());
-        assertEquals(48, TABLES.values().stream().mapToInt(Set::size).sum());
+        assertEquals(TABLES.values().stream().mapToInt(Set::size).sum() + OTHER_TABLES.size(), found.size(),
+                "each designed table is registered once");
         assertFalse(found.contains("continuity_delta_state"));
         assertFalse(found.contains("call_admissions"));
         assertFalse(found.contains("cleanup_backup"), "the two modules that kept a backup table have one each, named by the module");
@@ -234,14 +235,15 @@ class ModuleStoresTest {
     }
 
     /**
-     * What a table of the eight modules is keyed by is its own: every one of the 48 has a primary key (the key a statement's WHERE reaches, and what the optimistic updates
+     * What a table of the eight modules is keyed by is its own: every registered module table has a primary key (the key a statement's WHERE reaches, and what the optimistic updates
      * and the unique rows of the stores rest on). Read from the standard catalog ({@code information_schema}), no {@code pg_*} tables.
      */
     @Test
     void everyModuleTableHasAPrimaryKey() throws Exception {
-        assertEquals(48, ownerLong("SELECT count(*) FROM information_schema.tables t WHERE t.table_type = 'BASE TABLE' AND t.table_schema = 'sennard' AND t.table_name IN (" + MODULE_TABLES + ")"));
-        assertEquals(48, ownerLong("SELECT count(*) FROM information_schema.table_constraints c WHERE c.constraint_type = 'PRIMARY KEY' AND c.table_schema = 'sennard' AND c.table_name IN (" + MODULE_TABLES + ")"),
-                "one primary key for each of the 48 tables");
+        long expected = MODULE_TABLE_NAMES.size();
+        assertEquals(expected, ownerLong("SELECT count(*) FROM information_schema.tables t WHERE t.table_type = 'BASE TABLE' AND t.table_schema = 'sennard' AND t.table_name IN (" + MODULE_TABLES + ")"));
+        assertEquals(expected, ownerLong("SELECT count(*) FROM information_schema.table_constraints c WHERE c.constraint_type = 'PRIMARY KEY' AND c.table_schema = 'sennard' AND c.table_name IN (" + MODULE_TABLES + ")"),
+                "one primary key for each registered module table");
         assertEquals(0, ownerLong("SELECT count(*) FROM information_schema.tables t WHERE t.table_type = 'BASE TABLE' AND t.table_schema = 'sennard' AND t.table_name IN (" + MODULE_TABLES + ") "
                 + "AND NOT EXISTS (SELECT 1 FROM information_schema.table_constraints c WHERE c.table_schema = t.table_schema AND c.table_name = t.table_name AND c.constraint_type = 'PRIMARY KEY')"),
                 "a table without a primary key");
@@ -277,7 +279,7 @@ class ModuleStoresTest {
                 versions.put(rows.getString(1), rows.getLong(2));
             }
         }
-        assertEquals(new TreeMap<>(Map.ofEntries(Map.entry("board", 1L), Map.entry("usage", 1L), Map.entry("trust", 1L), Map.entry("context", 2L), Map.entry("continuity", 5L), Map.entry("workflow", 10L),
+        assertEquals(new TreeMap<>(Map.ofEntries(Map.entry("board", 1L), Map.entry("usage", 1L), Map.entry("trust", 1L), Map.entry("context", 2L), Map.entry("continuity", 5L), Map.entry("workflow", 11L),
                 Map.entry("messaging", 5L), Map.entry("glossary", 1L), Map.entry("prompt", 1L), Map.entry("journal", 1L), Map.entry("attachment", 1L), Map.entry("operation", 1L))), versions);
         assertEquals(0, ownerLong(foreignKeysToTheSessionTable("t.relname NOT IN (" + MODULE_TABLES_OF_THE_MESSAGING
                 + ", 'active_generation', 'call_admission', 'managed_child_identity', 'session_generation', 'session_ref')")));
@@ -340,7 +342,7 @@ class ModuleStoresTest {
         try (Stream<Path> walk = Stream.concat(Files.walk(root.resolve("java/io/github/jaeseongs95/sennard/service/store/modules")), Files.walk(root.resolve("resources/db/expand/modules")))) {
             files = walk.filter(Files::isRegularFile).toList();
         }
-        assertEquals(30, files.size(), "the scan sees the 14 store sources and the sixteen scripts (V3 to V10, V15, V18, V19, V21 to V25)");
+        assertEquals(31, files.size(), "the scan sees the 14 store sources and the seventeen scripts (V3 to V10, V15, V18, V19, V21 to V25, V27)");
         List<String> violations = new ArrayList<>();
         for (Path file : files) {
             String text = Files.readString(file);
@@ -1019,6 +1021,53 @@ class ModuleStoresTest {
     // in its Javadoc. The locks, the order of locks, SKIP LOCKED and the database clock they held belong to the mechanism that is gone.)
 
     // ---------------------------------------------------------------------------------------------------------- locks and pool
+
+    @Test
+    void workflowTaskRunAndPlanGuardReadsSerializeInPostgres() throws Exception {
+        ContinuityStore continuity = store.repository(ContinuityStore.class);
+        WorkflowStore workflows = store.repository(WorkflowStore.class);
+        store.plain(() -> {
+            continuity.ensureTask("t", T0);
+            workflows.insertRun(run("r1", 1, RunState.RUNNING), T0, "CHANGE", List.of());
+            return null;
+        });
+        // BusinessDb clears workflow_metadata between methods, including the row seeded by V27.
+        owner("INSERT INTO sennard.workflow_metadata (meta_key, value, updated_at) "
+                + "VALUES ('blocked-plan-write-lock', '1', " + timestampLiteral(T0) + ") ON CONFLICT (meta_key) DO NOTHING");
+
+        assertRowReadsSerialize("continuity task", () -> assertNotNull(continuity.readTaskForUpdate("t")));
+        assertRowReadsSerialize("workflow run", () -> assertEquals("r1", workflows.readRunIdForUpdate("r1")));
+        assertRowReadsSerialize("blocked-plan guard", workflows::requireBlockedPlanGuardForUpdate);
+    }
+
+    private void assertRowReadsSerialize(String row, Runnable read) throws Exception {
+        CountDownLatch firstRead = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderBackend = new AtomicLong();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            Future<Object> first = workers.submit(() -> store.plain(() -> {
+                holderBackend.set(LockWaits.backendOfThisTransaction(pool));
+                read.run();
+                firstRead.countDown();
+                awaitRelease(release);
+                return null;
+            }));
+            assertTrue(firstRead.await(20, TimeUnit.SECONDS), row + ": the first transaction read the row");
+            Future<Object> second = workers.submit(() -> store.plain(() -> {
+                read.run();
+                return null;
+            }));
+            LockWaits.awaitWaiterBlockedBy(holderBackend.get(), Duration.ofSeconds(20), row + ": PostgreSQL must block the second read");
+            assertFalse(second.isDone(), row + ": the second transaction is still waiting");
+            release.countDown();
+            first.get(30, TimeUnit.SECONDS);
+            second.get(30, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+        }
+    }
 
     private static void awaitRelease(CountDownLatch release) {
         try {

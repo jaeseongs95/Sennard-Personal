@@ -51,7 +51,7 @@ LOG.warn("TOOL_CALL_FAILED {}", name, failure);
 
 ### 로그 설정
 
-개인 서버는 `SennardPersonalApplication`이 기본 속성으로 파일 위치(`${sennard.state-dir}/logs/sennard-server.log`)와 회전(10MB, 7개, 총 100MB)을 줍니다. 콘솔이 없는 환경(로그온 작업)에서도 시작 실패의 흔적을 읽을 수 있게 하려는 것입니다. 사용자는 `sennard.yaml`에서 `logging.*`로 바꿉니다. 코드에서 수준을 바꾸지 않습니다.
+개인 서버는 `SennardPersonalApplication`이 기본 속성으로 파일 위치(`${sennard.state-dir}/logs/sennard-server.log`)와 회전 정책을 설정합니다. 현재 로그는 날짜가 바뀌거나 파일이 10 MB에 이르면 회전합니다. 보관 로그는 일별 기간을 최대 7개까지 유지하고 합계는 100 MB로 제한합니다. 하루에 여러 파일을 보관할 수 있으며 현재 쓰는 파일은 합계에서 제외합니다. 콘솔이 없는 환경(로그온 작업)에서도 시작 실패의 흔적을 읽을 수 있게 하려는 것입니다. 사용자는 `sennard.yaml`에서 `logging.*`로 바꿉니다. 코드에서 수준을 바꾸지 않습니다.
 
 ### 요청 식별자(규약, 5단계에서 구현)
 

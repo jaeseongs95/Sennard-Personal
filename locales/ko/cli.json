@@ -18,6 +18,7 @@
   "cli.hostHooksNotReached": "{host} 플러그인은 Sennard가 바꾸지 않는 폴더에서 그대로 읽히므로 그 훅과 MCP 서버가 이 설치의 프로그램({launcher})을 실행하지 않는다: {targets}. 이 설치의 정의를 {definitions}에서 그 파일마다 복사해 넣거나, 로컬 폴더가 아닌 마켓플레이스로 플러그인을 설치한 뒤 hooks 명령을 다시 실행하라.",
   "cli.hostIdInvalid":"{file} 파일에 UUID가 들어 있지 않습니다. 파일을 삭제하십시오. 서버가 필요할 때 새 식별자를 만듭니다.",
   "cli.hostIdNotWritten": "{file}을(를) 쓸 수 없습니다.",
+  "cli.hostPackageVersionMismatch": "Sennard {expected}와 호스트 플러그인의 버전이 같아야 합니다. 아래 플러그인을 업데이트하거나 다시 설치한 뒤 재시도하십시오. 물음표는 Sennard가 플러그인 버전을 확인하지 못했음을 뜻합니다. 대상: {copies}.",
   "cli.installFailed": "{what}",
   "cli.installFailed#what=trainingInputUnreadable": "AOT 훈련 입력 {file}을(를) 읽을 수 없습니다.",
   "cli.installFailed#what=unreadable": "{file}을(를) 읽을 수 없습니다.",

@@ -7,12 +7,16 @@ package io.github.jaeseongs95.sennard.repotools;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -91,6 +95,42 @@ class DomainNeutralWordingTest {
         List<DomainNeutralWording.Finding> findings = DomainNeutralWording.findFieldWording(markdown, DomainNeutralWording.skillLines(markdown));
         assertEquals("개발,데스크톱,모바일,웹,화면", terms(findings));
         assertEquals(List.of(4, 5), findings.stream().map(DomainNeutralWording.Finding::line).distinct().sorted().toList());
+    }
+
+    @Test
+    void aPlaceholderSpellingOutsideACatalogIsStillChecked() {
+        assertEquals("code", terms(scan("Unable to start ({code}).")));
+    }
+
+    static Stream<Arguments> catalogWording() {
+        return Stream.of(
+                Arguments.of("C1", "Unable to start ({code}).", List.of()),
+                Arguments.of("C1b", "It''s unavailable ({code}).", List.of()),
+                Arguments.of("C2a", "Check the code.", List.of("code")),
+                Arguments.of("C2b", "Check the codebase.", List.of("code")),
+                Arguments.of("C2c", "Check the source code ({code}).", List.of("code")),
+                Arguments.of("C3", "Total: {n,number}.", List.of()),
+                Arguments.of("C3b", "Total: {code,number}.", List.of()),
+                Arguments.of("C4", "The literal is '{code}'.", List.of("code")));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("catalogWording")
+    void checksCatalogWording(String caseId, String pattern, List<String> expectedTerms, @TempDir Path root) throws IOException {
+        Path intake = Path.of("skills/orchestrator/references/intake.md");
+        Files.createDirectories(root.resolve(intake).getParent());
+        Files.copy(Path.of(System.getProperty("sennard.repo.root")).resolve(intake), root.resolve(intake));
+        String catalog = "locales/en/hooks.json";
+        Path catalogPath = root.resolve(catalog);
+        Files.createDirectories(catalogPath.getParent());
+        Files.writeString(catalogPath, Repo.JSON.writeValueAsString(Map.of("hooks.example", pattern)));
+
+        DomainNeutralWording.Report report = DomainNeutralWording.checkRepository(new Repo(root));
+        List<String> foundTerms = report.findings().stream()
+                .filter(finding -> catalog.equals(finding.file()))
+                .map(DomainNeutralWording.Finding::term)
+                .toList();
+        assertEquals(expectedTerms, foundTerms, caseId + ": " + pattern);
     }
 
     @Test

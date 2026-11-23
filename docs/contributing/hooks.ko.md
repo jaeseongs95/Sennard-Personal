@@ -47,13 +47,23 @@ mcp_tool 훅이 호출하는 `sennard` MCP 서버는 설치가 Codex의 플러�
 | AfterModel | 받지 않음 | 공식: 응답 조각마다 불리는 이벤트라서 「모델 호출이 끝남」이 아니다 |
 | BeforeToolSelection·Notification | 받지 않음 | 대응하는 Sennard 수집 사건이 없다 |
 
-주의: Gemini의 훅은 전부 JVM 기동 한 번이다. BeforeModel은 모델 호출마다 불리고 입력에 `llm_request`(대화 전체)가 실린다. 서버는 지금 이 이벤트에 컨텍스트를 돌려주지 않으므로 비용이 이득보다 크면 `GeminiHookAdapter.Event`에서 한 줄로 뺀다.
+Gemini 훅 호출마다 JVM을 한 번 기동한다. `BeforeModel`은 모델 호출마다 실행된다. 훅 클라이언트는 `llm_request`의 모델 이름을 보내고 서버는 관측에 사용한다.
 
 ### 1.4 Antigravity (https://antigravity.google/docs/hooks)
 
 | 이벤트 | 받는 방식 |
 |---|---|
 | SessionStart(호스트 PID 전달)·PreInvocation·PostInvocation·Stop·PreToolUse·PostToolUse | Sennard 클라이언트(공식: `type: "command"`만 있다). 여섯 이벤트 전부 받는다 |
+
+### 1.5 컨텍스트 복원
+
+어댑터는 공통 이벤트에 전문 복원 여부를 표시한다. 공통 처리기는 확인된 전역·담당 계층과 현재 상황 스냅샷 및 workflow 카드 중 저장된 내용을 전달한다. workflow 진입이 성공하면 응답에 공통 접수 기준 경로와 스킬 대상 목록을 넣는다.
+
+| 호스트 | 복원 신호와 응답 |
+|---|---|
+| Claude Code·Codex | `SessionStart`의 `source=startup`, `resume`, `compact`에 `hookSpecificOutput.additionalContext`로 응답한다. `PostCompact`에서는 압축 결과를 기록한다. |
+| Antigravity | `PreInvocation`의 정수 `invocationNum=0`에서 임시 메시지인 `injectSteps`로 보낸다. 기록된 fixture의 첫 호출은 0이다. 후속 요청과 재개 세션의 0 복귀 시점은 미확인이다. 요청 중 자동 압축 뒤에는 다음 0번 호출까지 기다린다. |
+| Gemini CLI | 시작·재개 `SessionStart`와 매 `BeforeAgent`에서 `hookSpecificOutput.additionalContext`로 보낸다. 두 훅이 같은 컨텍스트를 보낼 수 있다. 요청 중 자동 압축 뒤에는 다음 `BeforeAgent`에서 복원한다. 훅 클라이언트는 `llm_request.messages`와 `llm_request.config`를 전송 대상에서 제외한다. |
 
 ## 2. Sennard 훅 클라이언트
 

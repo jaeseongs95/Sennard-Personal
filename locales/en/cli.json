@@ -18,6 +18,7 @@
   "cli.hostHooksNotReached": "The {host} plugin is loaded in place from a folder that Sennard does not change, so its hooks and its MCP server do not run this installation''s programs ({launcher}): {targets}. Copy this installation''s definition from {definitions} into each of those files, or install the plugin from a marketplace that is not a local folder, then run the hooks command again.",
   "cli.hostIdInvalid":"The file {file} does not hold a UUID. Delete the file; the server makes a new identity when it needs one.",
   "cli.hostIdNotWritten": "Could not write {file}.",
+  "cli.hostPackageVersionMismatch": "Sennard {expected} requires matching host plugin versions. Update or reinstall the listed plugins, then retry. A question mark means Sennard could not verify the plugin version. Packages: {copies}.",
   "cli.installFailed": "{what}",
   "cli.installFailed#what=trainingInputUnreadable": "Could not read the AOT training input {file}.",
   "cli.installFailed#what=unreadable": "Could not read {file}.",

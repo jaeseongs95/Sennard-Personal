@@ -51,7 +51,7 @@ When the tool entrance receives an unknown exception, it passes only the name as
 
 ### Log Configuration
 
-For the personal server, `SennardPersonalApplication` supplies the file location (`${sennard.state-dir}/logs/sennard-server.log`) and the rotation (10 MB, 7 files, 100 MB in total) as default properties. This is so that the trace of a startup failure can be read even in an environment without a console (a logon task). The user changes them with `logging.*` in `sennard.yaml`. The level is not changed in code.
+For the personal server, `SennardPersonalApplication` supplies the file location (`${sennard.state-dir}/logs/sennard-server.log`) and the rotation policy as default properties. The active log rolls over daily or at the 10 MB size threshold. The archive policy retains up to 7 daily periods and caps archived logs at 100 MB in total. A day can have multiple archives, and the total excludes the active file. This is so that the trace of a startup failure can be read even in an environment without a console (a logon task). The user changes them with `logging.*` in `sennard.yaml`. The level is not changed in code.
 
 ### Request Identifier (Convention, to Be Implemented in Stage 5)
 

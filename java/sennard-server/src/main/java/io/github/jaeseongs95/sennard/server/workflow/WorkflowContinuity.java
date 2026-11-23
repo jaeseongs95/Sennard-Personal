@@ -8,20 +8,15 @@ import static io.github.jaeseongs95.sennard.server.message.MessageRef.msg;
 import static io.github.jaeseongs95.sennard.server.workflow.WorkflowFailure.details;
 
 import java.time.Clock;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
 import io.github.jaeseongs95.sennard.server.limits.ResourceLimitSource;
-import io.github.jaeseongs95.sennard.service.store.LeaseState;
 import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore;
-import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The workflow's view of session continuity: which session bound which root, and the edit window that counts changes made without a
@@ -38,17 +33,15 @@ public class WorkflowContinuity {
     private static final String PHASE_ROOT_ACTOR = "phase-root-actor:";
 
     private final ContinuityStore store;
-    private final WorkflowStore workflow;
-    private final JsonMapper mapper;
+    private final WorkflowSettlement settlement;
     private final ResourceLimitSource limits;
 
     private final Clock clock;
 
-    public WorkflowContinuity(ContinuityStore store, WorkflowStore workflow, JsonMapper mapper, Clock clock, ResourceLimitSource limits) {
+    public WorkflowContinuity(ContinuityStore store, WorkflowSettlement settlement, Clock clock, ResourceLimitSource limits) {
         this.clock = clock;
         this.store = store;
-        this.workflow = workflow;
-        this.mapper = mapper;
+        this.settlement = settlement;
         this.limits = limits;
     }
 
@@ -113,46 +106,7 @@ public class WorkflowContinuity {
     /** Moves a session whose every bound root has settled to a new epoch, as a new prompt would, so a new start can bind. */
     void settle(WorkflowCall call) {
         String now = clock.instant().toString();
-        ContinuityStore.Task task = store.ensureTask(correlate(call.sessionId()), now);
-        if (task.rootId() == null) {
-            return;
-        }
-        store.rotateEpoch(task.taskCorrelation(), now, new ContinuityStore.Expected(task.currentEpoch(), task.rootId(),
-                () -> store.boundRoots(task.taskCorrelation(), task.currentEpoch()).stream().allMatch(this::rootSettled), true));
-    }
-
-    private boolean rootSettled(String rootId) {
-        WorkflowStore.Snapshot snapshot = workflow.getConvergenceSnapshot(rootId);
-        if (snapshot == null) {
-            return false;
-        }
-        boolean terminal = !mapper.readValue(snapshot.rootJson(), ConvergenceRoot.class).state().isActive();
-        if (!terminal && snapshot.workflowRunIds().isEmpty()) {
-            return false;
-        }
-        for (String runId : snapshot.workflowRunIds()) {
-            String receipt = workflow.getRun(runId);
-            if (receipt == null || !mapper.readValue(receipt, RunHeader.class).state().isTerminal()) {
-                return false;
-            }
-        }
-        // A finished run may leave its root open or awaiting review; every consumed lease, older epochs included, must have its outcome.
-        Map<String, AttemptOutcome> finished = new HashMap<>();
-        snapshot.outcomes().forEach(text -> {
-            AttemptOutcome outcome = mapper.readValue(text, AttemptOutcome.class);
-            finished.put(outcome.leaseId(), outcome);
-        });
-        for (String text : snapshot.leases()) {
-            AttemptLease lease = mapper.readValue(text, AttemptLease.class);
-            if (lease.state() != LeaseState.CONSUMED) {
-                continue;
-            }
-            AttemptOutcome outcome = finished.get(lease.leaseId());
-            if (outcome == null || !Objects.equals(rootId, outcome.rootId()) || outcome.epoch() != lease.epoch() || outcome.ordinal() != lease.ordinal()) {
-                return false;
-            }
-        }
-        return true;
+        settlement.settle(store.ensureTask(correlate(call.sessionId()), now), now);
     }
 
     /** The longer paths that start a run ({@code start_guarded_workflow}) open a change. */

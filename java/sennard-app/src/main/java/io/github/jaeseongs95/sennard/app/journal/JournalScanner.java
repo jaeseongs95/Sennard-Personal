@@ -55,6 +55,10 @@ public class JournalScanner {
         return new ReadFailure(path, reason, cause);
     }
 
+    private static boolean isLinkOrSpecial(BasicFileAttributes attributes) {
+        return attributes.isSymbolicLink() || attributes.isOther();
+    }
+
     public record Scan(Map<Path, Metadata> files, List<ReadFailure> failures, Set<Path> scannedDirectories) {
         public Scan {
             files = Map.copyOf(files);
@@ -182,7 +186,7 @@ public class JournalScanner {
                 for (Path part : declared.relativize(target)) {
                     start = start.resolve(part);
                     BasicFileAttributes attributes = Files.readAttributes(start, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                    if (attributes.isSymbolicLink() || attributes.isOther()) {
+                    if (isLinkOrSpecial(attributes)) {
                         found.failures.add(new ReadFailure(spelled(declared, realRoot, start), FailureReason.LINK_OR_SPECIAL_SKIPPED));
                         return;
                     }
@@ -203,7 +207,7 @@ public class JournalScanner {
                         found.failures.add(new ReadFailure(target, FailureReason.NOT_A_REGULAR_FILE));
                         return FileVisitResult.SKIP_SUBTREE;
                     }
-                    if (attributes.isSymbolicLink() || attributes.isOther()) {
+                    if (isLinkOrSpecial(attributes)) {
                         found.failures.add(skipped(directory));
                         return FileVisitResult.SKIP_SUBTREE;
                     }
@@ -213,7 +217,7 @@ public class JournalScanner {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
                     Path path = spelled(declared, realRoot, file);
-                    if (attributes.isSymbolicLink() || attributes.isOther()) {
+                    if (isLinkOrSpecial(attributes)) {
                         found.failures.add(skipped(file));
                         return FileVisitResult.CONTINUE;
                     }
@@ -240,6 +244,17 @@ public class JournalScanner {
 
                 @Override
                 public FileVisitResult visitFileFailed(Path file, IOException failure) {
+                    // A directory may fail to open before preVisitDirectory receives its attributes.
+                    if (!file.equals(rootItself)) {
+                        try {
+                            if (isLinkOrSpecial(Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS))) {
+                                found.failures.add(skipped(file));
+                                return FileVisitResult.CONTINUE;
+                            }
+                        } catch (IOException probeFailure) {
+                            LOG.debug("Journal could not classify the entry as a link or special file", probeFailure);
+                        }
+                    }
                     found.failures.add(readFailure(spelled(declared, realRoot, file), failure));
                     return FileVisitResult.CONTINUE;
                 }

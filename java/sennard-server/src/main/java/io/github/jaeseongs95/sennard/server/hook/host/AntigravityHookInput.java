@@ -24,8 +24,13 @@ import tools.jackson.databind.JsonNode;
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AntigravityHookInput(@Text String conversationId, @JsonProperty("workspacePaths") @FirstText String firstWorkspacePath, @Text String transcriptPath,
-        @Text String artifactDirectoryPath, @Text String modelName, @Text String lastUserInput, @Count Integer invocationNum, @Section ToolCall toolCall, @Text String error,
+        @Text String artifactDirectoryPath, @Text String modelName, @Text String lastUserInput, JsonNode invocationNum, @Section ToolCall toolCall, @Text String error,
         @Text String terminationReason, @Flag Boolean fullyIdle, @Count Integer executionNum) {
+
+    /** Only the host's integral JSON zero marks the first invocation. */
+    boolean firstInvocation() {
+        return invocationNum != null && invocationNum.isIntegralNumber() && invocationNum.bigIntegerValue().signum() == 0;
+    }
 
     /** @param args the tool's arguments: any tool's, so the host's tool defines them */
     @JsonIgnoreProperties(ignoreUnknown = true)

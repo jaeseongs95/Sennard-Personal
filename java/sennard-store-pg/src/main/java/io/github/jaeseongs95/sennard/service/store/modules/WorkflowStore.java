@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -254,15 +255,114 @@ public class WorkflowStore extends ModuleStore {
         return StoreValues.isoOrNull(one("SELECT updated_at FROM " + T + "workflow_runs WHERE run_id = ?", LocalDateTime.class, runId));
     }
 
-    /** The stored receipt; INTEGRITY_FAILED when its JSON no longer names the same run and revision as the row. */
+    /** Reads an existing run's ID with a PostgreSQL row lock in the caller's transaction; null if it is absent. */
+    public String readRunIdForUpdate(String runId) {
+        return textOf("SELECT run_id FROM " + T + "workflow_runs WHERE run_id = ? FOR UPDATE", runId);
+    }
+
+    /** One deferred reason per host conversation, written and read under the conversation's task lock. */
+    public void saveStopNotice(String host, String taskCorrelation, String reason, String now) {
+        upsert(SqlMerge.into(T + "workflow_metadata").key("meta_key", stopNoticeKey(host, taskCorrelation)).set("value", reason).set("updated_at", StoreValues.ts(now)));
+    }
+
+    public String takeStopNotice(String host, String taskCorrelation) {
+        String key = stopNoticeKey(host, taskCorrelation);
+        String reason = textOf("SELECT value FROM " + T + "workflow_metadata WHERE meta_key = ?", key);
+        if (reason != null) {
+            update("DELETE FROM " + T + "workflow_metadata WHERE meta_key = ?", key);
+        }
+        return reason;
+    }
+
+    private static String stopNoticeKey(String host, String taskCorrelation) {
+        return "hook-stop-notice:" + host + ":" + taskCorrelation;
+    }
+
+    /** Claims one check for the root across host inputs and resumes, or returns zero when the budget is exhausted. */
+    public int claimStopRecheck(String rootId, int limit) {
+        int updated = update("UPDATE " + T + "convergence_roots SET stop_rechecks = stop_rechecks + 1 WHERE root_id = ? AND state = ? AND stop_rechecks < ?",
+                rootId, RootState.OPEN, limit);
+        if (updated == 0) {
+            return 0;
+        }
+        return jdbc.sql("SELECT stop_rechecks FROM " + T + "convergence_roots WHERE root_id = ?").param(rootId).query(Integer.class).single();
+    }
+
+    public record BlockedPlanKey(String workspaceId, String kind, String planDigest) {
+    }
+
+    public record BlockedPlanOrigin(String recordId, String runId, String reason) {
+    }
+
+    private record BlockedPlanRow(String recordId, String workspaceId, String workspacePath, String kind, String planDigest, String runId, String reason, LocalDateTime createdAt) {
+        BlockedPlanView view() {
+            return new BlockedPlanView(recordId, workspaceId, workspacePath, kind, planDigest, runId, reason, StoreValues.isoOrNull(createdAt));
+        }
+    }
+
+    public record BlockedPlanView(String recordId, String workspaceId, String workspacePath, String kind, String planDigest, String runId, String reason, String createdAt) {
+    }
+
+    /** Reads the PostgreSQL guard row for update, including when the plan key has no record to lock. */
+    public void requireBlockedPlanGuardForUpdate() {
+        if (textOf("SELECT meta_key FROM " + T + "workflow_metadata WHERE meta_key = ? FOR UPDATE", "blocked-plan-write-lock") == null) {
+            throw new StoreException(StoreCode.INTEGRITY_FAILED, "The blocked workflow plans lock is missing.");
+        }
+    }
+
+    public BlockedPlanOrigin blockedPlan(BlockedPlanKey key) {
+        return one("SELECT record_id, run_id, reason FROM " + T + "workflow_blocked_plans WHERE workspace_id = ? AND kind = ? AND plan_digest = ?",
+                BlockedPlanOrigin.class, key.workspaceId(), key.kind(), key.planDigest());
+    }
+
+    public void recordBlockedPlan(BlockedPlanKey key, String workspacePath, String runId, String reason, String now) {
+        insertIfAbsent(SqlMerge.into(T + "workflow_blocked_plans").key("workspace_id", key.workspaceId()).key("kind", key.kind()).key("plan_digest", key.planDigest())
+                .set("record_id", UUID.randomUUID().toString()).set("workspace_path", workspacePath).set("run_id", runId).set("reason", reason).set("created_at", StoreValues.ts(now)));
+    }
+
+    public List<BlockedPlanView> listBlockedPlans() {
+        return jdbc.sql("SELECT record_id, workspace_id, workspace_path, kind, plan_digest, run_id, reason, created_at FROM " + T
+                + "workflow_blocked_plans ORDER BY created_at DESC, record_id").query(BlockedPlanRow.class).list().stream().map(BlockedPlanRow::view).toList();
+    }
+
+    public boolean unblockPlan(BlockedPlanKey key, String recordId) {
+        return update("DELETE FROM " + T + "workflow_blocked_plans WHERE workspace_id = ? AND kind = ? AND plan_digest = ? AND record_id = ?",
+                key.workspaceId(), key.kind(), key.planDigest(), recordId) == 1;
+    }
+
+    public void markStopViolation(String runId) {
+        update("UPDATE " + T + "workflow_runs SET stop_violation = TRUE WHERE run_id = ? AND stop_violation = FALSE", runId);
+    }
+
+    public boolean hasStopViolation(String runId) {
+        return Boolean.TRUE.equals(one("SELECT stop_violation FROM " + T + "workflow_runs WHERE run_id = ?", Boolean.class, runId));
+    }
+
+    public String runKind(String runId) {
+        return textOf("SELECT kind FROM " + T + "workflow_runs WHERE run_id = ?", runId);
+    }
+
+    public IdentityRow rootIdentity(String rootId) {
+        return one("SELECT root_id, identity_json, surface_digest FROM " + T + "convergence_root_identities WHERE root_id = ?", IdentityRow.class, rootId);
+    }
+
+    /** Only a minimal start has a generated constraint from a localized target. Empty means a minimal start without a target. */
+    public void recordPlanTarget(String rootId, String target) {
+        update("UPDATE " + T + "convergence_roots SET plan_target = ? WHERE root_id = ?", target == null ? "" : target, rootId);
+    }
+
+    public String planTarget(String rootId) {
+        return textOf("SELECT plan_target FROM " + T + "convergence_roots WHERE root_id = ?", rootId);
+    }
+
     public String getRun(String runId) {
         RevisionReceipt row = one("SELECT revision, receipt_json FROM " + T + "workflow_runs WHERE run_id = ?", RevisionReceipt.class, runId);
         if (row == null) {
             return null;
         }
         String receipt = row.receiptJson();
-        ReceiptHead head = mapper.readValue(receipt, ReceiptHead.class);
-        if (!runId.equals(head.runId()) || !Objects.equals(head.revision(), row.revision())) {
+        ReceiptHead head = receipt == null ? null : mapper.readValue(receipt, ReceiptHead.class);
+        if (head == null || !runId.equals(head.runId()) || !Objects.equals(head.revision(), row.revision())) {
             throw new StoreException(StoreCode.INTEGRITY_FAILED, "RECEIPT_METADATA_MISMATCH: the stored workflow receipt does not match its row.");
         }
         return receipt;
@@ -402,6 +502,12 @@ public class WorkflowStore extends ModuleStore {
         return jdbc.sql("SELECT r.root_id, r.root_json, r.revision, i.identity_json, i.surface_digest FROM " + T + "convergence_roots r "
                 + "LEFT JOIN " + T + "convergence_root_identities i ON i.root_id = r.root_id "
                 + "WHERE r.state IN (:states)").param("states", names(ACTIVE_ROOTS)).query(ActiveRootRow.class).list();
+    }
+
+    /** The root document alone, without loading its attempt history. */
+    public String getRootDocument(String rootId) {
+        StoredRoot root = rootRow(rootId);
+        return root == null ? null : root.rootJson();
     }
 
     /** The whole root in one read; call inside {@link #snapshot}. Null when the root is absent. */

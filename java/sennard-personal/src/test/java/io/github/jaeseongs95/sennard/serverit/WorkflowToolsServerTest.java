@@ -468,6 +468,34 @@ class WorkflowToolsServerTest {
         assertEquals("RUNNING", inquiry.get("state").asString());
     }
 
+    @Test
+    void onlySuccessfulWorkflowEntriesIncludeTheInstalledIntakeAndSkillTargets() throws Exception {
+        String owner = session();
+        List<String> started = contents("start_workflow", startAll(product()), owner);
+        assertEntryIntake(started);
+        String runId = MAPPER.readTree(started.getFirst()).path("data").path("runId").asString();
+        assertFalse(runId.isBlank(), started.toString());
+        assertEntryIntake(contents("resume_workflow", arguments("runId", runId), owner));
+        long revision = MAPPER.readTree(started.getFirst()).path("data").path("revision").asLong();
+        JsonNode paused = ok(call("pause_workflow", arguments("runId", runId, "expectedRevision", revision, "reason", "Waiting for input", "resumeCondition", "Input supplied"), owner));
+        assertEntryIntake(contents("resume_workflow", arguments("runId", runId, "expectedRevision", paused.path("revision").asLong(), "operationKey", OperationKeys.fresh()), owner));
+        assertEntryIntake(contents("start_inquiry_workflow", arguments("goal", "Investigate", "workspace", product().toString()), session()));
+        assertEntryIntake(contents("start_operation_workflow", arguments("goal", "Check the environment", "target", "test workspace", "workspace", product().toString(),
+                "skills", List.of(arguments("skillId", "minimal-implementation", "reason", "test"))), session()));
+        for (List<String> response : List.of(contents("get_workflow_status", arguments("runId", runId), owner),
+                contents("resume_workflow", arguments("runId", "run-missing"), owner))) {
+            assertFalse(String.join("\n", response).contains("Sennard intake ("), response.toString());
+        }
+    }
+
+    private static void assertEntryIntake(List<String> contents) {
+        assertTrue(MAPPER.readTree(contents.getFirst()).path("ok").asBoolean(), contents.toString());
+        assertTrue(contents.size() > 1, contents.toString());
+        String notes = contents.get(1);
+        assertTrue(notes.contains("Sennard intake (") && notes.contains("Skill targets.") && notes.contains("- orchestrator:"), notes);
+        assertFalse(notes.contains("[Sennard global context") || notes.contains("[Sennard role context") || notes.contains("[Sennard current memory"), notes);
+    }
+
     // ---- the change plan and the change journal
 
     private static ChangeJournalService journal() {
@@ -1234,25 +1262,70 @@ class WorkflowToolsServerTest {
     }
 
     @Test
-    void anImplementationResultWithoutAStatusIsNotRecordedAsPassed() throws Exception {
+    void anImplementationResultWithAMissingOrUnmappedStatusExplainsHowToRetry() throws Exception {
         String owner = session();
         JsonNode started = ok(call("start_workflow", startAll(product()), owner));
         String runId = started.get("runId").asString();
         JsonNode receipt = ok(call("get_workflow_status", arguments("runId", runId), owner));
         String stageId = receipt.path("plan").path("currentStageId").asString(receipt.path("plan").path("nextStageId").asString());
         List<Object> evidence = List.of(evidenceOf(owner));
-        // No status at all, and a status that is not text: neither is a pass.
-        for (Map<String, Object> output : List.of(Map.<String, Object>of(), Map.<String, Object>of("status", 1), Map.<String, Object>of("other", "passed"))) {
+        for (Map<String, Object> output : List.of(Map.<String, Object>of(), Map.<String, Object>of("other", "passed"),
+                Map.<String, Object>of("status", "PASS"), Map.<String, Object>of("status", 1), arguments("status", null))) {
             Map<String, Object> result = arguments("schemaVersion", "1.0.0", "runId", runId, "expectedRevision", receipt.get("revision").asLong(), "stageId", stageId, "state", "PASSED",
                     "output", arguments("schemaVersion", "1.0.0", "kind", "output", "output", output, "artifacts", List.of(), "error", null),
                     "evidence", evidence, "findings", List.of(), "blockers", List.of(), "error", null);
-            assertEquals("INVALID_TRANSITION", code(call("record_stage_result", result, owner)), output.toString());
+            JsonNode refused = call("record_stage_result", result, owner);
+            assertEquals("INVALID_TRANSITION", code(refused), refused.toString());
+            JsonNode error = refused.path("error");
+            assertEquals("workflow.service.providerVerdictMappedDescriptor", error.path("messageKey").asString(), refused.toString());
+            JsonNode details = error.path("details");
+            assertEquals(stageId, details.path("stageId").asString(), refused.toString());
+            assertEquals("/output/status", details.path("selector").asString(), refused.toString());
+            assertEquals("output.output.status", details.path("inputPath").asString(), refused.toString());
+            assertEquals(Set.of("passed", "failed", "blocked"), texts(details.path("allowedValues")), refused.toString());
+            String message = error.path("message").asString();
+            for (String hint : List.of("output.output.status", "case-sensitive", "passed", "failed", "blocked")) {
+                assertTrue(message.contains(hint), message);
+            }
+            if (output.containsKey("status")) {
+                assertFalse(details.path("valueMissing").asBoolean(true), refused.toString());
+                JsonNode submitted = MAPPER.valueToTree(output.get("status"));
+                assertEquals(submitted, details.get("receivedValue"), refused.toString());
+                assertTrue(message.contains("Received " + submitted), message);
+            } else {
+                assertTrue(details.path("valueMissing").asBoolean(), refused.toString());
+                assertFalse(details.has("receivedValue"), refused.toString());
+                assertTrue(message.contains("No value was supplied"), message);
+            }
         }
         // Nothing was recorded: the run is unchanged and a result that carries its status still passes. A passed stage does not end the run (finalize_workflow does), so the
         // run stays RUNNING and the stage is the one recorded PASSED.
         JsonNode recorded = ok(call("record_stage_result", passedStage(owner, runId, receipt), owner));
         assertEquals("RUNNING", recorded.get("state").asString(), recorded.toString());
         assertEquals("PASSED", recorded.path("plan").path("stages").path(0).path("state").asString(), recorded.toString());
+    }
+
+    @Test
+    void aPassedStageWithoutEvidenceExplainsHowToSubmitACompletedAttachment() throws Exception {
+        String owner = session();
+        JsonNode started = ok(call("start_workflow", startAll(product()), owner));
+        String runId = started.get("runId").asString();
+        JsonNode receipt = ok(call("get_workflow_status", arguments("runId", runId), owner));
+        Map<String, Object> result = passedStage(owner, runId, receipt);
+        result.put("evidence", List.of());
+
+        JsonNode refused = call("record_stage_result", result, owner);
+        assertEquals("MISSING_EVIDENCE", code(refused), refused.toString());
+        JsonNode error = refused.path("error");
+        assertEquals("workflow.service.passedStageRequiresEvidence", error.path("messageKey").asString(), refused.toString());
+        assertEquals(result.get("stageId"), error.path("details").path("stageId").asString(), refused.toString());
+        String message = error.path("message").asString();
+        for (String hint : List.of("session recording the stage", "artifact_begin", "POST /attachments/upload", "artifact_finish", "evidence[]", "attachmentId", "seq", "digest")) {
+            assertTrue(message.contains(hint), message);
+        }
+        JsonNode unchanged = ok(call("get_workflow_status", arguments("runId", runId), owner));
+        assertEquals(receipt.get("revision"), unchanged.get("revision"), unchanged.toString());
+        assertTrue(unchanged.path("stageResults").isEmpty(), unchanged.toString());
     }
 
     // ---- the model and the effort are recorded as the host reports them, never judged
@@ -2369,7 +2442,9 @@ class WorkflowToolsServerTest {
         String guardedKey = OperationKeys.fresh();
         Map<String, Object> guarded = keyed(arguments("schemaVersion", "1.0.0", "leaseId", lease.get("leaseId").asString(), "expectedRootRevision", lease.get("rootRevision").asLong(),
                 "skills", List.of(arguments("skillId", "minimal-implementation", "reason", "test"))), guardedKey);
-        JsonNode run = ok(call("start_guarded_workflow", guarded, owner));
+        List<String> guardedStart = contents("start_guarded_workflow", guarded, owner);
+        assertEntryIntake(guardedStart);
+        JsonNode run = ok(MAPPER.readTree(guardedStart.getFirst()));
         JsonNode runAgain = ok(call("start_guarded_workflow", guarded, owner));
         assertEquals(run.get("runId"), runAgain.get("runId"));
         assertEquals(1, receiptsOf("start_guarded_workflow", guardedKey));

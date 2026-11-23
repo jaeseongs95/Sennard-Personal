@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
@@ -142,7 +143,7 @@ public final class GeminiHookAdapter implements HostHookAdapter {
         return switch (event) {
             case SESSION_START -> new HostEvent.SessionStarted(context, startKind(HookJson.text(input.source())));
             case SESSION_END -> new HostEvent.SessionEnded(context, HookJson.text(input.reason()));
-            case BEFORE_AGENT -> new HostEvent.UserPromptSubmitted(context, HookJson.text(input.prompt()));
+            case BEFORE_AGENT -> new HostEvent.UserPromptSubmitted(context, HookJson.text(input.prompt()), true);
             case AFTER_AGENT -> new HostEvent.TurnEnded(context, Boolean.TRUE.equals(input.stopHookActive()), true);
             case BEFORE_MODEL -> new HostEvent.ModelCallStarting(context);
             case BEFORE_TOOL -> new HostEvent.ToolRequested(context, tool(input));
@@ -151,6 +152,11 @@ public final class GeminiHookAdapter implements HostHookAdapter {
                     : afterTool(context, input);
             case PRE_COMPRESS -> new HostEvent.CompactionStarting(context);
         };
+    }
+
+    private static GeminiHookOutput continueAgent(String instruction) {
+        String prompt = instruction + "\n\n[Sennard retry: " + UUID.randomUUID() + "]";
+        return GeminiHookOutput.deny(prompt);
     }
 
     private static HostContext context(Event event, GeminiHookInput input) {
@@ -209,7 +215,8 @@ public final class GeminiHookAdapter implements HostHookAdapter {
         return switch (verdict) {
             case HookVerdict.Proceed ignored -> GeminiHookOutput.NOTHING;
             case HookVerdict.AddContext context -> addContext(event, context.blocks().stream().map(ContextBlock::text).collect(Collectors.joining("\n\n")));
-            case HookVerdict.ContinueTurn turn -> event == Event.AFTER_AGENT ? GeminiHookOutput.deny(turn.instruction()) : notDeliverable();
+            case HookVerdict.ContinueTurn turn -> event == Event.AFTER_AGENT ? continueAgent(turn.instruction()) : notDeliverable();
+            case HookVerdict.TerminateTurn turn -> event == Event.AFTER_AGENT ? GeminiHookOutput.terminate(turn.reason()) : notDeliverable();
             case HookVerdict.Refuse refuse -> event == Event.BEFORE_TOOL || event == Event.BEFORE_AGENT
                     || (event == Event.AFTER_TOOL && read instanceof HostEvent.NativePeerResult)
                     ? GeminiHookOutput.deny(refuse.reason()) : notDeliverable();

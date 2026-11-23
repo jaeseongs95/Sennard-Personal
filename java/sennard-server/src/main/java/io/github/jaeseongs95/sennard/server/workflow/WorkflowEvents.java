@@ -24,6 +24,9 @@ public final class WorkflowEvents {
     /** A turn end the workflow gate continued: counted per prompt, so that the question has a limit. */
     public static final String STOP_BLOCKED = "workflow-gate:stop-blocked";
 
+    /** The request exhausted its workflow selection rechecks. */
+    public static final String STOP_EXHAUSTED = "workflow-gate:stop-exhausted";
+
     /** Lifecycle changes that finish handling a request without granting permission to run tools. */
     public enum Transition {
         PAUSE("pause_workflow"),

@@ -11,7 +11,7 @@ This document describes how Sennard stores and uploads attachments: the evidence
 - **The body of a file is not in the database.** It is stored as encrypted segments in a file of the server's own folder. A table holds metadata and the name of the file only. No BLOB, BYTEA, CLOB or long text column holds a body. This keeps the table space of the database small and lets a copy of the database alone reveal nothing about a file.
 - **A file is unreadable without its key.** A person who reaches the folder cannot tell what a file is: the name is random, and the content is AES-256-GCM ciphertext. The keys are in a separate folder.
 - **There is no foreign key.** A record that points at an attachment carries only the attachment's primary key. The use case that writes the record checks that the attachment exists and was made by the author of the record (see "Link to Stage Results" below).
-- **One protocol.** The model calls the same five tools for any attachment, of one file or of many. The server never reads a path on the caller's computer through these tools; the bytes arrive in chunks.
+- **One protocol.** The four public MCP tools are `artifact_begin`, `artifact_finish`, `artifact_status`, and `artifact_read`. For an attachment with one or more files, these tools manage or read the attachment. The upload client sends the file bytes separately as multipart `POST /attachments/upload`. The server never reads a path on the caller's computer.
 - **One implementation.** Writing, reading, closing, moving, deleting and checking files is done by `AttachmentFileStore`, which serves uploads only.
 
 ## Tables

@@ -5,13 +5,17 @@
 package io.github.jaeseongs95.sennard.serverit;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import io.github.jaeseongs95.sennard.app.message.CatalogMessageSource;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -111,6 +115,32 @@ final class DomainServerSupport {
             map.put((String) pairs[index], pairs[index + 1]);
         }
         return map;
+    }
+
+    static String englishMessage(RunningServer server, String key, Map<String, Object> parameters) {
+        return server.bean(CatalogMessageSource.class).getMessage(key, new Object[]{parameters}, Locale.ENGLISH);
+    }
+
+    static Map<String, Object> operationArguments(String goal, String target, String workspace, String skillId, String reason) {
+        return Map.of("goal", goal, "target", target, "workspace", workspace,
+                "skills", List.of(Map.of("skillId", skillId, "reason", reason)));
+    }
+
+    /** Builds a passing stage request with an uploaded attachment belonging to the same caller. */
+    static Map<String, Object> passedStageArguments(RunningServer server, String host, String session, JsonNode run) {
+        ToolServerSupport.Uploaded evidence = ToolServerSupport.uploadEvidence(server.port, (tool, args, caller) -> {
+            try {
+                return ChangeWorkflows.callAs(server, host, caller, tool, args);
+            } catch (IOException failure) {
+                throw new UncheckedIOException(failure);
+            }
+        }, session);
+        JsonNode plan = run.path("plan");
+        String stageId = plan.path("currentStageId").asString(plan.path("nextStageId").asString());
+        return arguments("runId", run.path("runId").asString(), "expectedRevision", run.path("revision").asLong(), "stageId", stageId,
+                "state", "PASSED", "output", arguments("kind", "output", "output", Map.of("status", "passed"), "artifacts", List.of(), "error", null),
+                "evidence", List.of(ToolServerSupport.observedEvidence(evidence)),
+                "findings", List.of(), "blockers", List.of(), "error", null);
     }
 
     /** Posts the recorded hook of this host and event with this session, changed by {@code edit}. */

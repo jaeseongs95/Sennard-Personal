@@ -36,12 +36,12 @@ You need the host's plugin feature, a [new, empty business database](docs/user/s
 The release is one jar that every operating system runs; there are no per-OS archives and no bundled runtime. The supported environment is any computer on which JDK 25 runs. See the release notes for the host environments covered by verification.
 
 <!-- release-version:start -->
-The current public release is `v1.2.0`, and the examples below install it. Read the [1.2.0 release notes](docs/release-notes/release-notes-v1.2.0.md) before installing or upgrading. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
+The current public release is `v1.3.0`, and the examples below install it. Read the [1.3.0 release notes](docs/release-notes/release-notes-v1.3.0.md) before installing or upgrading. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
 <!-- release-version:end -->
 
 ### Server
 
-From the [releases page](https://github.com/jaeseongs95/Sennard-Personal/releases), download `sennard-<version>.jar` and its `sennard-<version>.jar.sha256` (the SHA-256 in the `sha256sum --check` format). Check the jar against the checksum, then run the installer with your JDK 25:
+From the [releases page](https://github.com/jaeseongs95/Sennard-Personal/releases), download `sennard-<version>.jar` and its `sennard-<version>.jar.sha256` (the SHA-256 in the `sha256sum --check` format). Verify the JAR against the checksum before running it with JDK 25. For a new installation, run the following commands.
 
 ```bash
 sha256sum --check sennard-<version>.jar.sha256
@@ -50,15 +50,26 @@ java -jar sennard-<version>.jar install
 
 On Windows, compare the value in the checksum file with the output of `Get-FileHash -Algorithm SHA256 sennard-<version>.jar` instead.
 
-On a desktop, open the setup window from the verified JAR with `java -jar sennard-<version>.jar setup`. It shows the installed version, package version, and destination folder. To update, close affected host sessions and back up your Sennard state folder and any configured business database before opening Setup from the newer JAR and choosing **Update and restart**. After the server starts, check the database status and follow the host plugin instructions below. After you install or update a host plugin, select **Register hooks** and start a new host session.
+For a new desktop installation, you can also open Setup with `java -jar sennard-<version>.jar setup`. It shows the installed version, package version, and destination folder. Install the server, then follow the host plugin instructions below.
 
-To update from the terminal, run the newer, verified release JAR with the `upgrade` command after the same backup steps.
+#### Update an existing installation
+
+1. Close affected host sessions. Back up the Sennard state folder and any configured business database.
+2. Follow the host-specific instructions below to update every installed Sennard host plugin to the exact version of the target JAR. Close any host sessions opened to update the plugins.
+3. Use the verified target JAR with JDK 25. On a desktop, run `java -jar sennard-<version>.jar setup`, check the box confirming that you closed the sessions and backed up your data, and choose **Update and restart**. In a terminal, run `java -jar sennard-<version>.jar upgrade`. If Sennard asks to replace an existing Claude Code Stop setting, review the proposed change and confirm it to continue.
+4. When the new server starts, check the server and database status. If you install or update a matching plugin after the server update, choose **Register hooks** in Setup or run `sennard hooks` using the new installation. Then start new host sessions. In Codex, review and trust the hooks in `/hooks` again.
+
+See the [update procedure](docs/user/update.md#update-procedure) for recovery and retry instructions.
+
+If the server update stops with `HOST_PACKAGE_VERSION_MISMATCH`, check the expected version and the copies named in the error. Correct those copies using the host instructions below, close any sessions opened for the correction, and retry the server update.
 
 The installer extracts the jar into the installation folder `~/.sennard/install` (`SENNARD_INSTALL_ROOT` changes it), trains the start-up caches, starts the server, waits for readiness, and writes the hook and MCP definitions into the plugins of the hosts that are installed. The state folder is `~/.sennard` by default (`SENNARD_STATE_DIR` or `--state-dir` changes it). `~` is the `user.home` of the JVM, the same question on every operating system. If the installation folder cannot be written in the file name encoding of the system (`native.encoding`), the installer ends with `INSTALL_ROOT_NOT_REPRESENTABLE` and chooses no other folder: set `SENNARD_INSTALL_ROOT` to a folder that can be written in it. The installer does not register an OS service or add anything to `PATH`.
 
 There is no `sennard` program. In this documentation `sennard <command>` stands for `java -jar <installation folder>/versions/<version>/sennard-<version>.jar <command>`, the command that installation and upgrade print and that `sennard status` shows in its `command` field. The path changes on upgrade. `sennard status` shows server state; `sennard stop` and `sennard start` stop and start it. Only one server runs on a state folder (`SERVER_ALREADY_RUNNING`).
 
-Next, install the plugin for each host. The plugin holds the skills and empty hook and MCP definitions. `sennard install`, `sennard upgrade`, and `sennard hooks` write this PC's definitions, which name the absolute paths of this PC's `java` and jar, into the host's copy of the plugin. Without the server the Sennard tools do not connect.
+The plugin holds the skills and empty hook and MCP definitions. `sennard install`, `sennard upgrade`, and `sennard hooks` write this PC's definitions into the host's copy of the plugin. They require each detected copy to match the exact Sennard version targeted by the command. The definitions name the absolute paths of this PC's `java` and JAR. The Sennard tools connect to the local server.
+
+The Sennard Personal 1.3.0 GitHub release has no separate Gemini CLI installation package among its attached assets. The public source includes `gemini-extension/`. If an older Sennard extension remains at `~/.gemini/extensions/sennard`, the upgrade stops with `HOST_PACKAGE_VERSION_MISMATCH`. Run `gemini extensions uninstall sennard` in a terminal to remove the old extension. Use `gemini extensions list` to confirm that Sennard no longer appears before continuing the upgrade. See the [Gemini CLI extension management guide](https://geminicli.com/docs/extensions/reference/).
 
 ### Package and language
 
@@ -72,14 +83,18 @@ Each host has one package. Model-facing Sennard text has no language setting: ea
 
 ### Claude Code
 
-Run inside Claude Code, then start a new session.
+For a new installation, run these commands inside Claude Code.
 
 ```text
 /plugin marketplace add jaeseongs95/Sennard-Personal
 /plugin install sennard@sennard-claude
 ```
 
-Run `sennard hooks` after installing or updating the plugin and before starting the new session (on every operating system). The plugin ships empty hook and MCP definitions; `sennard hooks` writes this PC's definitions into the copy of the plugin that Claude Code loads.
+To update an existing installation, run `claude plugin list --json` in a terminal and check each Sennard installation. If the server reports a version mismatch, use the plugin ID, scope, and project path in the error to find the corresponding entry. Run `claude plugin update <ID> --scope <scope>` with that ID and the scope shown by `claude plugin list --json`, from the affected project if the entry has a project path. See the Claude Code reference for [listing](https://code.claude.com/docs/en/plugins/cli-reference#plugin-list) and [updating](https://code.claude.com/docs/en/plugins/cli-reference#plugin-update) plugins.
+
+Run `claude plugin list --json` again to confirm that each installation matches the exact version of the target JAR. If a marketplace registered from a local folder loads Sennard in place, check the package at the path in the error and update that folder to the target version. Close the Claude Code sessions opened for the update or version check before updating the server.
+
+Once the plugin and server are on the same version, run `sennard hooks` if you installed or updated the plugin after the server. The command writes this PC's hook and MCP definitions into the copy Claude Code loads. Then start a new session.
 
 ### Codex
 
@@ -87,12 +102,16 @@ Run in a terminal:
 
 <!-- release-install:start -->
 ```bash
-codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.2.0
+codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.3.0
 codex plugin add sennard@sennard
 ```
 <!-- release-install:end -->
 
-Start a new Codex session, then review and trust the Sennard hooks in `/hooks`. Until you do, Codex does not run plugin hooks, so the turn check, work records, the board, and message delivery do not work. Review them again after an update that changes the hook definitions. Run `sennard hooks` after installing or updating the plugin so that Codex's copy of the plugin holds this PC's definitions. Where Codex keeps that copy (`~/.codex/plugins/cache/<marketplace>/sennard/<version>/`) and whether Codex asks for trust again after the file changes were not confirmed on a real Codex.
+To update an existing installation, run `codex plugin marketplace list`. If it lists the `sennard` marketplace, remove that registration with `codex plugin marketplace remove sennard` before registering the target tag. Then run the two commands above with `--ref` set to the target release tag. Run `codex plugin list --marketplace sennard` and check that `sennard@sennard` is installed and its version matches the target JAR version exactly. See the [Codex marketplace commands](https://developers.openai.com/plugins/build/plugins#add-a-marketplace-from-the-cli).
+
+If the server reports a version mismatch, use the installation ID and cache path in the error to find the affected marketplace. List its plugins with `codex plugin list --marketplace <marketplace>`. Reinstall the matching release from that marketplace if you use it, or run `codex plugin remove sennard@<marketplace>` to remove an installation you no longer use. If Sennard reports an unknown version as `[?]`, use the same reinstall or removal procedure for that ID. Older cache versions that Codex does not select for the same ID can stay in place. See the [Codex plugin CLI reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli#cli-codex-plugin).
+
+Once the plugin and server are on the same version, run `sennard hooks` if you installed or updated the plugin after the server. Start a new Codex session, then review and trust the Sennard hooks in `/hooks`. The turn check, work records, the board, and message delivery depend on trusted hooks. Review them again after an update that changes the hook definitions. Whether Codex asks for trust again after the file changes still needs verification on a live Codex installation.
 
 ### Antigravity (`agy`)
 
@@ -100,16 +119,20 @@ Start a new Codex session, then review and trust the Sennard hooks in `/hooks`. 
 
 <!-- release-agy:start -->
 ```bash
-curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.2.0/sennard-antigravity-v1.2.0.zip
-unzip sennard-antigravity-v1.2.0.zip
+curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.3.0/sennard-antigravity-v1.3.0.zip
+unzip sennard-antigravity-v1.3.0.zip
 agy plugin install ./sennard
 agy plugin list
 ```
 <!-- release-agy:end -->
 
+For an update, use the ZIP for the target release. In an Antigravity CLI session, open `/plugin`, select Sennard on the **Installed** tab, and compare its **Version** with the target JAR version. Close that session before updating the server. See the [Antigravity CLI plugin manager](https://antigravity.google/docs/marketplace?tab=cli).
+
 For the Antigravity native app without the `agy` CLI, follow the [official manual installation guide](https://antigravity.google/docs/plugins#manual-plugin-installation). Close the app normally and keep the existing Sennard folder outside the plugin discovery paths for recovery. Place the `sennard` folder from the Antigravity installation ZIP attached to the release under `~/.gemini/config/plugins/` (Windows: `%USERPROFILE%/.gemini/config/plugins/sennard`), restart the app, and check the Sennard version in `Customizations > Installed`. Do not copy the whole repository. This method does not require installing the CLI.
 
-The package holds the skills, an empty MCP registration (`mcp_config.json`), and empty hooks (`hooks.json`). Run `sennard hooks` after installing or updating the Antigravity plugin (`sennard install` and `sennard upgrade` do the same for a plugin that is already installed): it writes this installation's MCP registration (server name `sennard`, the stdio relay with `--host=agy`) and hook definitions into the plugin's copy. `GEMINI.md` and `AGENTS.md` at the root of this repository are instructions for developing Sennard itself and are not in the package.
+For an update, confirm there that the installed version matches the target JAR version exactly, then close the app again before updating the server.
+
+The package holds the skills, an empty MCP registration (`mcp_config.json`), and empty hooks (`hooks.json`). Once the plugin and server are on the same version, run `sennard hooks` if you installed or updated the plugin after the server. The command writes this installation's MCP registration (server name `sennard`, the stdio relay with `--host=agy`) and hook definitions into the plugin's copy. Then start a new session. `GEMINI.md` and `AGENTS.md` at the root of this repository are instructions for developing Sennard itself and are not in the package.
 
 ### After installation
 
@@ -120,7 +143,7 @@ The package holds the skills, an empty MCP registration (`mcp_config.json`), and
 
 ## Usage
 
-Tell the agent the result you want, the conditions to check, and what must not change. You do not need to name a skill or a workflow in every request. The agent matches the request's purpose against each skill's use and exclusion conditions and uses a workflow for changes that run over several stages.
+Tell the agent the result you want, the conditions to check, and what must not change. The agent selects a workflow procedure for every request, including answers that require no tools, and checks which skills apply. You can leave the choice of skills and workflow to the agent.
 
 ```text
 Implement and verify this feature. First set out the scope and the acceptance criteria,
@@ -176,7 +199,7 @@ When to use which skill is in [Usage](docs/user/usage.md#when-to-use-skills).
 
 | Audience | Documents |
 | --- | --- |
-| Users | [Usage](docs/user/usage.md), [Admin page and contexts](docs/user/admin-page.md), [Session collaboration](docs/user/collaboration.md), [State storage and cleanup](docs/user/state.md), [Updates and migration](docs/user/update.md), [Troubleshooting](docs/user/troubleshooting.md) |
+| Users | [Usage](docs/user/usage.md), [System flow](docs/user/system-flow.md), [Admin page and contexts](docs/user/admin-page.md), [Session collaboration](docs/user/collaboration.md), [State storage and cleanup](docs/user/state.md), [Updates and migration](docs/user/update.md), [Troubleshooting](docs/user/troubleshooting.md) |
 | Contributors | [Contributing](CONTRIBUTING.md) (outside contributions are not accepted), [Architecture](docs/contributing/architecture.md), [Development](docs/contributing/development.md), [Testing and CI](docs/contributing/testing-and-ci.md), [Releasing](docs/contributing/release.md) |
 | Full list | [Documentation index](docs/README.md), [Release notes](docs/release-notes/), [Security policy](SECURITY.md) |
 

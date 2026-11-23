@@ -28,7 +28,7 @@ import tools.jackson.databind.node.ObjectNode;
  */
 @Tag("business-db")
 class AgyTurnEvidenceServerTest {
-    private static final String HEAD = "[Sennard turn check] Observed";
+    private static final String HEAD = "[Sennard work check] Observed";
     private static final String RERUN = "No command run was observed after the last edit";
     private static final String SKILL = "No SKILL.md read was observed";
     private static final String NO_REPRO = "No command run was observed before the edit";

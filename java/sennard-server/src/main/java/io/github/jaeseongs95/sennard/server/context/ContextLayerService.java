@@ -36,6 +36,7 @@ import io.github.jaeseongs95.sennard.domain.secret.SecretValue;
 import io.github.jaeseongs95.sennard.server.approval.ApprovalSourceKind;
 import io.github.jaeseongs95.sennard.server.approval.RootApprovalService;
 import io.github.jaeseongs95.sennard.server.approval.RootReleaseService;
+import io.github.jaeseongs95.sennard.server.workflow.BlockedPlanAdminService;
 import io.github.jaeseongs95.sennard.domain.error.SennardException;
 import io.github.jaeseongs95.sennard.domain.error.BindingCode;
 import io.github.jaeseongs95.sennard.domain.error.BindingException;
@@ -175,6 +176,7 @@ public class ContextLayerService {
     private final JsonMapper mapper;
     private final RootApprovalService rootApprovals;
     private final RootReleaseService rootReleases;
+    private final BlockedPlanAdminService blockedPlans;
     private final ApplicationEventPublisher events;
     private final AdminLogVerifier verifier;
     private final ObjectWriter changeWriter;
@@ -191,7 +193,7 @@ public class ContextLayerService {
     private final OperationReceipts receipts;
 
     public ContextLayerService(ContextLayerStore store, JsonMapper mapper, RootApprovalService rootApprovals,
-            RootReleaseService rootReleases, ApplicationEventPublisher events, AdminPageAddress address, Clock clock, AdminLogVerifier verifier,
+            RootReleaseService rootReleases, BlockedPlanAdminService blockedPlans, ApplicationEventPublisher events, AdminPageAddress address, Clock clock, AdminLogVerifier verifier,
             AdminCommitChecks commitChecks, AdminIssuedIntents issuedIntents, PasskeyRegistry passkeys,
             AdminLogSource logs, OperationReceipts receipts, DatabaseLinkSettings links, LinkedDatabaseProbe linkedDatabase, ChildSessionRoots childRoots) {
         this.receipts = receipts;
@@ -206,6 +208,7 @@ public class ContextLayerService {
         this.events = events;
         this.rootApprovals = rootApprovals;
         this.rootReleases = rootReleases;
+        this.blockedPlans = blockedPlans;
         this.clock = clock;
         this.mapper = mapper;
         this.verifier = verifier;
@@ -521,7 +524,7 @@ public class ContextLayerService {
             case AdminChange.DatabaseLink link -> PreLinkAdminService.checkedLink(link);
             case AdminChange.KeyAdd _, AdminChange.KeyRevoke _, AdminChange.RoleAdd _, AdminChange.RoleRename _, AdminChange.RoleDelete _, AdminChange.BindingSet _, AdminChange.Ack _,
                     AdminChange.JevSet _, AdminChange.JevKeySet _, AdminChange.JevKeyDelete _, AdminChange.EditExemptSet _, AdminChange.JvmPresetSet _, AdminChange.ConvergenceLimitsSet _, AdminChange.ResourceLimitsSet _, AdminChange.AttachmentStorageSet _,
-                    AdminChange.RootApprove _, AdminChange.RootRelease _ -> {
+                    AdminChange.RootApprove _, AdminChange.RootRelease _, AdminChange.WorkflowPlanUnblock _ -> {
                 // The other kinds write nothing to a store, or check what they need at the place that writes it.
             }
         }
@@ -636,6 +639,9 @@ public class ContextLayerService {
         }
         if (change instanceof AdminChange.RootRelease release) {
             checkRootRelease(release);
+        }
+        if (change instanceof AdminChange.WorkflowPlanUnblock unblock) {
+            blockedPlans.requireCurrent(unblock.workspaceId(), unblock.kind(), unblock.planDigest(), unblock.recordId());
         }
         // The log has no key yet exactly when this is the bootstrap (checked above): only a key registering itself can sign then.
         // A key signs only while the log lists it and the registry holds it as active; a log that lists keys the registry cannot vouch for (the settings database was lost) has no
@@ -752,6 +758,7 @@ public class ContextLayerService {
                     throw rootReleaseRefused(refused.refusal());
                 }
             }
+            case AdminChange.WorkflowPlanUnblock unblock -> blockedPlans.unblock(unblock.workspaceId(), unblock.kind(), unblock.planDigest(), unblock.recordId());
             // The launcher's file is written after this transaction commits (the listener's phase), so a rolled-back record never changes a start.
             case AdminChange.JvmPresetSet preset -> events.publishEvent(new JvmPresetSigned(preset.preset()));
             // The registry revokes the key after this transaction commits (PasskeyRevocations): the last-key rule was decided by the log's chain above.

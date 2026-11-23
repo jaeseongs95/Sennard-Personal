@@ -235,6 +235,12 @@ public class ContinuityStore extends ModuleStore {
         return row == null ? null : row.toTask();
     }
 
+    /** Serializes request boundaries and their Stop claims within the caller's transaction. */
+    public Task readTaskForUpdate(String taskCorrelation) {
+        TaskRow row = firstOf(TaskRow.class, "SELECT * FROM " + T + "continuity_tasks WHERE task_correlation = ? FOR UPDATE", taskCorrelation);
+        return row == null ? null : row.toTask();
+    }
+
     /**
      * Moves the task to its next epoch; null when the task is absent. With {@code expected}, only while that epoch and root are current and the root is settled. The move is the
      * {@code UPDATE} whose {@code WHERE} names the epoch and the root: of two requests that move the same epoch the second one's statement finds the epoch already moved and changes
@@ -580,6 +586,12 @@ public class ContinuityStore extends ModuleStore {
     public List<String> observationEventsAfter(String taskCorrelation, long epoch, String prefix, long afterId) {
         return jdbc.sql("SELECT event FROM " + T + "continuity_observations WHERE task_correlation = ? AND epoch = ? AND SUBSTRING(event FROM 1 FOR ?) = ? "
                 + "AND observation_id > ? ORDER BY observation_id ASC").params(taskCorrelation, epoch, prefix.length(), prefix, afterId).query(String.class).list();
+    }
+
+    /** Counts the same event throughout an input, including when the task advances its epoch. */
+    public long countObservationsAnyEpochAfter(String taskCorrelation, String event, long afterId) {
+        return valueOf(Long.class, "SELECT count(*) AS count FROM " + T + "continuity_observations WHERE task_correlation = ? AND event = ? AND observation_id > ?",
+                taskCorrelation, event, afterId);
     }
 
     /** Copies a selected parent snapshot into an empty child epoch only; existing child state is never replaced. */

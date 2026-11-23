@@ -1,5 +1,5 @@
 {
-  "connector.turnEvidence.head": "[Sennard turn check] Observed {edits} file edit(s) this turn. What was not observed, and what to do about it:",
+  "connector.turnEvidence.head": "[Sennard work check] Observed {edits} file edit(s) for this request. The following checks need attention:",
   "connector.turnEvidence.noRepro": "- No command run was observed before the edit either. If you did not reproduce the symptom before the edit, write ''not reproduced before the edit'' in the final report.",
   "connector.turnEvidence.rerun": "- No command run was observed after the last edit. Run again now, unchanged, the command that reproduced the symptom the user saw before the edit (if there is none, the real entry point the user uses), and report the output from before and after the edit together. If you cannot run it, do not write ''fixed''; report that you could not run it and why.",
   "connector.turnEvidence.skill": "- No SKILL.md read was observed in this session (a skill''s procedure file). Read the SKILL.md of the skill that applies to this work and check that you followed its procedure. If you went ahead without reading it, report that you did not read it."

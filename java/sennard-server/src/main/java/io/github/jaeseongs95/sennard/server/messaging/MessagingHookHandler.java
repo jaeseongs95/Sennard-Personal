@@ -20,6 +20,7 @@ import org.springframework.stereotype.Component;
 
 import io.github.jaeseongs95.sennard.domain.messaging.PeerAddress;
 import io.github.jaeseongs95.sennard.server.context.ChildSessionRoots;
+import io.github.jaeseongs95.sennard.server.continuity.SubagentRoster;
 import io.github.jaeseongs95.sennard.server.diagnostics.SafeFailure;
 import io.github.jaeseongs95.sennard.server.hook.HookModule;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict;
@@ -50,10 +51,12 @@ public class MessagingHookHandler implements HookDomain {
     private final MessageSource catalog;
     private final Map<HostId, HostWorkFacts> facts;
     private final WakeWaiters waiters;
+    private final SubagentRoster subagents;
 
     public MessagingHookHandler(SessionMessageService messages, SessionRegistry sessions, ChildSessionRoots childRoots, PeerEnvelope envelope, MessageSource catalog,
-            List<HostWorkFacts> facts, WakeWaiters waiters) {
+            List<HostWorkFacts> facts, WakeWaiters waiters, SubagentRoster subagents) {
         this.waiters = waiters;
+        this.subagents = subagents;
         this.messages = messages;
         this.sessions = sessions;
         this.childRoots = childRoots;
@@ -68,6 +71,11 @@ public class MessagingHookHandler implements HookDomain {
         HostContext context = event.context();
         HostWorkFacts host = facts.getOrDefault(context.hostLabel(), HostWorkFacts.NONE);
         if (!call.isForAnotherThan(HookModule.NATIVE_PEER) && event instanceof HostEvent.ToolRequested request && host.sendsNativePeerMessage(request.tool())) {
+            if (host.nativeRecipient(request.tool()).filter(recipient -> recipient.parent()
+                    ? context.actor().role() == Role.CHILD && context.actor().basis() == Basis.OBSERVED
+                    : subagents.contains(context, recipient.address())).isPresent()) {
+                return PROCEED;
+            }
             return new HookVerdict.Refuse(catalog.getMessage("peer.send.useSennard", null, Locale.ENGLISH));
         }
         if (call.isForAnotherThan(HookModule.PEER_WAIT)) {

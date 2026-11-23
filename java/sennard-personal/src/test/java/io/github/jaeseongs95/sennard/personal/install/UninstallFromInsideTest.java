@@ -112,8 +112,8 @@ class UninstallFromInsideTest {
     @Test
     void anUninstallRunFromOutsideAnInstalledRootRemovesTheRootAndKeepsTheStateFolder() throws Exception {
         Path root = temporary.resolve("root");
-        Path version = Files.createDirectories(root.resolve("versions/6.0.0"));
-        jar(version.resolve("sennard-6.0.0.jar"));
+        Path version = root.resolve("versions/6.0.0");
+        InstallStandIns.installedRuntime(version, "6.0.0");
         Path outside = jar(temporary.resolve("downloads").resolve("sennard-6.0.0.jar"));
         List<List<String>> ran = new ArrayList<>();
         ByteArrayOutputStream printed = new ByteArrayOutputStream();

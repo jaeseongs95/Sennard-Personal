@@ -2064,6 +2064,7 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     if (st.resourceLimits) sec.append(viewResourceLimits(st.resourceLimits));
     if (st.attachmentStorage) sec.append(viewAttachmentStorage(st.attachmentStorage));
     if (st.convergence) sec.append(viewConvergence(st.convergence));
+    sec.append(viewBlockedPlans(S.data.blockedPlans || []));
     return sec;
   }
   function viewAttachmentStorage(view) {
@@ -2276,6 +2277,51 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
         h('button', { type: 'button', class: 'btn', id: 'cv-undo', disabled: !!S.busy || !s.changed, onclick: () => { S.cv.attempts = null; S.cv.epochs = null; delete S.status.cv; render(); } }, t('admin.page.general.undo'))),
       statusEl('cv'));
   }
+  let blockedPlanPageSize = 20;
+  function viewBlockedPlans(plans) {
+    const slot = 'blocked-plans';
+    const message = (key, vars) => t('admin.page.general.blockedPlans.' + key, vars);
+    const box = h('section', { class: 'box', 'aria-labelledby': 'blocked-plans-title' },
+      h('h2', { id: 'blocked-plans-title', tabindex: '-1' }, message('heading')),
+      h('p', { class: 'desc' }, message('desc')), statusEl(slot));
+    if (!plans.length) {
+      box.append(h('p', { class: 'muted' }, message('empty')));
+      return box;
+    }
+    for (const plan of plans.slice(0, blockedPlanPageSize)) {
+      const reasonKey = 'admin.page.general.blockedPlans.' + plan.reason;
+      const row = h('div', { class: 'item' },
+        kv([
+          [message('workspace'), plan.workspacePath],
+          [message('kind'), kindLabel(plan.kind)],
+          [message('digest'), h('code', null, plan.planDigest)],
+          [message('run'), h('code', null, plan.runId)],
+          [message('reason'), has(reasonKey) ? t(reasonKey) : plan.reason],
+          [message('time'), h('time', { datetime: plan.createdAt }, fmtDateTime(plan.createdAt))],
+        ]),
+        signBtn({ slot, label: message('unblock'), onclick: async () => {
+          const { workspaceId, kind, planDigest, recordId, runId } = plan;
+          await runSigned({ slot, change: { op: 'WORKFLOW_PLAN_UNBLOCK', workspaceId, kind, planDigest, recordId },
+            cancelText: message('cancelled'), onStale: () => loadState(),
+            onDone: (_, loaded) => {
+              if (loaded) S.status[slot] = { kind: 'ok', text: message('done', { runId }) };
+            } });
+          $('blocked-plans-title')?.focus();
+        } }));
+      row.querySelector('button').setAttribute('aria-label', message('unblockLabel', { runId: plan.runId }));
+      box.append(row);
+    }
+    if (plans.length > blockedPlanPageSize) {
+      box.append(h('button', { type: 'button', class: 'btn', onclick: () => {
+        const firstNew = blockedPlanPageSize;
+        blockedPlanPageSize += 20;
+        render();
+        document.querySelectorAll('#blocked-plans-title ~ .item button')[firstNew]?.focus();
+      } }, message('more')));
+    }
+    return box;
+  }
+
   const EX_HINT = () => t('admin.page.general.exempt.hint');
   function exemptAddError(raw, cur, max) {
     return !raw ? null : !looksAbsolute(raw) ? t('admin.page.general.exempt.errAbsolute')

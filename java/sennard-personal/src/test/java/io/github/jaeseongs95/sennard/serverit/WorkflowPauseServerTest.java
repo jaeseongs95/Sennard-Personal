@@ -86,10 +86,15 @@ class WorkflowPauseServerTest {
     }
 
     private static String notices(Run run) {
+        return notices(run, "get_workflow_status", Map.of("runId", run.id(), "detail", "compact"));
+    }
+
+    private static String notices(Run run, String tool, Map<String, Object> args) {
         Map<String, Object> meta = new LinkedHashMap<>(SessionServerSupport.meta("windows", "codex", run.session(), "none"));
         meta.put("callId", "exec-" + UUID.randomUUID());
         try (McpSyncClient client = DomainServerSupport.client(server.port, "codex")) {
-            var result = client.callTool(McpSchema.CallToolRequest.builder("get_workflow_status").arguments(Map.of("runId", run.id(), "detail", "compact")).meta(meta).build());
+            var result = client.callTool(McpSchema.CallToolRequest.builder(tool).arguments(args).meta(meta).build());
+            assertFalse(Boolean.TRUE.equals(result.isError()), result.toString());
             return result.content().stream().skip(1).filter(McpSchema.TextContent.class::isInstance).map(McpSchema.TextContent.class::cast).map(McpSchema.TextContent::text).reduce("", (a, b) -> a + "\n" + b);
         }
     }
@@ -268,6 +273,11 @@ class WorkflowPauseServerTest {
         String finish = notices(operation);
         assertTrue(finish.contains("finalize_workflow"), finish);
         assertTrue(finish.contains(operation.id()), finish);
+        String preparation = "read that environment's guide and the script of its last successful run";
+        assertFalse(finish.contains(preparation), finish);
+        JsonNode paused = ok(call(operation, "pause_workflow", pause(operation, status(operation, "full").path("revision").asLong())));
+        String resumed = notices(operation, "resume_workflow", change(operation, paused.path("revision").asLong()));
+        assertTrue(resumed.contains(preparation), resumed);
         ok(call(operation, "finalize_workflow", change(operation, status(operation, "full").path("revision").asLong())));
         String completed = notices(operation);
         assertTrue(completed.contains("PASSED"), completed);

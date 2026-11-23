@@ -55,6 +55,7 @@ import jakarta.validation.constraints.Size;
     @JsonSubTypes.Type(value = AdminChange.AttachmentStorageSet.class, name = "ATTACHMENT_STORAGE_SET"),
     @JsonSubTypes.Type(value = AdminChange.RootApprove.class, name = "ROOT_APPROVE"),
     @JsonSubTypes.Type(value = AdminChange.RootRelease.class, name = "ROOT_RELEASE"),
+    @JsonSubTypes.Type(value = AdminChange.WorkflowPlanUnblock.class, name = "WORKFLOW_PLAN_UNBLOCK"),
     @JsonSubTypes.Type(value = AdminChange.DatabaseLink.class, name = "DATABASE_LINK")
 })
 @JsonInclude(JsonInclude.Include.ALWAYS)
@@ -158,6 +159,11 @@ public sealed interface AdminChange {
      * moved since is refused, not released on a signature for another state.
      */
     record RootRelease(@NotNull @Pattern(regexp = ID) String rootId, @PositiveOrZero long expectedRevision, @NotBlank @Size(max = ROOT_RELEASE_REASON_MAX_LENGTH) String reason) implements AdminChange {
+    }
+
+    /** The exact denied plan and the instance of the denial shown to the user. */
+    record WorkflowPlanUnblock(@NotNull @Pattern(regexp = "[a-f0-9]{64}") String workspaceId, @NotNull @Pattern(regexp = "[A-Z_]{1,40}") String kind,
+            @NotNull @Pattern(regexp = FINGERPRINT) String planDigest, @NotNull @Pattern(regexp = "[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}") String recordId) implements AdminChange {
     }
 
     /**

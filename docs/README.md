@@ -11,6 +11,7 @@ These documents are for people who install and use Sennard. Installation is desc
 | Document | Contents |
 | --- | --- |
 | [Usage](user/usage.md) | How to make requests, what changes after installation, workflows and the edit gate, work records, model selection for subtasks, and what is not guaranteed |
+| [System flow](user/system-flow.md) | Request handling, session lifecycle, workflow states, and collaboration |
 | [Admin page and contexts](user/admin-page.md) | The local admin page, the global, role, and situational contexts, JEV, language, and reset |
 | [Session collaboration](user/collaboration.md) | The session board, PEER messages, and wake methods per host |
 | [State storage and cleanup](user/state.md) | Storage locations and settings, cleanup, backup, and recovery |

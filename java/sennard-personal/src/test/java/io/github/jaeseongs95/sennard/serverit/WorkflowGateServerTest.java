@@ -10,14 +10,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -28,11 +34,16 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import io.github.jaeseongs95.sennard.app.journal.ChangeJournalService;
 import io.github.jaeseongs95.sennard.service.identity.SessionRegistry;
+import io.github.jaeseongs95.sennard.server.continuity.ContinuityService;
+import io.github.jaeseongs95.sennard.server.message.Messages;
 import io.github.jaeseongs95.sennard.server.workflow.WorkflowCall;
 import io.github.jaeseongs95.sennard.server.workflow.WorkflowCode;
+import io.github.jaeseongs95.sennard.server.workflow.WorkflowEvents;
 import io.github.jaeseongs95.sennard.server.workflow.WorkflowKind;
 import io.github.jaeseongs95.sennard.server.workflow.WorkflowService;
+import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore;
 import io.modelcontextprotocol.client.McpSyncClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
@@ -103,7 +114,14 @@ class WorkflowGateServerTest {
     }
 
     private static JsonNode stop(String host, String session) throws IOException {
+        return stop(host, session, false);
+    }
+
+    private static JsonNode stop(String host, String session, boolean alreadyContinued) throws IOException {
         return ok(hook(host, "Stop", null, session, body -> {
+            if (!host.equals("agy")) {
+                body.put("stop_hook_active", alreadyContinued);
+            }
         }));
     }
 
@@ -240,6 +258,53 @@ class WorkflowGateServerTest {
         assertFalse(denied(host, preToolUse(host, session)), "an instance serves the request now");
     }
 
+    @Test
+    void codeModeScriptToolIsRefusedWithDedicatedMessageWithoutWorkflow() throws IOException {
+        String session = newSession("claude");
+        prompt("claude", session);
+
+        assertCodeModeRefusal(session);
+    }
+
+    @Test
+    void codeModeScriptToolIsRefusedWithDedicatedMessageInsideWorkflow() throws IOException {
+        String session = newSession("claude");
+        prompt("claude", session);
+        JsonNode opened = call("claude", session, WorkflowKind.OPERATION.toolName(), operation("Run checks", "skills", skills()));
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+        assertFalse(denied("claude", preToolUse("claude", session, "Bash", object().put("command", "echo workflow"))));
+
+        assertCodeModeRefusal(session);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"claude, Read", "codex, REPL", "agy, REPL"})
+    void otherHostsAndPlainClaudeSessionsAreUnchanged(String host, String tool) throws IOException {
+        String session = newSession(host);
+        prompt(host, session);
+        Consumer<ObjectNode> toolInput = host.equals("agy")
+                ? body -> body.putObject("toolCall").put("name", tool).putObject("args")
+                : DomainServerSupport.tool(tool, object());
+        JsonNode refused = ok(hook(host, "PreToolUse", module(host), session, toolInput));
+        assertTrue(denied(host, refused), refused.toString());
+        assertTrue(reason(host, refused).contains(tool), refused.toString());
+        assertTrue(reason(host, refused).contains(WorkflowKind.INQUIRY.toolName()), refused.toString());
+        JsonNode opened = call(host, session, WorkflowKind.INQUIRY.toolName(), inquiry("Read project information"));
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+        assertFalse(denied(host, ok(hook(host, "PreToolUse", module(host), session, toolInput))));
+    }
+
+    private static void assertCodeModeRefusal(String session) throws IOException {
+        JsonNode refused = preToolUse("claude", session, "REPL", object().put("code", "1 + 1"));
+        String message = reason("claude", refused);
+        assertAll(
+                () -> assertTrue(denied("claude", refused), refused.toString()),
+                () -> assertTrue(message.contains("Claude Code Mode"), message),
+                () -> assertTrue(message.contains("CLAUDE_CODE_EXPERIMENTAL_CODE_MODE"), message),
+                () -> assertTrue(message.contains("AGS3-D-0411"), message),
+                () -> assertFalse(message.contains(WorkflowKind.INQUIRY.toolName()), message));
+    }
+
     @ParameterizedTest
     @CsvSource({
             "codex, multi_agent_v1send_input, false",
@@ -306,19 +371,268 @@ class WorkflowGateServerTest {
         assertFalse(denied("agy", wrappedPeer), wrappedPeer.toString());
     }
 
+    @Test
+    void claudeNativeSendToAnObservedSubagentIsAllowed() throws IOException {
+        String session = newSession("claude");
+        String child = "a0123456789abcdef";
+        observeClaudeSubagentStart(session, child);
+        ok(hook("claude", "PostToolUse", null, session,
+                DomainServerSupport.tool("Agent", object().put("name", "researcher").put("prompt", "x"))
+                        .andThen(body -> body.set("tool_response", object().put("status", "async_launched")))));
+
+        assertAll(
+                () -> assertClaudeNativeSendAllowed(claudeNativeSend(session, child, null)),
+                () -> assertClaudeNativeSendAllowed(claudeNativeSend(session, "researcher", null)));
+    }
+
+    @Test
+    void claudeNativeSendFromAnObservedSubagentToItsParentIsAllowed() throws IOException {
+        String session = newSession("claude");
+        String child = "a0123456789abcdef";
+        observeClaudeSubagentStart(session, child);
+
+        assertClaudeNativeSendAllowed(claudeNativeSend(session, "main", child));
+    }
+
+    @Test
+    void claudeNativeSendOutsideItsDelegationIsRefused() throws IOException {
+        String session = newSession("claude");
+        String other = newSession("claude");
+        String otherChild = "a1111111111111111";
+        observeClaudeSubagentStart(other, otherChild);
+
+        assertAll(
+                () -> assertClaudeNativeSendRefused(claudeNativeSend(session, other, null)),
+                () -> assertClaudeNativeSendRefused(claudeNativeSend(session, otherChild, null)));
+    }
+
+    @Test
+    void claudeNativeSendWithAnUnprovenRecipientIsRefused() throws IOException {
+        String session = newSession("claude");
+
+        assertAll(
+                () -> assertClaudeNativeSendRefused(claudeNativeSend(session, null, null)),
+                () -> assertClaudeNativeSendRefused(claudeNativeSend(session, "a0000000000000000", null)),
+                () -> assertClaudeNativeSendRefused(claudeNativeSend(session, "main", null)));
+    }
+
+    private static void observeClaudeSubagentStart(String session, String agentId) throws IOException {
+        ok(DomainServerSupport.hookFrom("Stop", server.port, "windows", "claude", "SubagentStart", null, session,
+                body -> body.put("hook_event_name", "SubagentStart").put("agent_id", agentId).put("agent_type", "general-purpose")));
+    }
+
+    private static JsonNode claudeNativeSend(String session, String recipient, String agentId) throws IOException {
+        ObjectNode inputs = object().put("message", "continue");
+        if (recipient != null) {
+            inputs.put("to", recipient);
+        }
+        return ok(hook("claude", "PreToolUse", "native-peer", session, body -> {
+            DomainServerSupport.tool("SendMessage", inputs).accept(body);
+            body.remove("mcp_server");
+            if (agentId != null) {
+                body.put("agent_id", agentId).put("agent_type", "general-purpose");
+            }
+        }));
+    }
+
+    private static void assertClaudeNativeSendAllowed(JsonNode output) {
+        assertFalse(denied("claude", output), output.toString());
+    }
+
+    private static void assertClaudeNativeSendRefused(JsonNode output) {
+        assertTrue(denied("claude", output), output.toString());
+        assertTrue(reason("claude", output).contains("Use Sennard peer messaging"), output.toString());
+    }
+
     @ParameterizedTest
     @CsvSource({"claude", "codex", "agy"})
     void aTurnEndIsHeldForTheMissingInstanceWithALimit(String host) throws IOException {
         String session = newSession(host);
         prompt(host, session);
         for (int hold = 0; hold < 3; hold += 1) {
-            JsonNode held = stop(host, session);
+            JsonNode held = stop(host, session, hold > 0);
             assertTrue(held.toString().contains(GATE), "turn end " + hold + " is held: " + held);
             assertTrue(held.toString().contains("Currently open workflow gates: 0"), held.toString());
+            assertTrue(held.toString().contains("Reconsider the approach"), held.toString());
+            assertEquals(hold == 2, held.toString().contains("This is the final recheck"), held.toString());
             assertFalse(held.toString().contains("start_workflow"), held.toString());
             assertFalse(held.toString().contains("resume_workflow"), held.toString());
         }
-        assertFalse(stop(host, session).toString().contains(GATE), "the limit of holds of one request is reached");
+        JsonNode exhausted = stop(host, session, true);
+        if (host.equals("agy")) {
+            assertEquals(object(), exhausted);
+            String reason = "no workflow procedure was selected";
+            JsonNode between = ok(hook(host, "PreInvocation", null, session, body -> body.put("invocationNum", 1)));
+            assertFalse(hasAntigravityNotice(between, reason), between.toString());
+            JsonNode next = ok(hook(host, "PreInvocation", null, session, body -> body.put("invocationNum", 0).put("lastUserInput", "Next actual input")));
+            assertTrue(hasAntigravityNotice(next, reason), next.toString());
+            assertFalse(prompt(host, session).contains(reason));
+        } else {
+            assertFalse(exhausted.path("continue").asBoolean(true), exhausted.toString());
+            assertTrue(exhausted.path("stopReason").asString().contains("no workflow procedure was selected"), exhausted.toString());
+        }
+    }
+
+    @Test
+    void antigravityTerminalStopRecordsMissingSelectionAndNotifiesTheNextInput() throws IOException {
+        String session = newSession("agy");
+        prompt("agy", session);
+        String count = "SELECT COUNT(*) AS hits FROM sennard.continuity_observations WHERE event = ?";
+        long before = ((Number) SessionServerSupport.row(server, count, WorkflowEvents.STOP_EXHAUSTED).get("hits")).longValue();
+
+        assertEquals(object(), antigravityTerminalStop(session));
+        assertEquals(object(), antigravityTerminalStop(session));
+        long after = ((Number) SessionServerSupport.row(server, count, WorkflowEvents.STOP_EXHAUSTED).get("hits")).longValue();
+        assertEquals(before + 1, after);
+        assertAntigravityDeferredStop(session, "no workflow procedure was selected");
+    }
+
+    @Test
+    void antigravityTerminalStopBlocksTheAttributedWorkflowAndNotifiesTheNextInput() throws IOException {
+        String session = newSession("agy");
+        prompt("agy", session);
+        String tool = WorkflowKind.OPERATION.toolName();
+        String objective = "Finish the terminal Antigravity operation";
+        JsonNode opened = call("agy", session, tool, operation(objective, "skills", skills()));
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+        String runId = opened.path("data").path("runId").asString();
+
+        assertEquals(object(), antigravityTerminalStop(session));
+        Map<String, Object> row = SessionServerSupport.row(server, "SELECT state, stop_violation FROM sennard.workflow_runs WHERE run_id = ?", runId);
+        assertEquals("BLOCKED", row.get("state"));
+        assertEquals(Boolean.TRUE, row.get("stop_violation"));
+        assertAntigravityDeferredStop(session, runId + " reached the recheck limit and was blocked");
+
+        String another = newSession("agy");
+        prompt("agy", another);
+        JsonNode same = call("agy", another, tool, operation(objective, "skills", skills()));
+        assertFalse(same.path("ok").asBoolean(true), same.toString());
+        assertEquals(runId, same.path("error").path("details").path("blockedRunId").asString(), same.toString());
+    }
+
+    private static JsonNode antigravityTerminalStop(String session) throws IOException {
+        return ok(hook("agy", "Stop", null, session, body -> body.put("terminationReason", "MAX_INVOCATIONS")));
+    }
+
+    private static JsonNode assertAntigravityDeferredStop(String session, String reason) throws IOException {
+        JsonNode between = ok(hook("agy", "PreInvocation", null, session, body -> body.put("invocationNum", 1)));
+        assertFalse(hasAntigravityNotice(between, reason), between.toString());
+        Consumer<ObjectNode> nextInput = body -> body.put("invocationNum", 0).put("lastUserInput", "Next actual input");
+        JsonNode next = ok(hook("agy", "PreInvocation", null, session, nextInput));
+        assertEquals(1L, antigravityNoticeCount(next, reason), next.toString());
+        JsonNode later = ok(hook("agy", "PreInvocation", null, session, nextInput));
+        assertFalse(hasAntigravityNotice(later, reason), later.toString());
+        return next;
+    }
+
+    private static boolean hasAntigravityNotice(JsonNode response, String reason) {
+        return antigravityNoticeCount(response, reason) > 0;
+    }
+
+    private static long antigravityNoticeCount(JsonNode response, String reason) {
+        return response.path("injectSteps").valueStream().filter(step -> step.path("ephemeralMessage").asString().contains(reason)).count();
+    }
+
+    @Test
+    void concurrentStopsCannotExceedTheSignedLimit() throws Exception {
+        String session = newSession("codex");
+        prompt("codex", session);
+        int calls = 6;
+        CountDownLatch ready = new CountDownLatch(calls);
+        CountDownLatch go = new CountDownLatch(1);
+        try (var workers = Executors.newFixedThreadPool(calls)) {
+            var results = IntStream.range(0, calls).mapToObj(index -> workers.submit(() -> {
+                ready.countDown();
+                assertTrue(go.await(10, TimeUnit.SECONDS));
+                return stop("codex", session, true);
+            })).toList();
+            try {
+                assertTrue(ready.await(10, TimeUnit.SECONDS));
+            } finally {
+                go.countDown();
+            }
+            int held = 0;
+            for (var result : results) {
+                JsonNode output = result.get(10, TimeUnit.SECONDS);
+                if ("block".equals(output.path("decision").asString())) {
+                    held++;
+                } else {
+                    assertFalse(output.path("continue").asBoolean(true), output.toString());
+                    assertTrue(output.path("stopReason").asString().contains("no workflow procedure was selected"), output.toString());
+                }
+            }
+            assertEquals(3, held);
+        }
+    }
+
+    @Test
+    void geminiRetriesStayInTheSameRequest() throws IOException {
+        String session = SessionServerSupport.uniqueSession();
+        gemini(session, "SessionStart", object().put("source", "startup"));
+        assertTrue(gemini(session, "BeforeAgent", object().put("prompt", "First request")).toString().contains(GATE));
+        String other = SessionServerSupport.uniqueSession();
+        gemini(other, "SessionStart", object().put("source", "startup"));
+        for (int attempt = 0; attempt < 3; attempt++) {
+            JsonNode held = gemini(session, "AfterAgent", object());
+            assertEquals("deny", held.path("decision").asString(), held.toString());
+            String retry = held.path("reason").asString();
+            assertTrue(retry.contains(GATE), retry);
+            if (attempt == 0) {
+                JsonNode crossSession = gemini(other, "BeforeAgent", object().put("prompt", retry));
+                assertTrue(crossSession.toString().contains(GATE), crossSession.toString());
+            }
+            JsonNode callback = gemini(session, "BeforeAgent", object().put("prompt", retry));
+            assertFalse(callback.toString().contains(GATE), callback.toString());
+            JsonNode duplicate = gemini(session, "BeforeAgent", object().put("prompt", retry));
+            assertFalse(duplicate.toString().contains(GATE), duplicate.toString());
+        }
+        JsonNode exhausted = gemini(session, "AfterAgent", object());
+        assertFalse(exhausted.path("continue").asBoolean(true), exhausted.toString());
+        assertTrue(exhausted.path("reason").asString().contains("no workflow procedure was selected"), exhausted.toString());
+        gemini(session, "BeforeAgent", object().put("prompt", "Independent request"));
+        assertEquals("deny", gemini(session, "AfterAgent", object()).path("decision").asString());
+    }
+
+    private static JsonNode gemini(String session, String event, ObjectNode input) throws IOException {
+        input.put("hook_event_name", event).put("session_id", session).put("cwd", workspace.toString());
+        byte[] payload = DomainServerSupport.MAPPER.writeValueAsBytes(input);
+        return ok(RawHttp.exchange(server.port, "POST", "/hooks/v1/gemini/" + event,
+                Map.of("Content-Type", "application/json", "Content-Length", Integer.toString(payload.length)), payload));
+    }
+
+    @Test
+    void anAttributedWorkflowsBudgetSurvivesANewInputAndResume() throws IOException {
+        String host = "codex";
+        String session = newSession(host);
+        prompt(host, session);
+        JsonNode run = call(host, session, WorkflowKind.OPERATION.toolName(), operation("Finish the first operation", "skills", skills()));
+        assertTrue(run.path("ok").asBoolean(), run.toString());
+        String runId = run.path("data").path("runId").asString();
+        assertEquals("block", stop(host, session).path("decision").asString());
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            prompt(host, session);
+            JsonNode resumed = call(host, session, "resume_workflow", args("runId", runId));
+            assertTrue(resumed.path("ok").asBoolean(), resumed.toString());
+            JsonNode response = stop(host, session);
+            if (attempt < 3) {
+                assertEquals("block", response.path("decision").asString(), response.toString());
+            } else {
+                assertFalse(response.path("continue").asBoolean(true), response.toString());
+                assertTrue(response.path("stopReason").asString().contains(runId), response.toString());
+            }
+        }
+        JsonNode status = call(host, session, "get_workflow_status", args("runId", runId, "detail", "full"));
+        assertEquals("BLOCKED", status.path("data").path("state").asString(), status.toString());
+        assertTrue(status.toString().contains("STOP_RECHECK_LIMIT_EXHAUSTED"), status.toString());
+        assertFalse(call(host, session, "resume_workflow", args("runId", runId)).path("ok").asBoolean());
+        String another = newSession(host);
+        prompt(host, another);
+        String tool = WorkflowKind.OPERATION.toolName();
+        JsonNode same = call(host, another, tool, operation("Finish the first operation", "skills", skills()));
+        assertFalse(same.path("ok").asBoolean(true), same.toString());
+        assertEquals(runId, same.path("error").path("details").path("blockedRunId").asString(), same.toString());
+        JsonNode revised = call(host, another, tool, operation("Finish the revised operation", "skills", skills()));
+        assertTrue(revised.path("ok").asBoolean(), revised.toString());
     }
 
     @ParameterizedTest
@@ -327,6 +641,8 @@ class WorkflowGateServerTest {
         String session = newSession(host);
         String guidance = prompt(host, session);
         String held = stop(host, session).toString();
+        assertTrue(guidance.contains("Select a workflow procedure as the first step of every request."), guidance);
+        assertTrue(guidance.contains("For a direct answer, even if no other tool is needed, select INQUIRY."), guidance);
         for (String procedure : List.of("INQUIRY", "CHANGE", "EXECUTION", "TRANSITION")) {
             assertTrue(guidance.contains(procedure), "prompt missing " + procedure + ": " + guidance);
             assertTrue(held.contains(procedure), "Stop missing " + procedure + ": " + held);
@@ -385,14 +701,408 @@ class WorkflowGateServerTest {
                     default -> held.path("hookSpecificOutput").path("additionalContext").asString();
                 };
                 assertTrue(instruction.contains(GATE + " Could not verify the workflow state for this request."), instruction);
+                assertWorkflowUnavailable(instruction, rootId, null, "INVALID_WORKFLOW_JSON");
             }
-            assertFalse(stop(host, session).toString().contains(GATE), "the same request still has a bounded workflow gate");
+            JsonNode exhausted = stop(host, session);
+            if (host.equals("agy")) {
+                assertFalse(exhausted.toString().contains(GATE), exhausted.toString());
+                JsonNode next = assertAntigravityDeferredStop(session, "no workflow procedure was selected");
+                assertTrue(hasAntigravityNotice(next, "The workflow state could not be checked"), next.toString());
+            } else {
+                assertFalse(exhausted.path("continue").asBoolean(true), exhausted.toString());
+                assertTrue(exhausted.path("stopReason").asString().contains("no workflow procedure was selected"), exhausted.toString());
+                assertWorkflowUnavailable(prompt(host, session), rootId, null, "INVALID_WORKFLOW_JSON");
+                assertTrue(stop(host, session).toString().contains(GATE + " Could not verify the workflow state for this request."));
+            }
         } finally {
             SessionServerSupport.update(server, update, original, rootId);
         }
         prompt(host, session);
         JsonNode healthy = stop(host, session);
         assertTrue(healthy.toString().contains("Currently open workflow gates: 1"), healthy.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"root null", "root string null", "root malformed", "root empty", "root missing state", "root missing objective",
+            "run malformed", "run null", "run missing state", "run wrong id", "run wrong revision"})
+    void antigravityDeliversTheStoredStopOnTheFirstUserInputWithDamagedWorkflowDocuments(String scenario) throws IOException {
+        String session = newSession("agy");
+        prompt("agy", session);
+        JsonNode earlier = call("agy", session, WorkflowKind.OPERATION.toolName(), operation("Earlier operation for " + scenario, "skills", skills()));
+        assertTrue(earlier.path("ok").asBoolean(), earlier.toString());
+        String rootId = earlier.path("data").path("rootId").asString();
+        String runId = earlier.path("data").path("runId").asString();
+        String beforeSql = "SELECT task_correlation, current_epoch, root_id FROM sennard.continuity_tasks WHERE root_id = ?";
+        Map<String, Object> bound = SessionServerSupport.row(server, beforeSql, rootId);
+        Object correlation = bound.get("task_correlation");
+        String reason = exhaustAntigravityStop(session, correlation);
+        boolean rootDocument = scenario.startsWith("root");
+        String location = rootDocument ? "sennard.convergence_roots" : "sennard.workflow_runs";
+        String column = rootDocument ? "root_json" : "receipt_json";
+        String key = rootDocument ? "root_id" : "run_id";
+        String id = rootDocument ? rootId : runId;
+        String select = "SELECT " + column + " FROM " + location + " WHERE " + key + " = ?";
+        String update = "UPDATE " + location + " SET " + column + " = ? WHERE " + key + " = ?";
+        String original = (String) SessionServerSupport.row(server, select, id).get(column);
+        String damaged = damageDocument(scenario, original);
+        SessionServerSupport.update(server, update, damaged, id);
+        try {
+            String code = switch (scenario) {
+                case "root malformed", "run malformed", "root string null", "root empty" -> "INVALID_WORKFLOW_JSON";
+                default -> "INTEGRITY_FAILED";
+            };
+            String affectedRun = rootDocument ? null : runId;
+            JsonNode next = assertAntigravityDeferredStop(session, reason);
+            assertWorkflowUnavailable(next.toString(), rootId, affectedRun, code);
+            assertWorkflowUnavailable(compact(session, "en"), rootId, affectedRun, code);
+            assertWorkflowUnavailable(compact(session, "ko"), rootId, affectedRun, code);
+            assertEquals(bound, SessionServerSupport.row(server, beforeSql, rootId));
+            assertEquals(damaged, SessionServerSupport.row(server, select, id).get(column));
+            if (scenario.equals("run wrong revision")) {
+                assertWorkflowStartKeepsTheEpoch(session, correlation, bound.get("current_epoch"));
+            }
+        } finally {
+            SessionServerSupport.update(server, update, original, id);
+        }
+    }
+
+    private static void assertWorkflowStartKeepsTheEpoch(String session, Object correlation, Object previousEpoch) throws IOException {
+        JsonNode started = call("agy", session, WorkflowKind.INQUIRY.toolName(), inquiry("New request with an unreadable earlier run"));
+        assertTrue(started.path("ok").asBoolean(), started.toString());
+        Map<String, Object> bound = SessionServerSupport.row(server,
+                "SELECT current_epoch, root_id FROM sennard.continuity_tasks WHERE task_correlation = ?", correlation);
+        assertEquals(previousEpoch, bound.get("current_epoch"));
+        assertEquals(started.path("data").path("rootId").asString(), bound.get("root_id"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void damagedClosedOutcomeKeepsTheEpochButDoesNotBlockIndependentWork(boolean promptFirst) throws Exception {
+        String host = "claude";
+        String session = newSession(host);
+        prompt(host, session);
+        JsonNode earlier = call(host, session, WorkflowKind.OPERATION.toolName(), operation("Operation recorded as completed " + promptFirst, "skills", skills()));
+        assertTrue(earlier.path("ok").asBoolean(), earlier.toString());
+        String rootId = earlier.path("data").path("rootId").asString();
+        String runId = earlier.path("data").path("runId").asString();
+        JsonNode finalized = call(host, session, "finalize_workflow", revisionOf(earlier.path("data")));
+        assertTrue(finalized.path("ok").asBoolean(), finalized.toString());
+        Map<String, Object> before = SessionServerSupport.row(server, "SELECT task_correlation, current_epoch FROM sennard.continuity_tasks WHERE root_id = ?", rootId);
+        Object correlation = before.get("task_correlation");
+        long epoch = ((Number) before.get("current_epoch")).longValue();
+        String epochSql = "SELECT current_epoch FROM sennard.continuity_tasks WHERE task_correlation = ?";
+        String rootSql = "SELECT root_json, state FROM sennard.convergence_roots WHERE root_id = ?";
+        Map<String, Object> originalRoot = SessionServerSupport.row(server, rootSql, rootId);
+        assertEquals("COMPLETED", originalRoot.get("state"));
+        String select = "SELECT outcome_json FROM sennard.convergence_attempts WHERE run_id = ?";
+        String update = "UPDATE sennard.convergence_attempts SET outcome_json = ? WHERE run_id = ?";
+        String original = (String) SessionServerSupport.row(server, select, runId).get("outcome_json");
+        String damaged = ((ObjectNode) DomainServerSupport.MAPPER.readTree(original)).put("state", "RUNNING").toString();
+        SessionServerSupport.update(server, update, damaged, runId);
+        try {
+            if (promptFirst) {
+                assertWorkflowUnavailable(prompt(host, session), rootId, runId, "INTEGRITY_FAILED");
+                assertEquals(epoch, SessionServerSupport.row(server, epochSql, correlation).get("current_epoch"));
+            }
+            JsonNode inquiry = call(host, session, WorkflowKind.INQUIRY.toolName(), inquiry("Read independently of the former outcome " + promptFirst));
+            assertTrue(inquiry.path("ok").asBoolean(), inquiry.toString());
+            assertEquals(epoch, SessionServerSupport.row(server, epochSql, correlation).get("current_epoch"));
+            String path = workspace.resolve("independent-inquiry.txt").toString();
+            JsonNode read = preToolUse(host, session, "Read", object().put("file_path", path));
+            assertFalse(denied(host, read), read.toString());
+            JsonNode shell = preToolUse(host, session, "Bash", object().put("command", "echo inquiry"));
+            assertFalse(denied(host, shell), shell.toString());
+            JsonNode edit = preToolUse(host, session, "Write", object().put("file_path", path));
+            assertTrue(denied(host, edit), edit.toString());
+            DomainServerSupport.markTurnUnchanged(server, host, session);
+            // Exercise the workflow Stop without independent recap and session summary reminders.
+            JsonNode stopped = ok(hook(host, "Stop", "continuity", session, body -> body.put("stop_hook_active", false)));
+            assertEquals(object(), stopped, stopped.toString());
+            assertEquals("PASSED", stateOf(session, inquiry.path("data").path("runId").asString()));
+            assertEquals(damaged, SessionServerSupport.row(server, select, runId).get("outcome_json"));
+            assertWorkflowUnavailable(prompt(host, session), rootId, runId, "INTEGRITY_FAILED");
+
+            JsonNode command = call(host, session, WorkflowKind.OPERATION.toolName(), operation("Run an independent command " + promptFirst, "skills", skills()));
+            assertTrue(command.path("ok").asBoolean(), command.toString());
+            JsonNode bash = preToolUse(host, session, "Bash", object().put("command", "echo operation"));
+            assertFalse(denied(host, bash), bash.toString());
+            JsonNode commandClosed = call(host, session, "finalize_workflow", revisionOf(command.path("data")));
+            assertTrue(commandClosed.path("ok").asBoolean(), commandClosed.toString());
+
+            Path directory = workspace.resolve("independent-change-" + UUID.randomUUID());
+            Path file = directory.resolve("planned.txt");
+            JsonNode change = ChangeWorkflows.open(server, host, session, directory, List.of("planned.txt"));
+            String changeRun = change.path("runId").asString();
+            ObjectNode write = object().put("file_path", file.toString()).put("content", "independent change");
+            JsonNode allowed = preToolUse(host, session, "Write", write);
+            assertFalse(denied(host, allowed), allowed.toString());
+            Files.writeString(file, "independent change");
+            JsonNode recorded = ok(hook(host, "PostToolUse", null, session, DomainServerSupport.tool("Write", write)));
+            assertFalse(recorded.toString().contains("[Sennard change journal]"), recorded.toString());
+            assertEquals(Set.of(file), server.bean(ChangeJournalService.class).changes(changeRun).plannedChanges());
+            JsonNode changeClosed = call(host, session, "abort_workflow", revisionOf(change));
+            assertTrue(changeClosed.path("ok").asBoolean(), changeClosed.toString());
+
+            assertCleanupPreviewKeepsRoot(host, session, rootId);
+            assertEquals(originalRoot, SessionServerSupport.row(server, rootSql, rootId));
+            assertEquals(damaged, SessionServerSupport.row(server, select, runId).get("outcome_json"));
+            assertEquals(epoch, SessionServerSupport.row(server, epochSql, correlation).get("current_epoch"));
+        } finally {
+            SessionServerSupport.update(server, update, original, runId);
+        }
+        prompt(host, session);
+        assertEquals(epoch + 1, SessionServerSupport.row(server, epochSql, correlation).get("current_epoch"));
+        prompt(host, session);
+        assertEquals(epoch + 1, SessionServerSupport.row(server, epochSql, correlation).get("current_epoch"));
+    }
+
+    @Test
+    void aDamagedCurrentReceiptStillDeniesAPlannedWrite() throws Exception {
+        String host = "claude";
+        String session = newSession(host);
+        prompt(host, session);
+        Path directory = workspace.resolve("damaged-active-change-" + UUID.randomUUID());
+        JsonNode change = ChangeWorkflows.open(server, host, session, directory, List.of("planned.txt"));
+        String rootId = change.path("rootId").asString();
+        String runId = change.path("runId").asString();
+        ObjectNode write = object().put("file_path", directory.resolve("planned.txt").toString()).put("content", "planned change");
+        assertFalse(denied(host, preToolUse(host, session, "Write", write)));
+        String select = "SELECT receipt_json FROM sennard.workflow_runs WHERE run_id = ?";
+        String update = "UPDATE sennard.workflow_runs SET receipt_json = ? WHERE run_id = ?";
+        String original = (String) SessionServerSupport.row(server, select, runId).get("receipt_json");
+        try {
+            SessionServerSupport.update(server, update, "null", runId);
+            JsonNode denied = preToolUse(host, session, "Write", write);
+            assertTrue(denied(host, denied), denied.toString());
+            assertWorkflowUnavailable(reason(host, denied), rootId, runId, "INTEGRITY_FAILED");
+            assertCleanupPreviewKeepsRoot(host, session, rootId);
+            assertEquals("null", SessionServerSupport.row(server, select, runId).get("receipt_json"));
+        } finally {
+            SessionServerSupport.update(server, update, original, runId);
+        }
+        assertFalse(denied(host, preToolUse(host, session, "Write", write)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void recoveryGuidanceForAnOlderOutcomeUsesOnlyItsVerifiedRun(boolean validLink) throws IOException {
+        String host = "codex";
+        String session = newSession(host);
+        prompt(host, session);
+        String plannedFile = "historical-attempt-" + UUID.randomUUID() + ".txt";
+        Map<String, Object> start = args("goal", "Change " + plannedFile, "workspace", workspace.toString(), "writeTargets", List.of(plannedFile),
+                "stages", List.of("minimal-implementation"), "skills", skills(), "acceptanceCriteria", List.of("The change works."));
+        JsonNode opened = call(host, session, "start_workflow", start);
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+        String rootId = opened.path("data").path("rootId").asString();
+        String first = opened.path("data").path("runId").asString();
+        JsonNode aborted = call(host, session, "abort_workflow", revisionOf(opened.path("data")));
+        assertTrue(aborted.path("ok").asBoolean(), aborted.toString());
+        ToolServerSupport.Uploaded evidence = ToolServerSupport.uploadEvidence(server.port, (tool, arguments, targetSession) -> {
+            try {
+                return call(host, targetSession, tool, arguments);
+            } catch (IOException failure) {
+                throw new UncheckedIOException(failure);
+            }
+        }, session);
+        start.put("rootId", rootId);
+        start.put("priorFailure", args("hypothesis", "The first attempt took the wrong approach", "changeSummary", "Use the second approach",
+                "discriminator", "Compare the new result", "evidenceRefs", List.of(evidence.attachmentId())));
+        start.put("skills", List.of(args("skillId", "blocker-diagnostician", "reason", "The prior attempt was aborted")));
+        JsonNode retried = call(host, session, "start_workflow", start);
+        assertTrue(retried.path("ok").asBoolean(), retried.toString());
+        assertEquals(rootId, retried.path("data").path("rootId").asString());
+        String latest = retried.path("data").path("runId").asString();
+        assertFalse(first.equals(latest));
+        String bindingQuery = "SELECT root_id, task_correlation, current_epoch FROM sennard.continuity_tasks WHERE root_id = ?";
+        Map<String, Object> binding = SessionServerSupport.row(server, bindingQuery, rootId);
+        String objective = "Parent situation for " + rootId;
+        JsonNode loaded = call(host, session, "load_context", DomainServerSupport.arguments());
+        assertTrue(loaded.path("ok").asBoolean(), loaded.toString());
+        JsonNode saved = call(host, session, "checkpoint_context", DomainServerSupport.arguments("expectedStateToken", loaded.path("data").path("stateToken").asString(), "status", "ACTIVE",
+                "core", args("objective", objective, "completionCriteria", List.of(), "constraints", List.of(), "decisions", List.of(), "progress", List.of(), "blockers",
+                        List.of(), "nextActions", List.of()),
+                "evidenceRefs", List.of()));
+        assertTrue(saved.path("ok").asBoolean(), saved.toString());
+        String stateToken = saved.path("data").path("stateToken").asString();
+        assertFalse(stateToken.isBlank(), saved.toString());
+        String select = "SELECT outcome_json FROM sennard.convergence_attempts WHERE run_id = ?";
+        String update = "UPDATE sennard.convergence_attempts SET outcome_json = ? WHERE run_id = ?";
+        String original = (String) SessionServerSupport.row(server, select, first).get("outcome_json");
+        ObjectNode damaged = ((ObjectNode) DomainServerSupport.MAPPER.readTree(original)).put("state", "RUNNING");
+        if (!validLink) {
+            damaged.put("workflowRunId", latest);
+        }
+        SessionServerSupport.update(server, update, damaged.toString(), first);
+        try {
+            String child = "child-historical-outcome";
+            String started = codexSubagentStart(session, child);
+            assertWorkflowUnavailable(started, rootId, validLink ? first : null, "INTEGRITY_FAILED");
+            assertTrue(started.contains(stateToken) && started.contains(objective), started);
+            String repeated = codexSubagentStart(session, child);
+            assertFalse(repeated.contains(stateToken) || repeated.contains(objective), repeated);
+            assertEquals(binding, SessionServerSupport.row(server, bindingQuery, rootId));
+            for (String guidance : List.of(prompt(host, session), compact(session, "en"))) {
+                assertWorkflowUnavailable(guidance, rootId, validLink ? first : null, "INTEGRITY_FAILED");
+            }
+            assertCleanupPreviewKeepsRoot(host, session, rootId);
+            JsonNode oldStatus = call(host, session, "get_workflow_status", args("runId", first));
+            assertTrue(oldStatus.path("ok").asBoolean(), oldStatus.toString());
+            assertEquals("BLOCKED", oldStatus.path("data").path("state").asString(), oldStatus.toString());
+            JsonNode status = call(host, session, "get_workflow_status", args("runId", latest));
+            assertTrue(status.path("ok").asBoolean(), status.toString());
+            assertEquals("RUNNING", status.path("data").path("state").asString(), status.toString());
+            assertEquals(damaged.toString(), SessionServerSupport.row(server, select, first).get("outcome_json"));
+        } finally {
+            SessionServerSupport.update(server, update, original, first);
+        }
+    }
+
+    private static String codexSubagentStart(String session, String agentId) throws IOException {
+        JsonNode output = ok(DomainServerSupport.hookFrom("Stop", server.port, "windows", "codex", "SubagentStart", null, session,
+                body -> body.put("hook_event_name", "SubagentStart").put("agent_id", agentId)));
+        return output.path("hookSpecificOutput").path("additionalContext").asString();
+    }
+
+    private static Map<String, Object> revisionOf(JsonNode run) {
+        return args("runId", run.path("runId").asString(), "expectedRevision", run.path("revision").asLong());
+    }
+
+    @Test
+    void recoveryGuidanceListsEveryDamagedRootIncludingOneWithoutARun() throws IOException {
+        String host = "claude";
+        String session = newSession(host);
+        prompt(host, session);
+        JsonNode earlier = call(host, session, WorkflowKind.OPERATION.toolName(), operation("Earlier operation with a linked run", "skills", skills()));
+        assertTrue(earlier.path("ok").asBoolean(), earlier.toString());
+        String rootId = earlier.path("data").path("rootId").asString();
+        Map<String, Object> bound = SessionServerSupport.row(server, "SELECT task_correlation, current_epoch FROM sennard.continuity_tasks WHERE root_id = ?", rootId);
+        String rootOnly = "root-" + UUID.randomUUID();
+        SessionServerSupport.update(server, "INSERT INTO sennard.convergence_roots (root_id, revision, state, workspace_id, workspace_locator, root_json, created_at, updated_at) "
+                + "VALUES (?, 0, 'OPEN', ?, ?, 'null', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", rootOnly, rootOnly, workspace.toString());
+        String select = "SELECT root_json FROM sennard.convergence_roots WHERE root_id = ?";
+        String update = "UPDATE sennard.convergence_roots SET root_json = ? WHERE root_id = ?";
+        String original = (String) SessionServerSupport.row(server, select, rootId).get("root_json");
+        ContinuityStore continuity = server.bean(ContinuityStore.class);
+        String correlation = (String) bound.get("task_correlation");
+        long epoch = ((Number) bound.get("current_epoch")).longValue();
+        try {
+            assertTrue(continuity.bindRoot(correlation, epoch, rootOnly, Instant.now().toString()));
+            SessionServerSupport.update(server, update, "{", rootId);
+            JsonNode edit = preToolUse(host, session, "Write", object().put("file_path", workspace.resolve("damaged-guard.txt").toString()));
+            assertTrue(denied(host, edit), edit.toString());
+            String newPrompt = prompt(host, session);
+            String restored = compact(session, "en");
+            String held = stop(host, session).path("hookSpecificOutput").path("additionalContext").asString();
+            for (String guidance : List.of(reason(host, edit), newPrompt, restored, held)) {
+                assertWorkflowUnavailable(guidance, rootId, null, "INVALID_WORKFLOW_JSON");
+                assertWorkflowUnavailable(guidance, rootOnly, null, "INTEGRITY_FAILED");
+            }
+            assertCleanupPreviewKeepsRoot(host, session, rootId);
+            assertCleanupPreviewKeepsRoot(host, session, rootOnly);
+            assertEquals("{", SessionServerSupport.row(server, select, rootId).get("root_json"));
+            assertEquals("null", SessionServerSupport.row(server, select, rootOnly).get("root_json"));
+            assertEquals(0L, SessionServerSupport.count(server, "SELECT count(*) FROM sennard.workflow_attempt_links WHERE root_id = ?", rootOnly));
+        } finally {
+            SessionServerSupport.update(server, update, original, rootId);
+            continuity.bindRoot(correlation, epoch, rootId, Instant.now().toString());
+            SessionServerSupport.update(server, "DELETE FROM sennard.convergence_roots WHERE root_id = ?", rootOnly);
+        }
+    }
+
+    @Test
+    void concurrentAntigravityUserInputsDeliverTheSavedStopOnce() throws Exception {
+        String session = newSession("agy");
+        prompt("agy", session);
+        JsonNode run = call("agy", session, WorkflowKind.OPERATION.toolName(), operation("Earlier operation", "skills", skills()));
+        assertTrue(run.path("ok").asBoolean(), run.toString());
+        String rootId = run.path("data").path("rootId").asString();
+        Object correlation = SessionServerSupport.row(server, "SELECT task_correlation FROM sennard.continuity_tasks WHERE root_id = ?", rootId).get("task_correlation");
+        String reason = exhaustAntigravityStop(session, correlation);
+        String select = "SELECT root_json FROM sennard.convergence_roots WHERE root_id = ?";
+        String update = "UPDATE sennard.convergence_roots SET root_json = ? WHERE root_id = ?";
+        String original = (String) SessionServerSupport.row(server, select, rootId).get("root_json");
+        SessionServerSupport.update(server, update, "null", rootId);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        Consumer<ObjectNode> actualInput = body -> body.put("invocationNum", 0).put("lastUserInput", "Concurrent input");
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            var inputs = IntStream.range(0, 2).mapToObj(index -> workers.submit(() -> {
+                ready.countDown();
+                assertTrue(go.await(10, TimeUnit.SECONDS));
+                return ok(hook("agy", "PreInvocation", null, session, actualInput));
+            })).toList();
+            try {
+                assertTrue(ready.await(10, TimeUnit.SECONDS));
+            } finally {
+                go.countDown();
+            }
+            long deliveries = 0;
+            for (var future : inputs) {
+                JsonNode output = future.get(10, TimeUnit.SECONDS);
+                assertWorkflowUnavailable(output.toString(), rootId, null, "INTEGRITY_FAILED");
+                deliveries += antigravityNoticeCount(output, reason);
+            }
+            assertEquals(1, deliveries);
+            assertFalse(hasAntigravityNotice(ok(hook("agy", "PreInvocation", null, session, actualInput)), reason));
+        } finally {
+            SessionServerSupport.update(server, update, original, rootId);
+        }
+    }
+
+    private static String exhaustAntigravityStop(String session, Object correlation) throws IOException {
+        prompt("agy", session);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            JsonNode held = stop("agy", session);
+            assertEquals("continue", held.path("decision").asString(), held.toString());
+        }
+        assertFalse(stop("agy", session).toString().contains(GATE));
+        return (String) SessionServerSupport.row(server, "SELECT value FROM sennard.workflow_metadata WHERE meta_key = ?",
+                "hook-stop-notice:agy:" + correlation).get("value");
+    }
+
+    private static String damageDocument(String scenario, String original) {
+        ObjectNode document = (ObjectNode) DomainServerSupport.MAPPER.readTree(original);
+        switch (scenario) {
+            case "root null", "run null" -> { return "null"; }
+            case "root string null" -> { return "\"null\""; }
+            case "root empty" -> { return "{}"; }
+            case "root malformed", "run malformed" -> { return "{"; }
+            case "root missing state", "run missing state" -> document.remove("state");
+            case "root missing objective" -> ((ObjectNode) document.path("taskEnvelope")).remove("objective");
+            case "run wrong id" -> document.put("runId", "different-run");
+            case "run wrong revision" -> document.put("revision", document.path("revision").asLong() + 1);
+            default -> throw new IllegalArgumentException(scenario);
+        }
+        return DomainServerSupport.MAPPER.writeValueAsString(document);
+    }
+
+    private static String compact(String session, String locale) {
+        ContinuityService continuity = server.bean(ContinuityService.class);
+        continuity.markPreCompact(session);
+        Messages messages = server.bean(Messages.class);
+        return String.join("\n", continuity.compactContext(session).stream().map(ref -> messages.render(ref, locale)).toList());
+    }
+
+    private static void assertWorkflowUnavailable(String guidance, String rootId, String runId, String code) {
+        int start = guidance.indexOf("rootId " + rootId);
+        int preview = guidance.indexOf("prepare_state_cleanup", start);
+        assertTrue(start >= 0 && preview > start, guidance);
+        String affected = guidance.substring(start, preview);
+        assertTrue(affected.contains("(" + code + ")"), affected);
+        assertFalse(affected.contains("abort_workflow") || affected.contains("release_convergence_root"), affected);
+        assertEquals(runId != null, affected.contains("runId "), affected);
+        assertTrue(runId == null || affected.contains("runId " + runId), affected);
+    }
+
+    private static void assertCleanupPreviewKeepsRoot(String host, String session, String rootId) throws IOException {
+        JsonNode preview = call(host, session, "prepare_state_cleanup", args("schemaVersion", "1.0.0"));
+        assertTrue(preview.path("ok").asBoolean(), preview.toString());
+        JsonNode data = preview.path("data");
+        assertFalse(data.path("planToken").asString().isBlank(), preview.toString());
+        List<String> candidateRootIds = data.path("candidates").path("workflowRoots").findValues("rootId").stream()
+                .map(JsonNode::asString).toList();
+        assertFalse(candidateRootIds.contains(rootId), preview.toString());
     }
 
     @ParameterizedTest
@@ -541,6 +1251,14 @@ class WorkflowGateServerTest {
             assertTrue(denied("claude", edit), kind + ": " + edit);
             assertTrue(reason("claude", edit).contains("does not change files"), kind + ": " + edit);
             assertEquals(kind.allowsCommands(), !denied("claude", preToolUse("claude", session, "Bash", object().put("command", "echo " + kind.name()))), kind.toString());
+            if (kind == WorkflowKind.OPERATION) {
+                JsonNode unknownEdit = preToolUse("claude", session, "Bash", object().put("command", "git merge topic"));
+                String refusal = reason("claude", unknownEdit);
+                assertTrue(denied("claude", unknownEdit) && refusal.contains("(path unknown: Bash)")
+                        && refusal.contains("For commands whose target paths cannot be determined in advance, open a CHANGE workflow"
+                                + " with a dedicated working copy as its workspace, set writeTargets to [\".\"], and list the files the command will change in changePlan."),
+                        refusal);
+            }
         }
     }
 

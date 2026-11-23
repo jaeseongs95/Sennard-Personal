@@ -168,7 +168,7 @@ class InstallEnvironmentTest {
     /** The folder {@code <root>/versions/<version>} with its application jar: what makes a version installed. */
     private static Path installed(Path root, String version) throws IOException {
         Path folder = Files.createDirectories(root.resolve("versions").resolve(version));
-        Files.writeString(folder.resolve(InstalledVersion.jarName(version)), "the application jar");
+        InstallStandIns.installedRuntime(folder, version);
         return folder;
     }
 

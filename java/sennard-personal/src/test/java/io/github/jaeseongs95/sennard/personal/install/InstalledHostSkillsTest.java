@@ -84,16 +84,16 @@ class InstalledHostSkillsTest {
             }
 
             @Override
-            public List<InstalledPackage> packages(InstallEnvironment environment) {
+            public Scan scan(InstallEnvironment environment) {
                 reads[0]++;
-                return List.copyOf(installed);
+                return new Scan(installed, List.of());
             }
         };
         InstalledHostSkills skills = skills(counting);
         assertEquals(List.of(), skills.skillFolders(CodexHost.ID));
         assertEquals(List.of(), skills.skillFolders(CodexHost.ID));
         assertEquals(2, reads[0], "nothing was kept for a host with no copy");
-        installed.add(new HostPackageLocation.InstalledPackage(root, "6.0.0", true));
+        installed.add(new HostPackageLocation.InstalledPackage(root, "6.0.0", true, null));
         List<Path> first = skills.skillFolders(CodexHost.ID);
         assertEquals(List.of(root.resolve("skills").toAbsolutePath().normalize()), first);
         int after = reads[0];

@@ -5,6 +5,7 @@
 package io.github.jaeseongs95.sennard.server.hook.host;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 import io.github.jaeseongs95.sennard.server.hook.HookOutput;
@@ -14,24 +15,29 @@ import io.github.jaeseongs95.sennard.server.hook.HookOutput;
  * {@code decision} that blocks a prompt or a turn's end with its {@code reason}.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({"hookSpecificOutput", "decision", "reason"})
-public record SessionIdOutput(Specific hookSpecificOutput, String decision, String reason) implements HookOutput {
+@JsonPropertyOrder({"hookSpecificOutput", "decision", "reason", "continue", "stopReason"})
+public record SessionIdOutput(Specific hookSpecificOutput, String decision, String reason, @JsonProperty("continue") Boolean continueLoop, String stopReason)
+        implements HookOutput {
     /** Says nothing: the host goes on. */
-    static final SessionIdOutput NOTHING = new SessionIdOutput(null, null, null);
+    static final SessionIdOutput NOTHING = new SessionIdOutput(null, null, null, null, null);
 
     /** Text the model reads, at the event the hook is registered under. */
     static SessionIdOutput additionalContext(String eventName, String text) {
-        return new SessionIdOutput(new Specific(eventName, text, null, null), null, null);
+        return new SessionIdOutput(new Specific(eventName, text, null, null), null, null, null, null);
     }
 
     /** The tool does not run. */
     static SessionIdOutput denyTool(String reason) {
-        return new SessionIdOutput(new Specific("PreToolUse", null, "deny", reason), null, null);
+        return new SessionIdOutput(new Specific("PreToolUse", null, "deny", reason), null, null, null, null);
     }
 
     /** The prompt is not taken, or the turn does not end. */
     static SessionIdOutput block(String reason) {
-        return new SessionIdOutput(null, "block", reason);
+        return new SessionIdOutput(null, "block", reason, null, null);
+    }
+
+    static SessionIdOutput terminate(String reason) {
+        return new SessionIdOutput(null, null, null, false, reason);
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -7,6 +7,7 @@ package io.github.jaeseongs95.sennard.personal.install;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -52,14 +53,13 @@ import tools.jackson.databind.json.JsonMapper;
  * absolute path with the hook client's options, jar and main class, so it differs from the empty one the plugin package ships on every OS, and every OS gets the same form.
  *
  * <pre>
- * h1  claude copy   the copy Claude loads gets both definitions, whole files (the hooks and the MCP server: command = java, args = the client's words and then the call's); another major
- *                   version is left
+ * h1  claude copy   the matching copy Claude loads receives both definitions
  * h2  no plugin     no plugin: each host's definitions are still generated, a member under the name of its file and member, and the report says to run sennard hooks after installing it
  * h3  held already  a copy that already holds the definition is not written, and is not on the uninstall's list
  * h4  replaced      the shipped (empty) definition is replaced every time, the same way; a copy that is empty again after the host re-copied the plugin is named by emptyCopies
  * h5  in place      a folder the host loads in place is not written and the report names the file, the generated definition and the java
  * h6  member        a member of a file the host owns is set and the rest of the file is kept; a file the host does not have is not made; an upgrade keeps what the file held before Sennard
- * h7  codex         every version of every marketplace of the plugin cache of the same major version is written, the others are left
+ * h7  codex         matching selected copies across marketplaces receive definitions; an unresolved selection or a mismatch refuses the entire placement
  * h8  uninstall     what Sennard wrote is removed, a member is put back to what it held, what changed since is kept
  * h9  unreadable    a host record that cannot be read fails the command with the cause; a record of placed files that cannot be read keeps every file and says why
  * </pre>
@@ -185,15 +185,19 @@ class HostFilesTest {
     }
 
     /** The installed version the definitions run: the folder with the hook client's jar in {@code lib} and the application jar. */
-    private InstalledVersion version() throws IOException {
-        Path folder = installRoot().resolve("versions").resolve("6.0.0");
-        write(folder.resolve("lib").resolve("sennard-hook-client-6.0.0.jar"), "the hook client's jar");
-        write(folder.resolve("sennard-6.0.0.jar"), "the application jar");
+    private InstalledVersion version(String version) throws IOException {
+        Path folder = installRoot().resolve("versions").resolve(version);
+        write(folder.resolve("lib").resolve("sennard-hook-client-" + version + ".jar"), "the hook client's jar");
+        write(folder.resolve("sennard-" + version + ".jar"), "the application jar");
         return new InstalledVersion(folder);
     }
 
     private HookInstallation installation(Path java) throws IOException {
-        InstalledVersion version = version();
+        return installation(java, "6.0.0");
+    }
+
+    private HookInstallation installation(Path java, String release) throws IOException {
+        InstalledVersion version = version(release);
         Path serverFile = temporary.resolve("state").resolve("server.properties");
         return new HookInstallation(HookClientCommand.hookProgram(java, version, serverFile), HookClientCommand.mcpProgram(java, version, serverFile));
     }
@@ -221,10 +225,15 @@ class HostFilesTest {
         }
     }
 
+    private static void writeBodyVersion(Path root, String manifest, String version) throws IOException {
+        write(root.resolve(manifest), JSON.createObjectNode().put("version", version).toString());
+    }
+
     /** A marketplace install as Claude Code records it: a copy in the version cache holding the shipped definitions. */
     private Path claudeCopy(String version) throws IOException {
         Path root = home().resolve(".claude/plugins/cache/sennard-claude/sennard").resolve(version);
         writeShipped(root, claude);
+        writeBodyVersion(root, ".claude-plugin/plugin.json", version);
         return root;
     }
 
@@ -246,6 +255,7 @@ class HostFilesTest {
     private Path codexCopy(String marketplace, String version) throws IOException {
         Path root = home().resolve(".codex/plugins/cache").resolve(marketplace).resolve("sennard").resolve(version);
         writeShipped(root, codex);
+        writeBodyVersion(root, ".codex-plugin/plugin.json", version);
         return root;
     }
 
@@ -275,11 +285,9 @@ class HostFilesTest {
     }
 
     @Test
-    void theClaudeCopyClaudeLoadsGetsTheInstallationsDefinitionsAndAnotherMajorIsLeftAlone() throws IOException {
+    void theClaudeCopyClaudeLoadsGetsTheInstallationsDefinitions() throws IOException {
         Path current = claudeCopy("6.0.0");
-        Path older = claudeCopy("5.1.0");
-        write(older.resolve("hooks/hooks.json"), "{\"hooks\":{\"marker\":[]}}");
-        claudeRecord(entry("user", current, "6.0.0") + "," + entry("project", older, "5.1.0"));
+        claudeRecord(entry("user", current, "6.0.0"));
         HookInstallation installation = installation(java());
 
         List<String> report = place(hostFiles(), environment());
@@ -296,10 +304,78 @@ class HostFilesTest {
         assertEquals(installation.mcpProgram().getFirst(), server.path("command").asString());
         assertTrue(words(server.path("args")).contains("--host=claude"), server.toString());
         assertTrue(report.contains("wrote " + current.resolve("hooks/hooks.json")) && report.contains("wrote " + current.resolve(".mcp.json")), report.toString());
-        assertEquals("{\"hooks\":{\"marker\":[]}}", Files.readString(older.resolve("hooks/hooks.json"), StandardCharsets.UTF_8));
-        assertEquals(claude.shippedFiles().get(1).content(), read(older.resolve(".mcp.json")), "the other major's files are all left");
-        assertTrue(report.stream().anyMatch(line -> line.startsWith("left " + older.resolve("hooks/hooks.json")) && line.contains("5.1.0")), report.toString());
         assertFalse(report.stream().anyMatch(line -> line.startsWith("claude plugin is not installed yet")), report.toString());
+    }
+
+    @Test
+    void aDeletedClaudeCopyDoesNotBlockPreflightOrPlacement() throws IOException {
+        Path matching = claudeCopy("6.0.0");
+        Path deleted = matching.resolveSibling("5.9.0");
+        Files.createDirectory(deleted);
+        claudeRecord(entry("user", deleted, "5.9.0") + "," + entry("user", matching, "6.0.0"));
+        Files.delete(deleted);
+        HostFiles files = hostFiles();
+
+        files.requireMatchingVersions(environment());
+        place(files, environment());
+
+        assertEquals(claude.hooksContent(installation(java())), read(matching.resolve("hooks/hooks.json")));
+        assertFalse(Files.exists(deleted));
+    }
+
+    @Test
+    void anExistingClaudeCopyWithADifferentManifestVersionStillBlocksPreflight() throws IOException {
+        Path mismatched = claudeCopy("6.0.1");
+        claudeRecord(entry("user", mismatched, "6.0.0"));
+        HostFiles files = hostFiles();
+
+        UnavailableException failure = assertThrows(UnavailableException.class, () -> files.requireMatchingVersions(environment()));
+
+        assertEquals(UnavailableCode.HOST_PACKAGE_VERSION_MISMATCH, failure.code());
+        assertEquals("6.0.1", files.mismatches(environment()).getFirst().actualVersion());
+    }
+
+    @Test
+    void anOldClaudeProjectInstallationBlocksEvenAfterTheUserInstallationIsUpdated() throws IOException {
+        Path userCopy = claudeCopy("1.3.0");
+        Path projectCopy = claudeCopy("1.2.0");
+        Path project = home().resolve("workspace/project");
+        String projectEntry = JSON.createObjectNode()
+                .put("scope", "project")
+                .put("projectPath", project.toString())
+                .put("installPath", projectCopy.toString())
+                .put("version", "1.2.0")
+                .toString();
+        claudeRecord(entry("user", userCopy, "1.3.0") + "," + projectEntry);
+        HostFiles files = new HostFiles(locations, "1.3.0", "java -jar sennard-1.3.0.jar hooks", JSON);
+
+        UnavailableException failure = assertThrows(UnavailableException.class, () -> placement(files, environment()));
+
+        assertEquals(UnavailableCode.HOST_PACKAGE_VERSION_MISMATCH, failure.code());
+        String message = Sentences.english(failure);
+        assertTrue(message.contains("sennard@sennard-claude"), message);
+        assertTrue(message.contains("scope=project"), message);
+        assertTrue(message.contains(project.toString()), message);
+        assertTrue(message.contains(projectCopy.toString()), message);
+        assertFalse(message.contains(userCopy.toString()), message);
+        assertFalse(Files.exists(generated()), "no definitions are published");
+    }
+
+    @Test
+    void sameMajorDifferentVersionRefusesWithoutWritingDefinitions() throws IOException {
+        Path matching = claudeCopy("6.0.0");
+        claudeRecord(entry("user", matching, "6.0.0"));
+        Path mismatched = codexCopy("market", "6.0.0");
+        writeBodyVersion(mismatched, ".codex-plugin/plugin.json", "6.0.1");
+        HostFiles files = new HostFiles(everyLocation, "6.0.0", HOOKS_COMMAND, JSON);
+
+        UnavailableException failure = assertThrows(UnavailableException.class, () -> placement(files, environment()));
+
+        assertEquals(UnavailableCode.HOST_PACKAGE_VERSION_MISMATCH, failure.code());
+        assertEquals("6.0.1", files.mismatches(environment()).getFirst().actualVersion());
+        assertEquals(claude.shippedFiles().getFirst().content(), read(matching.resolve("hooks/hooks.json")));
+        assertEquals(codex.shippedFiles().getFirst().content(), read(mismatched.resolve("hooks/hooks.json")));
+        assertFalse(Files.exists(generated()), "no definitions are published, including for the matching copy");
     }
 
     @Test
@@ -389,6 +465,7 @@ class HostFilesTest {
     void aFolderClaudeLoadsInPlaceIsTheUsersAndIsNotWritten() throws IOException {
         Path local = temporary.resolve("checkout/claude-plugin");
         writeShipped(local, claude);
+        writeBodyVersion(local, ".claude-plugin/plugin.json", "6.0.0");
         claudeRecord(entry("user", local, "6.0.0"));
         String before = Files.readString(local.resolve("hooks/hooks.json"), StandardCharsets.UTF_8);
 
@@ -409,6 +486,7 @@ class HostFilesTest {
     void aFolderClaudeLoadsInPlaceGetsTheGuidanceWhateverVersionTheHostRecordedForIt(String recorded) throws IOException {
         Path local = temporary.resolve("checkout/claude-plugin");
         writeShipped(local, claude);
+        writeBodyVersion(local, ".claude-plugin/plugin.json", "6.0.0");
         claudeRecord(entry("user", local, recorded));
         String before = Files.readString(local.resolve("hooks/hooks.json"), StandardCharsets.UTF_8);
 
@@ -443,6 +521,7 @@ class HostFilesTest {
         Path marketplace = temporary.resolve("checkout");
         Path source = marketplace.resolve("plugins/sennard");
         writeShipped(source, claude);
+        writeBodyVersion(source, ".claude-plugin/plugin.json", "6.0.0");
         write(marketplace.resolve(".claude-plugin/marketplace.json"),
                 "{\"name\":\"local-m\",\"owner\":{\"name\":\"o\"},\"plugins\":[{\"name\":\"other\",\"source\":\"./plugins/other\"},{\"name\":\"sennard\",\"source\":\"./plugins/sennard\"}]}");
         write(home().resolve(".claude/plugins/known_marketplaces.json"),
@@ -488,9 +567,14 @@ class HostFilesTest {
         write(config.resolve("plugins/installed_plugins.json"), "{\"plugins\":{\"sennard@m\":[" + entry("user", root, "6.0.0") + "]}}");
         InstallEnvironment environment = environment(Map.of("CLAUDE_CONFIG_DIR", config.toString()));
 
-        List<HostPackageLocation.InstalledPackage> found = new ClaudePackageLocation(JSON).packages(environment);
+        List<HostPackageLocation.InstalledPackage> found = new ClaudePackageLocation(JSON).scan(environment).packages();
 
-        assertEquals(List.of(new HostPackageLocation.InstalledPackage(root.toAbsolutePath().normalize(), "6.0.0", true)), found);
+        assertEquals(1, found.size());
+        HostPackageLocation.InstalledPackage installed = found.getFirst();
+        assertEquals(root.toAbsolutePath().normalize(), installed.root());
+        assertEquals("6.0.0", installed.version());
+        assertTrue(installed.hostCopy());
+        assertEquals("sennard@m (scope=user)", installed.installation());
     }
 
     @Test
@@ -527,8 +611,8 @@ class HostFilesTest {
             }
 
             @Override
-            public List<InstalledPackage> packages(InstallEnvironment environment) {
-                return List.of(new InstalledPackage(extension, "6.0.0", true));
+            public Scan scan(InstallEnvironment environment) {
+                return new Scan(List.of(new InstalledPackage(extension, "6.0.0", true, null)), List.of());
             }
         };
         HostFiles files = new HostFiles(List.of(recorded), "6.0.0", HOOKS_COMMAND, JSON);
@@ -588,10 +672,9 @@ class HostFilesTest {
     }
 
     @Test
-    void everyVersionOfEveryMarketplaceOfCodexsPluginCacheWithTheSameMajorVersionIsWrittenAndTheOthersAreLeft() throws IOException {
+    void matchingCodexCopiesAcrossMarketplacesAreWritten() throws IOException {
         Path first = codexCopy("market-a", "6.0.0");
-        Path second = codexCopy("market-b", "6.0.1");
-        Path older = codexCopy("market-a", "5.9.0");
+        Path second = codexCopy("market-b", "6.0.0");
         write(first.resolve(".mcp.json"), "{\"mcpServers\":{\"theirs\":{}}}");
         Files.delete(second.resolve(".mcp.json"));
         HostFiles files = new HostFiles(everyLocation, "6.0.0", HOOKS_COMMAND, JSON);
@@ -603,9 +686,88 @@ class HostFilesTest {
             assertEquals(codex.hooksContent(installation), read(root.resolve("hooks/hooks.json")), root.toString());
             assertEquals(codex.mcpContent(installation), read(root.resolve(".mcp.json")), "a whole file is made when the copy has none: " + root);
         }
-        assertEquals(codex.shippedFiles().getFirst().content(), read(older.resolve("hooks/hooks.json")), "another major version is left");
-        assertTrue(report.stream().anyMatch(line -> line.startsWith("left " + older.resolve("hooks/hooks.json")) && line.contains("5.9.0")), report.toString());
         assertFalse(report.stream().anyMatch(line -> line.startsWith("codex plugin is not installed yet")), report.toString());
+    }
+
+    @Test
+    void anOlderVersionInTheSameCodexCacheDoesNotBlockPlacement() throws IOException {
+        Path older = codexCopy("sennard", "1.2.0");
+        Path current = codexCopy("sennard", "1.3.0");
+        HostFiles files = new HostFiles(everyLocation, "1.3.0", "java -jar sennard-1.3.0.jar hooks", JSON);
+        HookInstallation installation = installation(java(), "1.3.0");
+
+        files.place(adapters, environment(), installation, generated());
+
+        assertEquals(codex.hooksContent(installation), read(current.resolve("hooks/hooks.json")));
+        assertEquals(codex.shippedFiles().getFirst().content(), read(older.resolve("hooks/hooks.json")));
+        assertEquals(List.of(), files.emptyCopies(adapters, environment()));
+    }
+
+    @Test
+    void anOlderCodexInstallationInAnotherMarketplaceStillBlocksPlacement() throws IOException {
+        Path historical = codexCopy("sennard", "1.2.0");
+        Path current = codexCopy("sennard", "1.3.0");
+        Path other = codexCopy("other-marketplace", "1.2.0");
+        HostFiles files = new HostFiles(everyLocation, "1.3.0", HOOKS_COMMAND, JSON);
+
+        UnavailableException failure = assertThrows(UnavailableException.class, () -> placement(files, environment()));
+
+        assertEquals(UnavailableCode.HOST_PACKAGE_VERSION_MISMATCH, failure.code());
+        var mismatches = files.mismatches(environment());
+        assertEquals(1, mismatches.size());
+        assertEquals("sennard@other-marketplace", mismatches.getFirst().installation());
+        assertEquals(other.toString(), mismatches.getFirst().path());
+        assertEquals("1.2.0", mismatches.getFirst().actualVersion());
+        String message = Sentences.english(failure);
+        assertTrue(message.contains("sennard@other-marketplace"), message);
+        assertTrue(message.contains(other.toString()), message);
+        assertFalse(message.contains(historical.toString()), message);
+        assertFalse(Files.exists(generated()), "no definitions are published");
+        assertEquals(codex.shippedFiles().getFirst().content(), read(current.resolve("hooks/hooks.json")));
+    }
+
+    @Test
+    void aCodexVersionThatCannotBeComparedBlocksPlacementAndNamesTheCandidate() throws IOException {
+        Path release = codexCopy("sennard", "1.3.0");
+        Path prerelease = codexCopy("sennard", "1.3.0-rc.1");
+        HostFiles files = new HostFiles(everyLocation, "1.3.0", HOOKS_COMMAND, JSON);
+
+        UnavailableException failure = assertThrows(UnavailableException.class, () -> placement(files, environment()));
+
+        assertEquals(UnavailableCode.HOST_PACKAGE_VERSION_MISMATCH, failure.code());
+        var mismatches = files.mismatches(environment());
+        assertEquals(1, mismatches.size());
+        assertEquals("sennard@sennard", mismatches.getFirst().installation());
+        assertEquals(prerelease.toString(), mismatches.getFirst().path());
+        assertNull(mismatches.getFirst().actualVersion());
+        String message = Sentences.english(failure);
+        String affectedCopy = "codex sennard@sennard " + prerelease + " [?]";
+        assertTrue(message.contains(affectedCopy), message);
+        String korean = Sentences.korean(failure);
+        assertTrue(korean.contains(affectedCopy), korean);
+        assertFalse(Files.exists(generated()), "no definitions are published");
+        assertEquals(codex.shippedFiles().getFirst().content(), read(release.resolve("hooks/hooks.json")));
+        assertEquals(codex.shippedFiles().getFirst().content(), read(prerelease.resolve("hooks/hooks.json")));
+    }
+
+    @Test
+    void aSelectedCodexCopyWithoutAReadableManifestReportsAnUnknownVersion() throws IOException {
+        Path copy = codexCopy("sennard", "1.3.0");
+        Files.delete(copy.resolve(".codex-plugin/plugin.json"));
+        HostFiles files = new HostFiles(everyLocation, "1.3.0", HOOKS_COMMAND, JSON);
+
+        UnavailableException failure = assertThrows(UnavailableException.class, () -> placement(files, environment()));
+
+        assertEquals(UnavailableCode.HOST_PACKAGE_VERSION_MISMATCH, failure.code());
+        String affectedCopy = "codex sennard@sennard " + copy + " [?]";
+        String message = Sentences.english(failure);
+        assertTrue(message.contains("Sennard could not verify the plugin version"), message);
+        assertTrue(message.contains(affectedCopy), message);
+        String korean = Sentences.korean(failure);
+        assertTrue(korean.contains("플러그인 버전을 확인하지 못했음"), korean);
+        assertTrue(korean.contains(affectedCopy), korean);
+        assertFalse(Files.exists(generated()), "no definitions are published");
+        assertEquals(codex.shippedFiles().getFirst().content(), read(copy.resolve("hooks/hooks.json")));
     }
 
     @Test
@@ -613,6 +775,7 @@ class HostFilesTest {
         Path inHome = codexCopy("market", "6.0.0");
         Path moved = temporary.resolve("moved-codex").resolve("plugins/cache/market/sennard/6.0.0");
         writeShipped(moved, codex);
+        writeBodyVersion(moved, ".codex-plugin/plugin.json", "6.0.0");
         HostFiles files = new HostFiles(everyLocation, "6.0.0", HOOKS_COMMAND, JSON);
 
         place(files, environment(Map.of("CODEX_HOME", temporary.resolve("moved-codex").toString())));
@@ -693,7 +856,7 @@ class HostFilesTest {
 
         UnavailableException failure = assertThrows(UnavailableException.class, () -> place(hostFiles(), environment()));
 
-        assertEquals(UnavailableCode.HOST_FILES_FAILED, failure.code());
+        assertEquals(UnavailableCode.HOST_PACKAGE_VERSION_MISMATCH, failure.code());
         assertTrue(Sentences.english(failure).contains("installed_plugins.json"), Sentences.english(failure));
     }
 }

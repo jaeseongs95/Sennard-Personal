@@ -122,8 +122,9 @@ public final class SennardCli {
                 yield 0;
             }
             case STATUS -> {
-                output.prettyJson(installer(output).status());
-                yield 0;
+                Installer.Status status = installer(output).status();
+                output.prettyJson(status);
+                yield status.hasHostPackageMismatch() ? 1 : 0;
             }
             case UPGRADE -> {
                 installer(output).upgrade();

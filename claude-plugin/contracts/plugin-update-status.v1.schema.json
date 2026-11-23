@@ -47,6 +47,23 @@
         { "enum": ["TIMEOUT", "NETWORK", "HTTP", "INVALID_RESPONSE", "NO_STABLE_TAG"] }
       ]
     },
-    "automaticInstall": { "const": false }
+    "automaticInstall": { "const": false },
+    "hostPackageMismatches": {
+      "description": "Local host plugins whose selected version differs from the running version or could not be determined.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["host", "path", "expectedVersion", "actualVersion"],
+        "properties": {
+          "host": { "type": "string", "minLength": 1 },
+          "path": { "type": ["string", "null"] },
+          "expectedVersion": { "type": "string", "minLength": 1 },
+          "actualVersion": { "type": ["string", "null"] },
+          "installation": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
   }
 }

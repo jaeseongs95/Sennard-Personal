@@ -4,7 +4,6 @@
 
 package io.github.jaeseongs95.sennard.server.continuity;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +16,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
-import io.github.jaeseongs95.sennard.server.config.SennardProperties;
 import io.github.jaeseongs95.sennard.server.context.ContextLayerService;
 import io.github.jaeseongs95.sennard.server.hook.HookModule;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict;
@@ -29,15 +27,13 @@ import io.github.jaeseongs95.sennard.server.hook.HostEventHandler.HookCall;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts;
 import io.github.jaeseongs95.sennard.server.mcp.HostCallerAdapter;
-import io.github.jaeseongs95.sennard.server.mcp.SkillIntake;
 import io.github.jaeseongs95.sennard.server.session.HookDomain;
 import io.github.jaeseongs95.sennard.server.message.MessageRef;
 import io.github.jaeseongs95.sennard.server.message.Messages;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
- * What every session is given at its boundaries beside its own saved state: the pointer to the installed intake with the skill targets, and the global and role
- * context the user signed. A context start gets every non-empty layer; later hooks carry notices and can finish attaching a newly linked child to its role. All of it
+ * The global and role context delivered beside the session's saved state.
+ * A context start gets every non-empty layer; later hooks carry notices and can finish attaching a newly linked child to its role. All of it
  * is optional for the host, so a failure here takes only this text away. A subagent's start is composed with its cue and budget in {@link ContinuityHookHandler}.
  */
 @Component
@@ -53,17 +49,13 @@ public class SharedContextHookHandler implements HookDomain {
 
     private final ContextLayerService layers;
     private final Messages messages;
-    private final String skillsDirectory;
-    private final JsonMapper mapper;
     private final Map<HostId, HostWorkFacts> facts;
     /** The hosts whose hooks do not say which conversations are subagents, so nothing in a hook tells whose child a conversation is ({@link HostCallerAdapter#hooksMarkSubagents()}). */
     private final Set<HostId> hostsNamingNoParent;
 
-    public SharedContextHookHandler(ContextLayerService layers, Messages messages, SennardProperties skills, JsonMapper mapper, List<HostWorkFacts> facts, List<HostCallerAdapter> callers) {
+    public SharedContextHookHandler(ContextLayerService layers, Messages messages, List<HostWorkFacts> facts, List<HostCallerAdapter> callers) {
         this.layers = layers;
         this.messages = messages;
-        this.skillsDirectory = skills.skillsDirectory();
-        this.mapper = mapper;
         this.facts = facts.stream().collect(Collectors.toUnmodifiableMap(HostWorkFacts::host, Function.identity()));
         this.hostsNamingNoParent = callers.stream().filter(caller -> !caller.hooksMarkSubagents()).map(HostCallerAdapter::host).collect(Collectors.toUnmodifiableSet());
     }
@@ -74,24 +66,15 @@ public class SharedContextHookHandler implements HookDomain {
         if (event instanceof HostEvent.SubagentStarted || call.isForAnotherThan(HookModule.CONTINUITY)) {
             return PROCEED;
         }
-        HostWorkFacts host = facts.getOrDefault(event.context().hostLabel(), HostWorkFacts.NONE);
-        boolean restoresEachTurn = event.startsTurn() && host.restoresAtTurnStart();
-        List<HookVerdict.ContextBlock> blocks = new ArrayList<>();
-        if (restoresEachTurn || (event instanceof HostEvent.SessionStarted && !host.restoresAtTurnStart())) {
-            String intake = intakeText(host);
-            if (intake != null) {
-                blocks.add(new HookVerdict.ContextBlock(intake, restoresEachTurn));
-            }
-        }
         String sessionHost = event.context().hostLabel().sessionHost();
         Target target = target(event, sessionHost);
-        if (target != null) {
-            String text = layerText(sessionHost, event.context().sessionId(), target, hostsNamingNoParent.contains(event.context().hostLabel()));
-            if (text != null) {
-                blocks.add(new HookVerdict.ContextBlock(text, restoresEachTurn));
-            }
+        if (target == null) {
+            return PROCEED;
         }
-        return blocks.isEmpty() ? PROCEED : new HookVerdict.AddContext(blocks);
+        String text = layerText(sessionHost, event.context().sessionId(), target, hostsNamingNoParent.contains(event.context().hostLabel()));
+        HostWorkFacts host = facts.getOrDefault(event.context().hostLabel(), HostWorkFacts.NONE);
+        boolean ephemeral = event.startsTurn() && host.restoresAtTurnStart();
+        return text == null ? PROCEED : new HookVerdict.AddContext(List.of(new HookVerdict.ContextBlock(text, ephemeral)));
     }
 
     /**
@@ -160,7 +143,8 @@ public class SharedContextHookHandler implements HookDomain {
         }
         String actorId = ContinuityTools.actorId(sessionHost, context.sessionId(), child ? context.actor().agentKeyOr("unidentified-child") : null);
         return switch (event) {
-            case HostEvent.SessionStarted started when own && started.kind() != HostEvent.StartKind.OTHER -> new Target(actorId, true, false);
+            case HostEvent ignored when own && event.restoresContext() -> new Target(actorId, true, event.startsTurn());
+            case HostEvent.SessionStarted started when own && started.kind() != HostEvent.StartKind.OTHER -> new Target(actorId, false, false);
             case HostEvent ignored when own && event.startsTurn() -> new Target(actorId, false, true);
             case HostEvent.ModelCallFinished finished when finished.carriesContext() -> new Target(actorId, false, false);
             case HostEvent.ToolFinished finished when finished.stepBoundary() -> new Target(actorId, false, false);
@@ -180,28 +164,6 @@ public class SharedContextHookHandler implements HookDomain {
             // Boundary (hook entrance): the layers' text must not fail the hook's answer; the failure is logged with its cause and the answer says the layers are unreadable.
             LOG.warn("CONTEXT_LAYERS_UNAVAILABLE", unavailable);
             return List.of(MessageRef.of("hooks.contextLayers.unreadable", "layer", "admin-log"));
-        }
-    }
-
-    /** The pointer and the skill targets the per-message cue points at; a host may not show the MCP instructions, and a compaction may drop what a hook added earlier. */
-    private String intakeText(HostWorkFacts host) {
-        try {
-            var intake = SkillIntake.deployedIntake(skillsDirectory);
-            String targets = SkillIntake.installedSkillTargets(skillsDirectory, mapper);
-            return intake.filter(path -> !targets.isEmpty()).map(path -> {
-                List<MessageRef> lines = new ArrayList<>();
-                host.skillInvocationMessage().map(MessageRef::of).ifPresent(lines::add);
-                lines.add(MessageRef.of("instructions.intake.pointer", "path", path.toString()));
-                lines.add(MessageRef.of("instructions.intake.skills", "targets", targets));
-                return messages.renderLines(lines);
-            }).orElseGet(() -> {
-                LOG.warn("SKILL_INTAKE_NOT_DEPLOYED");
-                return null;
-            });
-        } catch (IOException | RuntimeException unreadable) {
-            // Boundary (file I/O in a hook entrance): the deployed intake is read from the skill files on disk, whose unreadable or malformed content must not fail the hook's answer.
-            LOG.warn("SKILL_INTAKE_UNREADABLE", unreadable);
-            return null;
         }
     }
 }

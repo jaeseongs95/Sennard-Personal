@@ -231,17 +231,41 @@ public class StageGates {
         // The plan schema allows the default to be a state rule or the single text "reject", which is a rule-less default.
         WorkflowPlan.MappingRule chosen = mapping.fallback().rule();
         String selector = mapping.selector();
+        JsonNode value = null;
         if (selector != null) {
             // The selector is a JSON Pointer the skill's descriptor declared; what it names in the output is the skill's own value.
             // A mapping that names a selector never passes a result that lacks the value or holds a non-text value: the default serves a mapping with no selector,
             // so a missing status is refused rather than recorded as a pass.
-            JsonNode value = output.at(selector, mapper);
+            value = output.at(selector, mapper);
             chosen = value != null && value.isString() && mapping.values() != null ? mapping.values().get(value.asString()) : null;
         }
         if (chosen == null) {
-            throw new WorkflowFailure(WorkflowCode.INVALID_TRANSITION, msg("workflow.service.providerVerdictMappedDescriptor"), details("stageId", stageId, "selector", selector));
+            throw unmappedVerdict(stageId, mapping, value);
         }
         return new ResolvedRule(chosen.state(), chosen.errorRequired(), chosen.allowedErrorCodes());
+    }
+
+    private static WorkflowFailure unmappedVerdict(String stageId, WorkflowPlan.StateMapping mapping, JsonNode value) {
+        String selector = mapping.selector();
+        Map<String, Object> errorDetails = details("stageId", stageId, "selector", selector);
+        Object recovery = "";
+        if (selector != null) {
+            // The MCP request wraps the provider envelope in output. Keep pointer notation for keys that cannot be written unambiguously with dots.
+            String inputPath = selector.matches("(/[A-Za-z_][A-Za-z0-9_]*)+") ? "output" + selector.replace('/', '.') : "/output" + selector;
+            List<String> allowedValues = mapping.values() == null ? List.of() : mapping.values().keySet().stream().sorted().toList();
+            String allowed = allowedValues.toString();
+            boolean missing = value == null || value.isMissingNode();
+            errorDetails.put("inputPath", inputPath);
+            errorDetails.put("allowedValues", allowedValues);
+            errorDetails.put("valueMissing", missing);
+            if (missing) {
+                recovery = msg("workflow.service.providerVerdictMissingRecovery", "inputPath", inputPath, "allowedValues", allowed);
+            } else {
+                errorDetails.put("receivedValue", value);
+                recovery = msg("workflow.service.providerVerdictUnmappedRecovery", "inputPath", inputPath, "allowedValues", allowed, "receivedValue", value.toString());
+            }
+        }
+        return new WorkflowFailure(WorkflowCode.INVALID_TRANSITION, msg("workflow.service.providerVerdictMappedDescriptor", "recovery", recovery), errorDetails);
     }
 
     /** A supplied bundle is judged by its skill's check, over the attachments of the result; one that was never judged is never accepted. */

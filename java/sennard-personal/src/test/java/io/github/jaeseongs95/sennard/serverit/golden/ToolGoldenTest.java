@@ -56,6 +56,7 @@ class ToolGoldenTest {
 
     private static Locale before;
     private static GoldenHarness server;
+    private static JsonNode releaseVersion;
     private static Path workspaces;
     /** The folder the profile cases read: outside any checkout, so the profile reports no branch or dirty state of the machine that runs it. */
     private static Path profileRoot;
@@ -73,9 +74,13 @@ class ToolGoldenTest {
         profileRoot = Files.createTempDirectory("sennard-golden-profile-").toRealPath();
         Files.writeString(profileRoot.resolve("README.md"), "# fixture\n");
         server = GoldenHarness.full(Golden.REPOSITORY);
+        String releaseMetadata = Files.readString(Golden.REPOSITORY.resolve("release/version.json"), StandardCharsets.UTF_8);
+        releaseVersion = Golden.MAPPER.readTree(releaseMetadata).path("version");
+        assertTrue(releaseVersion.isString() && !releaseVersion.asString().isBlank(), "release/version.json must declare a version string");
         tokens = List.of(new Golden.Token("{WS}", workspaces.toString(), true), new Golden.Token("{PROFILE}", profileRoot.toString(), true), new Golden.Token("{STATE}", server.stateDirectory().toString(), true),
                 new Golden.Token("{REPO}", Golden.REPOSITORY.toString(), true), new Golden.Token("{TMP}", Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().toString(), true),
-                new Golden.Token("{ADMIN_PORT}", Integer.toString(server.adminPort()), false), new Golden.Token("{PORT}", Integer.toString(server.port()), false));
+                new Golden.Token("{ADMIN_PORT}", Integer.toString(server.adminPort()), false), new Golden.Token("{PORT}", Integer.toString(server.port()), false),
+                new Golden.Token("{RELEASE_VERSION}", releaseVersion.asString(), false));
     }
 
     @AfterAll
@@ -528,7 +533,11 @@ class ToolGoldenTest {
         cases.add(new Case("T-get_trust_capabilities-undeclared_argument", id -> call(started(id), "get_trust_capabilities", args("bogus", 1))));
         cases.add(new Case("T-validate_collaboration_decision-ok", id -> call(started(id), "validate_collaboration_decision", args("decision", decision()))));
         cases.add(new Case("T-validate_collaboration_decision-invalid_input", id -> call(started(id), "validate_collaboration_decision", args())));
-        cases.add(new Case("T-check_for_updates-ok", id -> call(started(id), "check_for_updates", args())));
+        cases.add(new Case("T-check_for_updates-ok", id -> {
+            JsonNode answer = call(started(id), "check_for_updates", args());
+            assertEquals(releaseVersion, envelope(answer).at("/data/currentVersion"), "currentVersion must match release/version.json");
+            return answer;
+        }));
         cases.add(new Case("T-check_for_updates-invalid_input", id -> call(started(id), "check_for_updates", args("force", "true"))));
 
         // The attachments: the upload of each case is made by the case's own session, and its answers carry a generated id and a time (CASES.md normalizes them).

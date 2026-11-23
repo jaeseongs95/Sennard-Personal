@@ -7,6 +7,7 @@ package io.github.jaeseongs95.sennard.server.workflow;
 import static io.github.jaeseongs95.sennard.server.message.MessageRef.msg;
 import static io.github.jaeseongs95.sennard.server.workflow.WorkflowFailure.details;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -30,12 +31,15 @@ import io.github.jaeseongs95.sennard.domain.error.BindingCode;
 import io.github.jaeseongs95.sennard.domain.error.BindingException;
 import io.github.jaeseongs95.sennard.domain.error.ConflictException;
 import io.github.jaeseongs95.sennard.server.approval.RootAction;
+import io.github.jaeseongs95.sennard.server.config.SennardProperties;
 import io.github.jaeseongs95.sennard.server.contract.ApiResult;
 import io.github.jaeseongs95.sennard.server.contract.SennardToolResults;
+import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts;
 import io.github.jaeseongs95.sennard.server.message.Messages;
 import io.github.jaeseongs95.sennard.server.mcp.McpSessionResolver;
 import io.github.jaeseongs95.sennard.server.mcp.SelfSession;
 import io.github.jaeseongs95.sennard.server.mcp.SessionExecutionReader;
+import io.github.jaeseongs95.sennard.server.mcp.SkillIntake;
 import io.github.jaeseongs95.sennard.server.web.AdminPageAddress;
 import io.github.jaeseongs95.sennard.service.store.StoreException;
 import io.github.jaeseongs95.sennard.service.store.RootState;
@@ -56,6 +60,7 @@ public class WorkflowTools {
     private static final Logger LOG = LoggerFactory.getLogger(WorkflowTools.class);
     private static final Set<WorkflowCode> START_INFRASTRUCTURE_FAILURES = EnumSet.of(WorkflowCode.MCP_UNAVAILABLE, WorkflowCode.CONTINUITY_UNAVAILABLE, WorkflowCode.BINDING_REQUIRED, WorkflowCode.BINDING_INVALID,
             WorkflowCode.INTEGRITY_FAILED);
+    private static final Set<String> WORKFLOW_ENTRY_TOOLS = Set.of("resume_workflow", "start_guarded_workflow");
     private static final Set<String> CHANGE_TOOLS = Set.of("plan_workflow", "start_workflow", "start_guarded_workflow", "record_stage_result", "claim_workflow_attempt", "resolve_convergence_gate",
             "open_convergence_root", "release_convergence_root", "finalize_workflow", "abort_workflow", "pause_workflow", "resume_workflow", "get_workflow_status", "get_convergence_status");
 
@@ -79,10 +84,15 @@ public class WorkflowTools {
     private final WorkflowFileReader reader;
     private final WorkflowReceipts operations;
     private final SennardToolResults results;
+    private final String skillsDirectory;
+    private final List<HostWorkFacts> hostFacts;
 
     public WorkflowTools(WorkflowService service, SkillRegistry registry, WorkflowFileReader reader, SkillUsageService skillUsage, List<SessionExecutionReader> executionReaders, McpSessionResolver sessions, Messages messages, JsonMapper mapper,
-            AdminPageAddress address, ClassificationAdvice classification, DocumentDigests digests, ToolInputs inputs, ChangePlanService plans, WorkflowReceipts operations, KindStartInputs kinds, SennardToolResults results) {
+            AdminPageAddress address, ClassificationAdvice classification, DocumentDigests digests, ToolInputs inputs, ChangePlanService plans, WorkflowReceipts operations, KindStartInputs kinds,
+            SennardToolResults results, SennardProperties properties, List<HostWorkFacts> hostFacts) {
         this.results = results;
+        this.skillsDirectory = properties.skillsDirectory();
+        this.hostFacts = List.copyOf(hostFacts);
         this.kinds = kinds;
         this.operations = operations;
         this.reader = reader;
@@ -432,6 +442,16 @@ public class WorkflowTools {
 
     /** The cue after a workflow change: the stage to run next and the reminders that go with it. */
     private List<String> changeNotice(String tool, Object answer, WorkflowCall call) {
+        List<String> notes = workflowChangeNotice(tool, answer, call);
+        if (answer instanceof MinimalStartResult || WORKFLOW_ENTRY_TOOLS.contains(tool)) {
+            List<String> entry = new ArrayList<>(notes);
+            entry.addAll(entryIntake(call));
+            return entry;
+        }
+        return notes;
+    }
+
+    private List<String> workflowChangeNotice(String tool, Object answer, WorkflowCall call) {
         String locale = call.locale();
         WorkflowReceipt run = answer instanceof WorkflowReceipt receipt ? receipt
                 : answer instanceof MinimalStartResult started ? service.getWorkflowStatus(started.runId())
@@ -442,6 +462,11 @@ public class WorkflowTools {
             if (JOURNAL_TOOLS.contains(tool)) {
                 lines.addAll(journalNotes(run.runId(), locale));
             }
+            return lines;
+        }
+        if (answer instanceof WorkflowService.ResumeResult resumed && WorkflowKind.OPERATION.name().equals(resumed.kind())) {
+            List<String> lines = new ArrayList<>(lifecycle);
+            lines.add(messages.render(msg("server.workflowChange.verification"), locale));
             return lines;
         }
         if (Set.of("get_workflow_status", "get_convergence_status", "pause_workflow", "resume_workflow", "release_convergence_root").contains(tool)) {
@@ -471,7 +496,7 @@ public class WorkflowTools {
         }
         lines.add(messages.render(msg("server.workflowChange.skills"), locale));
         lines.add(messages.render(msg("hooks.checkpointCue.refresh"), locale));
-        if (stage.isPresent()) {
+        if (stage.isPresent() || WorkflowKind.OPERATION.toolName().equals(tool)) {
             lines.add(messages.render(msg("server.workflowChange.verification"), locale));
         }
         if (classification.adviceReady()) {
@@ -481,6 +506,26 @@ public class WorkflowTools {
             lines.addAll(journalNotes(receipt.runId(), locale));
         }
         return lines;
+    }
+
+    /** The installed intake and skill targets are guidance for a workflow the caller has entered. */
+    private List<String> entryIntake(WorkflowCall call) {
+        try {
+            var intake = SkillIntake.deployedIntake(skillsDirectory);
+            String targets = SkillIntake.installedSkillTargets(skillsDirectory, mapper);
+            if (intake.isEmpty() || targets.isEmpty()) {
+                return List.of();
+            }
+            List<String> lines = new ArrayList<>();
+            hostFacts.stream().filter(facts -> facts.host().sessionHost().equals(call.host())).findFirst()
+                    .flatMap(HostWorkFacts::skillInvocationMessage).ifPresent(key -> lines.add(messages.render(msg(key), call.locale())));
+            lines.add(messages.render(msg("instructions.intake.pointer", "path", intake.get().toString()), call.locale()));
+            lines.add(messages.render(msg("instructions.intake.skills", "targets", targets), call.locale()));
+            return lines;
+        } catch (IOException | RuntimeException unreadable) {
+            LOG.warn("SKILL_INTAKE_UNREADABLE", unreadable);
+            return List.of();
+        }
     }
 
     /** State is accompanied by the concrete next call; a finished attempt and its root are separate decisions. */

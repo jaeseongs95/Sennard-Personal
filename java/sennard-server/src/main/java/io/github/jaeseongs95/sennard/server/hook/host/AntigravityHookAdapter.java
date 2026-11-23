@@ -22,6 +22,7 @@ import io.github.jaeseongs95.sennard.server.hook.HookInstallation;
 import io.github.jaeseongs95.sennard.server.hook.HookOutput;
 import io.github.jaeseongs95.sennard.server.hook.HookRejected;
 import io.github.jaeseongs95.sennard.server.hook.HookRejection;
+import io.github.jaeseongs95.sennard.server.hook.HookStopNotice;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict.ContextBlock;
 import io.github.jaeseongs95.sennard.server.hook.HostContext;
@@ -32,6 +33,8 @@ import io.github.jaeseongs95.sennard.server.hook.HostHookAdapter;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostRegistrationFile;
 import io.github.jaeseongs95.sennard.server.hook.ToolCall;
+import io.github.jaeseongs95.sennard.server.message.MessageRef;
+import io.github.jaeseongs95.sennard.server.message.Messages;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -53,25 +56,28 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
     private static final Pattern SENNARD_DIRECT_TOOL = Pattern.compile("^(?:default_api:)?mcp_(?:sennard_)?sennard_(.+)$");
     private static final String MCP_WRAPPER = "call_mcp_tool";
     private static final String HOST_TOOL_PREFIX = "default_api:";
-    private static final int MAX_STOP_EXECUTIONS = 3;
     private static final Set<String> NON_CONTINUABLE_STOP_REASONS = Set.of("USER_CANCELED", "ERROR", "MAX_INVOCATIONS", "MAX_FORCED_INVOCATIONS", "MAX_TOKEN_BUDGET_EXCEEDED",
             "TERMINAL_STEP_TYPE", "TERMINAL_CUSTOM_HOOK");
 
     private final JsonMapper mapper;
     private final Function<String, SessionActor> hookActor;
+    private final HookStopNotice notices;
+    private final Messages messages;
 
     public AntigravityHookAdapter(JsonMapper mapper) {
-        this(mapper, ignored -> AntigravityCallerAdapter.unclassifiedHook());
+        this(mapper, ignored -> AntigravityCallerAdapter.unclassifiedHook(), null, null);
     }
 
     @Autowired
-    public AntigravityHookAdapter(JsonMapper mapper, AntigravityCallerAdapter callers) {
-        this(mapper, callers::currentHookActor);
+    public AntigravityHookAdapter(JsonMapper mapper, AntigravityCallerAdapter callers, HookStopNotice notices, Messages messages) {
+        this(mapper, callers::currentHookActor, notices, messages);
     }
 
-    private AntigravityHookAdapter(JsonMapper mapper, Function<String, SessionActor> hookActor) {
+    private AntigravityHookAdapter(JsonMapper mapper, Function<String, SessionActor> hookActor, HookStopNotice notices, Messages messages) {
         this.mapper = mapper;
         this.hookActor = hookActor;
+        this.notices = notices;
+        this.messages = messages;
     }
 
     @Override
@@ -91,7 +97,7 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
         AntigravityEvent event = AntigravityEvent.named(eventName).orElseThrow(() -> new HookRejected(HookRejection.HOOK_EVENT_UNKNOWN));
         HostContext context = context(conversation, input);
         return switch (event) {
-            case SESSION_START -> new HostEvent.SessionStarted(context, HostEvent.StartKind.STARTUP);
+            case SESSION_START -> new HostEvent.SessionStarted(context, HostEvent.StartKind.STARTUP, false);
             case PRE_INVOCATION -> starting(context, input);
             // The invocation boundary takes injected steps (see respond).
             case POST_INVOCATION -> new HostEvent.ModelCallFinished(context, true);
@@ -107,19 +113,18 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
     }
 
     private static HostEvent starting(HostContext context, AntigravityHookInput input) {
-        if (input.invocationNum() == null || input.invocationNum() != 0) {
+        if (!input.firstInvocation()) {
             return new HostEvent.ModelCallStarting(context);
         }
         return context.actor().rootEstablished() && input.lastUserInput() != null
-                ? new HostEvent.UserPromptSubmitted(context, input.lastUserInput())
-                : new HostEvent.TurnStarted(context, context.actor().basis() == Basis.PROVISIONAL ? input.lastUserInput() : null);
+                ? new HostEvent.UserPromptSubmitted(context, input.lastUserInput(), true)
+                : new HostEvent.TurnStarted(context, context.actor().basis() == Basis.PROVISIONAL ? input.lastUserInput() : null, true);
     }
 
-    /** A terminal or canceled stop, or one this host has already run on several times, must never be turned into a continuation. */
+    /** The host's terminal and canceled stops do not accept continuations. */
     private static boolean nonContinuable(AntigravityHookInput input) {
         return HookJson.present(input.error()).isPresent() || Boolean.FALSE.equals(input.fullyIdle())
-                || (input.executionNum() != null && input.executionNum() > MAX_STOP_EXECUTIONS)
-                ||NON_CONTINUABLE_STOP_REASONS.contains(HookJson.text(input.terminationReason()));
+                || NON_CONTINUABLE_STOP_REASONS.contains(HookJson.text(input.terminationReason()));
     }
 
     private HostContext context(String conversation, AntigravityHookInput input) {
@@ -170,20 +175,46 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
 
     @Override
     public HookOutput respond(String eventName, HostEvent read, HookVerdict verdict) {
+        if (notices != null && (read instanceof HostEvent.UserPromptSubmitted
+                || read instanceof HostEvent.TurnStarted started && started.provisionalInput() != null)) {
+            verdict = withStopNotice(read, verdict);
+        }
         return switch (verdict) {
             case HookVerdict.Proceed ignored -> read instanceof HostEvent.ToolRequested ? AntigravityHookOutput.ALLOW : AntigravityHookOutput.NOTHING;
             case HookVerdict.Refuse refuse when read instanceof HostEvent.ToolRequested -> AntigravityHookOutput.decision("deny", refuse.reason());
             // This host has no prompt-submit event to stop a prompt at.
             case HookVerdict.Refuse ignored -> throw new HookRejected(HookRejection.HOOK_VERDICT_NOT_DELIVERABLE);
-            // A stop this host cannot continue (canceled, failed, past its execution limit) arrives as already continued (see nonContinuable): whatever a domain asked, it is not
-            // turned into a continuation.
+            // The host reports when a stop is already terminal.
             case HookVerdict.ContinueTurn ignored when read instanceof HostEvent.TurnEnded ended && !ended.continuable() -> AntigravityHookOutput.NOTHING;
             case HookVerdict.ContinueTurn turn -> AntigravityHookOutput.decision("continue", turn.instruction());
+            // Stop can let the loop end but can only deliver its reason when it asks the host to continue.
+            case HookVerdict.TerminateTurn stopped -> {
+                if (notices != null) {
+                    notices.rememberStop(HOST, read.context().sessionId(), stopped.reason());
+                }
+                yield AntigravityHookOutput.NOTHING;
+            }
             case HookVerdict.AddContext context when read instanceof HostEvent.TurnEnded -> AntigravityHookOutput.decision("continue", context.blocks().getFirst().text());
             // Injected steps reach the model only from the invocation boundaries, not from a finished tool.
             case HookVerdict.AddContext ignored when read instanceof HostEvent.ToolFinished -> throw new HookRejected(HookRejection.HOOK_VERDICT_NOT_DELIVERABLE);
             case HookVerdict.AddContext context -> injectSteps(context.blocks());
         };
+    }
+
+    private HookVerdict withStopNotice(HostEvent read, HookVerdict verdict) {
+        if (!(verdict instanceof HookVerdict.Proceed || verdict instanceof HookVerdict.AddContext)) {
+            return verdict;
+        }
+        String reason = notices.takeStopNotice(HOST, read.context().sessionId());
+        if (reason == null) {
+            return verdict;
+        }
+        List<ContextBlock> blocks = new ArrayList<>();
+        blocks.add(new ContextBlock(messages.render(MessageRef.of("hooks.workflowGate.deferredStop", "reason", reason)), true));
+        if (verdict instanceof HookVerdict.AddContext context) {
+            blocks.addAll(context.blocks());
+        }
+        return new HookVerdict.AddContext(blocks);
     }
 
     /**

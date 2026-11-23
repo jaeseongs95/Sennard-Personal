@@ -327,13 +327,21 @@ class GeminiHookAdapterTest {
         for (String event : EVENTS) {
             HostEvent hostEvent = read(event, "");
             if (event.equals("AfterAgent")) {
-                assertEquals(MAPPER.readTree("{\"decision\":\"deny\",\"reason\":\"Check the open item first.\"}"), answered(event, hostEvent, continuation), event);
+                JsonNode output = answered(event, hostEvent, continuation);
+                assertEquals("deny", output.path("decision").asString(), event);
+                assertTrue(output.path("reason").asString().matches("Check the open item first\\.\\n\\n\\[Sennard retry: [0-9a-f-]{36}\\]"), output.toString());
             } else {
                 HookRejected refused = rejected(() -> ADAPTER.respond(event, hostEvent, continuation));
                 assertEquals(500, refused.status(), event);
                 assertEquals("HOOK_VERDICT_NOT_DELIVERABLE", refused.reason(), event);
             }
         }
+    }
+
+    @Test
+    void anExhaustedAfterAgentStopsWithAnExplicitReason() {
+        JsonNode output = answered("AfterAgent", read("AfterAgent", ""), new HookVerdict.TerminateTurn("No procedure was selected."));
+        assertEquals(MAPPER.readTree("{\"continue\":false,\"reason\":\"No procedure was selected.\"}"), output);
     }
 
     @Test

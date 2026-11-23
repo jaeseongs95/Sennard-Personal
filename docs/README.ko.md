@@ -11,6 +11,7 @@ Sennard를 설치해 쓰는 사람을 위한 문서입니다. 설치는 [README]
 | 문서 | 내용 |
 | --- | --- |
 | [사용하기](user/usage.ko.md) | 요청하는 법, 설치하면 달라지는 동작, workflow와 편집 관문, 작업 기록, 하위 작업의 모델 선택, 보장하지 않는 것 |
+| [전체 흐름도](user/system-flow.ko.md) | 사용자 요청 처리, 세션 수명, workflow 상태 전이, 세션 간 협업 |
 | [관리자 페이지와 컨텍스트](user/admin-page.ko.md) | 로컬 관리자 페이지, 전역·담당·상황 컨텍스트, JEV, 언어, 재설정 |
 | [세션 협업](user/collaboration.ko.md) | 현황판, PEER 메시지, 호스트별 깨우기 |
 | [상태 저장과 정리](user/state.ko.md) | 저장소 위치와 설정, 정리·백업·복구 |

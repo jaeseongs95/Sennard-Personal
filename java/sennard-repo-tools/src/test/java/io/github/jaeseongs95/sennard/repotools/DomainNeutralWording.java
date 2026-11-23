@@ -90,6 +90,8 @@ final class DomainNeutralWording {
     private static final Pattern STOP = Pattern.compile("[" + S + ",()「」『』:;.]");
     private static final Pattern SENTENCE_GAP = Pattern.compile("(?<=[.!?])" + SP + "+");
     private static final Pattern HTML_COMMENT = Pattern.compile("<!--[\\s\\S]*?-->");
+    // Consume MessageFormat quotes (including doubled apostrophes) before looking for catalog arguments.
+    private static final Pattern CATALOG_ARGUMENT_OR_QUOTE = Pattern.compile("''|'(?:[^']++|'')*+'|(\\{[^,{}]+(?:,\\s*(?:number\\s*)?)?\\})");
     private static final Pattern FENCE = Pattern.compile("^" + SP + "*(```|~~~)");
     private static final Pattern BACKTICKED = Pattern.compile("`([^`]*)`");
     private static final Pattern HEADING = Pattern.compile("^#{1,6}" + SP);
@@ -252,9 +254,14 @@ final class DomainNeutralWording {
 
     /** Findings in markdown; {@code lines} limits the scan (null: every line). Fenced code blocks and HTML comments are skipped. */
     static List<Finding> findFieldWording(String text, Set<Integer> lines) {
+        return findFieldWording(text, lines, false);
+    }
+
+    private static List<Finding> findFieldWording(String text, Set<Integer> lines, boolean catalogMessage) {
         List<Finding> findings = new ArrayList<>();
         String source = replaceAll(HTML_COMMENT, text, match -> blank(match.group()));
         String[] all = source.split("\\r?\\n", -1);
+        String[] scanLines = catalogMessage ? blankCatalogArguments(source).split("\\r?\\n", -1) : all;
         boolean fenced = false;
         boolean underBranchHeading = false;
         for (int offset = 0; offset < all.length; offset++) {
@@ -274,7 +281,7 @@ final class DomainNeutralWording {
                 continue;
             }
             // Blanking keeps every offset, so a span of cleaned is the same span of raw.
-            String inlineNames = replaceAll(BACKTICKED, raw, match -> {
+            String inlineNames = replaceAll(BACKTICKED, scanLines[offset], match -> {
                 String content = match.group(1);
                 return SKILL_FIELDS.containsKey(content) || test(INLINE_IDENTIFIER, content) ? blank(match.group()) : " " + content + " ";
             });
@@ -301,6 +308,24 @@ final class DomainNeutralWording {
             }
         }
         return findings;
+    }
+
+    private static String blankCatalogArguments(String text) {
+        Matcher tokens = CATALOG_ARGUMENT_OR_QUOTE.matcher(text);
+        StringBuilder prose = new StringBuilder(text);
+        while (tokens.find()) {
+            if (tokens.start(1) < 0) {
+                continue;
+            }
+            // Keep line breaks and offsets so findings can still show the original message.
+            for (int index = tokens.start(1); index < tokens.end(1); index++) {
+                char character = text.charAt(index);
+                if (character != '\r' && character != '\n') {
+                    prose.setCharAt(index, ' ');
+                }
+            }
+        }
+        return prose.toString();
     }
 
     private static String replaceAll(Pattern pattern, String text, java.util.function.Function<java.util.regex.MatchResult, String> replacement) {
@@ -532,7 +557,7 @@ final class DomainNeutralWording {
                         if (LOCALE_FIELDS.containsKey(entry.getKey()) || !entry.getValue().isString()) {
                             return;
                         }
-                        for (Finding finding : findFieldWording(entry.getValue().stringValue(), null)) {
+                        for (Finding finding : findFieldWording(entry.getValue().stringValue(), null, true)) {
                             findings.add(new Finding(file, 0, finding.term(), entry.getKey() + ": " + finding.text()));
                         }
                     });

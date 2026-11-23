@@ -114,9 +114,9 @@ public class HookPipeline {
     private Answer answered(ServerHookAdapter adapter, String event, String module, HostEvent read, List<Long> hostCandidates, String wakeKey) {
         HostEvent routed;
         try {
-            routed = managedActor(read);
+            routed = prepareEvent(read);
         } catch (StoreException failure) {
-            throw new HookRejected(HookRejection.HOOK_HANDLER_FAILED, failure.code().name(), failure);
+            throw storeRejected(failure);
         }
         for (HookBoundary boundary : boundaries) {
             Optional<HookVerdict> intercepted = boundary.before(routed);
@@ -134,11 +134,28 @@ public class HookPipeline {
         }
         boundaries.forEach(boundary -> boundary.after(routed, verdict));
         HookOutput output = adapter.respond(event, routed, verdict);
+        try {
+            boundaries.forEach(boundary -> boundary.afterResponse(routed, verdict, output));
+        } catch (StoreException failure) {
+            throw storeRejected(failure);
+        }
         boolean registered = false;
         for (HookBoundary boundary : boundaries) {
             registered |= boundary.bootstrap(routed, verdict, wakeKey);
         }
         return new Answer(output, registered);
+    }
+
+    private HostEvent prepareEvent(HostEvent read) {
+        HostEvent prepared = managedActor(read);
+        for (HookBoundary boundary : boundaries) {
+            prepared = boundary.prepareEvent(prepared);
+        }
+        return prepared;
+    }
+
+    private static HookRejected storeRejected(StoreException failure) {
+        return new HookRejected(HookRejection.HOOK_HANDLER_FAILED, failure.code().name(), failure);
     }
 
     /** Independent native threads arrive in the same shape as a root. Route them before any domain sees the event. */

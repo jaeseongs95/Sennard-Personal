@@ -7,10 +7,13 @@ package io.github.jaeseongs95.sennard.personal.install;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,6 +22,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import io.github.jaeseongs95.sennard.domain.Digests;
 import io.github.jaeseongs95.sennard.domain.error.SennardException;
@@ -28,6 +32,8 @@ import io.github.jaeseongs95.sennard.server.hook.HookInstallation;
 import io.github.jaeseongs95.sennard.server.hook.ClientHookRegistration;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostRegistrationFile;
+import io.github.jaeseongs95.sennard.server.updates.HostPackageStatus;
+import io.github.jaeseongs95.sennard.server.updates.HostPackageStatus.Mismatch;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -54,7 +60,7 @@ public final class HostFiles {
     private final JsonMapper json;
 
     /**
-     * @param version this installation's version: only an installed plugin of the same major version gets its definition
+     * @param version this installation's version: only an installed plugin with this exact body version gets its definition
      * @param hooksCommand the command that writes the definitions again, as the user is told to run it ({@code java -jar <jar> hooks})
      * @param json the JSON mapper of the settings context these locations come from ({@link InstalledSettings#jsonMapper()})
      */
@@ -63,6 +69,88 @@ public final class HostFiles {
         this.version = version;
         this.hooksCommand = hooksCommand;
         this.json = json;
+    }
+
+    @Component
+    static final class LocalStatus implements HostPackageStatus {
+        private final List<HostPackageLocation> locations;
+        private final JsonMapper json;
+
+        LocalStatus(List<HostPackageLocation> locations, JsonMapper json) {
+            this.locations = locations;
+            this.json = json;
+        }
+
+        @Override
+        public List<Mismatch> mismatches(String version) {
+            return new HostFiles(locations, version, "", json).mismatches(InstallEnvironment.current());
+        }
+    }
+
+    private record Inventory(Map<HostId, List<HostPackageLocation.InstalledPackage>> packages, List<Mismatch> mismatches) {
+    }
+
+    public List<Mismatch> mismatches(InstallEnvironment environment) {
+        return inventory(environment).mismatches();
+    }
+
+    public void requireMatchingVersions(InstallEnvironment environment) {
+        requireMatchingVersions(mismatches(environment));
+    }
+
+    private static void requireMatchingVersions(List<Mismatch> mismatches) {
+        if (!mismatches.isEmpty()) {
+            String copies = mismatches.stream().map(HostFiles::describeMismatch)
+                    .collect(Collectors.joining(", "));
+            throw new UnavailableException(UnavailableCode.HOST_PACKAGE_VERSION_MISMATCH,
+                    SennardException.args("expected", mismatches.getFirst().expectedVersion(), "copies", copies));
+        }
+    }
+
+    private static String describeMismatch(Mismatch mismatch) {
+        String installation = mismatch.installation() == null ? "" : " " + mismatch.installation();
+        String actual = mismatch.actualVersion() == null ? "?" : mismatch.actualVersion();
+        return mismatch.host() + installation + " " + mismatch.path() + " [" + actual + "]";
+    }
+
+    private Inventory inventory(InstallEnvironment environment) {
+        Map<HostId, List<HostPackageLocation.InstalledPackage>> packages = new HashMap<>();
+        List<Mismatch> mismatches = new ArrayList<>();
+        for (HostPackageLocation location : locations.values().stream().sorted(Comparator.comparing(item -> item.host().label())).toList()) {
+            HostPackageLocation.Scan scan;
+            try {
+                scan = location.scan(environment);
+            } catch (IOException | InvalidPathException unreadable) {
+                LOG.debug("Could not inventory installed packages for {}", location.host().label(), unreadable);
+                mismatches.add(new Mismatch(location.host().label(), unreadable.getMessage(), version, null, null));
+                continue;
+            }
+            packages.put(location.host(), scan.packages());
+            for (HostPackageLocation.UndeterminedPackage candidate : scan.undetermined()) {
+                mismatches.add(new Mismatch(location.host().label(), candidate.root().toString(), version, null, candidate.installation()));
+            }
+            for (HostPackageLocation.InstalledPackage copy : scan.packages()) {
+                String actual = bodyVersion(location, copy);
+                if (!version.equals(actual)) {
+                    mismatches.add(new Mismatch(location.host().label(), copy.root().toString(), version, actual, copy.installation()));
+                }
+            }
+        }
+        return new Inventory(Map.copyOf(packages), List.copyOf(mismatches));
+    }
+
+    private String bodyVersion(HostPackageLocation location, HostPackageLocation.InstalledPackage copy) {
+        if (!(location instanceof HostPackageLocation.SeparateVersionRecord separate)) {
+            return copy.version().isBlank() ? null : copy.version();
+        }
+        Path manifest = separate.bodyManifest(copy.root());
+        try {
+            JsonNode value = json.readTree(Files.readString(manifest, StandardCharsets.UTF_8)).path("version");
+            return value.isString() && !value.asString().isBlank() ? value.asString() : null;
+        } catch (IOException | JacksonException unreadable) {
+            LOG.debug("Could not read the host package version from {}", manifest, unreadable);
+            return null;
+        }
     }
 
     /**
@@ -131,6 +219,8 @@ public final class HostFiles {
      * @return what was placed and which in-place folders do not hold this installation's definition
      */
     public Placement place(Collection<? extends ClientHookRegistration> adapters, InstallEnvironment environment, HookInstallation installation, Path generatedRoot) {
+        Inventory inventory = inventory(environment);
+        requireMatchingVersions(inventory.mismatches());
         List<String> report = new ArrayList<>();
         List<InPlaceFolder> unreached = new ArrayList<>();
         try {
@@ -145,21 +235,15 @@ public final class HostFiles {
                     if (location == null) {
                         continue;
                     }
-                    for (HostPackageLocation.InstalledPackage installed : location.packages(environment)) {
+                    for (HostPackageLocation.InstalledPackage installed : inventory.packages().get(adapter.host())) {
                         Path target = installed.root().resolve(file.relativePath());
                         if (!installed.hostCopy()) {
-                            // A folder the host loads in place is never written, whatever version the host recorded for it (for a plugin of a local marketplace the record
-                            // may hold no version this installation can compare). When it does not hold this installation's definition the command is told so by its end: the plugin
-                            // ships empty definitions, so its hooks and its MCP server do nothing until the user copies this one (Placement#requireReached says what to do).
+                            // A matching package that is loaded in place belongs to the user. The generated definitions are available for the user to copy.
                             placedSomewhere = true;
                             if (!holds(target, file)) {
                                 report.add("left " + target + ": " + adapter.host().label() + " loads that folder in place, so it is not changed");
                                 unreached.add(new InPlaceFolder(adapter.host().label(), target, generated, installation.hookProgram().getFirst()));
                             }
-                            continue;
-                        }
-                        if (!sameMajor(installed.version())) {
-                            report.add("left " + target + ": that plugin is version " + installed.version() + " and this installation is " + version);
                             continue;
                         }
                         placedSomewhere = true;
@@ -200,7 +284,7 @@ public final class HostFiles {
                 }
                 for (HostRegistrationFile shipped : adapter.shippedFiles()) {
                     Target file = Target.of(shipped);
-                    for (HostPackageLocation.InstalledPackage installed : location.packages(environment)) {
+                    for (HostPackageLocation.InstalledPackage installed : location.scan(environment).packages()) {
                         Path target = installed.root().resolve(file.relativePath());
                         if (installed.hostCopy() && holds(target, file)) {
                             empty.add(target);
@@ -251,15 +335,6 @@ public final class HostFiles {
             }
         }
         return report;
-    }
-
-    private boolean sameMajor(String installed) {
-        return !installed.isEmpty() && major(installed).equals(major(version));
-    }
-
-    private static String major(String version) {
-        int dot = version.indexOf('.');
-        return dot < 0 ? version : version.substring(0, dot);
     }
 
     /** The file a definition is generated to for the user to copy: a whole file under its own name, a member's value in a file named after the file and the member. */
@@ -378,6 +453,12 @@ public final class HostFiles {
 
     private static void write(Path file, String content) throws IOException {
         Files.createDirectories(file.getParent());
-        Files.writeString(file, content, StandardCharsets.UTF_8);
+        Path temporary = Files.createTempFile(file.getParent(), ".definition-", ".tmp");
+        try {
+            Files.writeString(temporary, content, StandardCharsets.UTF_8);
+            Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 }

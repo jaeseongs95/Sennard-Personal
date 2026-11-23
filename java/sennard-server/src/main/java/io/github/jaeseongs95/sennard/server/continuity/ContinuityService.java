@@ -12,7 +12,6 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -50,16 +49,27 @@ import io.github.jaeseongs95.sennard.domain.error.InvalidInputException;
 import io.github.jaeseongs95.sennard.domain.error.NotFoundCode;
 import io.github.jaeseongs95.sennard.domain.error.NotFoundException;
 import io.github.jaeseongs95.sennard.server.contract.CanonicalJson;
+import io.github.jaeseongs95.sennard.server.hook.HookRetryState;
+import io.github.jaeseongs95.sennard.server.hook.HookStopNotice;
+import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts;
 import io.github.jaeseongs95.sennard.server.message.MessageRef;
 import io.github.jaeseongs95.sennard.server.message.Messages;
 import io.github.jaeseongs95.sennard.server.message.SessionText;
 import io.github.jaeseongs95.sennard.server.workflow.ArtifactCheck;
 import io.github.jaeseongs95.sennard.server.workflow.CheckSource;
+import io.github.jaeseongs95.sennard.server.workflow.ConvergenceRoot;
+import io.github.jaeseongs95.sennard.server.workflow.ProviderArtifact;
+import io.github.jaeseongs95.sennard.server.workflow.StageResult;
+import io.github.jaeseongs95.sennard.server.workflow.TaskEnvelope;
+import io.github.jaeseongs95.sennard.server.workflow.WorkflowDocuments;
+import io.github.jaeseongs95.sennard.server.workflow.WorkflowDocuments.Readable;
+import io.github.jaeseongs95.sennard.server.workflow.WorkflowDocuments.Unavailable;
 import io.github.jaeseongs95.sennard.server.workflow.WorkflowEvents;
 import io.github.jaeseongs95.sennard.server.workflow.WorkflowKind;
+import io.github.jaeseongs95.sennard.server.workflow.WorkflowReceipt;
+import io.github.jaeseongs95.sennard.server.workflow.WorkflowSettlement;
 import io.github.jaeseongs95.sennard.service.store.ContextSource;
-import io.github.jaeseongs95.sennard.service.store.LeaseState;
 import io.github.jaeseongs95.sennard.service.store.MemoryStatus;
 import io.github.jaeseongs95.sennard.service.store.RequestReceiptKind;
 import io.github.jaeseongs95.sennard.service.store.RootState;
@@ -67,7 +77,6 @@ import io.github.jaeseongs95.sennard.service.store.RunState;
 import io.github.jaeseongs95.sennard.service.store.StoreException;
 import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore;
 import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore.CheckpointResult;
-import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore.Expected;
 import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore.ObservationAt;
 import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore.PurgeResult;
 import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore.Snapshot;
@@ -90,7 +99,7 @@ import tools.jackson.databind.json.JsonMapper;
  * without a token; {@code load_context} (or the session's start) makes the task, and its answer is committed.
  */
 @Service
-public class ContinuityService {
+public class ContinuityService implements HookRetryState, HookStopNotice {
     static final int WORKFLOW_FILE_LIMIT = 3;
     static final int CURRENT_MEMORY_MAX_BYTES = 2000;
     private static final String SCHEMA_VERSION = "1.0.0";
@@ -303,133 +312,6 @@ public class ContinuityService {
     record MemoryStatusDoc(MemoryStatus status) {
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record RootStateDoc(RootState state) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record RunStateDoc(RunState state) {
-    }
-
-    /** The convergence root document of the workflow, as far as a restore card and the edit gate read it. */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record RootDoc(RootState state, Long revision, String rootId, String updatedAt, TaskEnvelopeDoc taskEnvelope) {
-        RootDoc {
-            revision = revision == null ? 0L : revision; // a boxed component: a missing number is no binding error (the primitive's is), and reads as 0
-            rootId = orEmpty(rootId);
-            updatedAt = orEmpty(updatedAt);
-            taskEnvelope = taskEnvelope == null ? new TaskEnvelopeDoc(null, null, null, null, null, null) : taskEnvelope;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record TaskEnvelopeDoc(String taskId, String objective, ScopeDoc scope, List<String> acceptanceCriteria, List<String> constraints, AuthorizationDoc authorization) {
-        TaskEnvelopeDoc {
-            taskId = orEmpty(taskId);
-            objective = orEmpty(objective);
-            scope = scope == null ? new ScopeDoc(null, null) : scope;
-            acceptanceCriteria = orNone(acceptanceCriteria);
-            constraints = orNone(constraints);
-            authorization = authorization == null ? new AuthorizationDoc(null, null, null) : authorization;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record ScopeDoc(List<String> included, List<String> excluded) {
-        ScopeDoc {
-            included = orNone(included);
-            excluded = orNone(excluded);
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record AuthorizationDoc(List<String> allowedActions, List<String> prohibitedActions, List<String> approvalRequired) {
-        AuthorizationDoc {
-            allowedActions = orNone(allowedActions);
-            prohibitedActions = orNone(prohibitedActions);
-            approvalRequired = orNone(approvalRequired);
-        }
-    }
-
-    /** The receipt of a workflow run, as far as a restore card and the phase check read it. */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record RunDoc(RunState state, Long revision, List<StageResultDoc> stageResults, PlanDoc plan, List<String> blockers, List<String> unresolved) {
-        RunDoc {
-            revision = revision == null ? 0L : revision; // the run's own revision, which a plan submitted for it must name
-            stageResults = stageResults == null ? List.of() : stageResults;
-            plan = plan == null ? new PlanDoc(null, null, null) : plan;
-            blockers = orNone(blockers);
-            unresolved = orNone(unresolved);
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record PlanDoc(List<StageDoc> stages, String currentStageId, String nextStageId) {
-        PlanDoc {
-            stages = stages == null ? List.of() : stages;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record StageDoc(String stageId) {
-        StageDoc {
-            stageId = orEmpty(stageId);
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record StageResultDoc(String stageId, RunState state, OutputDoc output, List<CheckDoc> artifactChecks) {
-        StageResultDoc {
-            stageId = orEmpty(stageId);
-            output = output == null ? new OutputDoc(null) : output;
-            artifactChecks = artifactChecks == null ? List.of() : artifactChecks;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record OutputDoc(List<ArtifactDoc> artifacts) {
-        OutputDoc {
-            artifacts = artifacts == null ? List.of() : artifacts;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record ArtifactDoc(String artifactId, String attachmentId, String digest) {
-        ArtifactDoc {
-            artifactId = orEmpty(artifactId);
-            attachmentId = orEmpty(attachmentId);
-            digest = orEmpty(digest);
-        }
-    }
-
-    /** What the server found when it hashed an artifact: {@code source} and {@code check} are the texts of {@link CheckSource} and {@link ArtifactCheck} constants. */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record CheckDoc(String source, String check, String artifactId, String attachmentId) {
-        CheckDoc {
-            artifactId = orEmpty(artifactId);
-            attachmentId = orEmpty(attachmentId);
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record LeaseDoc(String leaseId, LeaseState state, Long epoch, Long ordinal) {
-        LeaseDoc {
-            epoch = epoch == null ? 0L : epoch;
-            ordinal = ordinal == null ? 0L : ordinal;
-            leaseId = orEmpty(leaseId);
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record OutcomeDoc(String leaseId, String rootId, Long epoch, Long ordinal) {
-        OutcomeDoc {
-            epoch = epoch == null ? 0L : epoch;
-            ordinal = ordinal == null ? 0L : ordinal;
-            leaseId = orEmpty(leaseId);
-            rootId = orEmpty(rootId);
-        }
-    }
-
     private static String orEmpty(String value) {
         return value == null ? "" : value;
     }
@@ -440,6 +322,8 @@ public class ContinuityService {
 
     private final ContinuityStore store;
     private final WorkflowStore workflows;
+    private final WorkflowDocuments documents;
+    private final WorkflowSettlement settlement;
     private final JsonMapper mapper;
     private final Messages messages;
     private final SurfaceIdentity surfaces;
@@ -452,7 +336,7 @@ public class ContinuityService {
     private final ChangeJournalService journal;
 
     public ContinuityService(ContinuityStore store, WorkflowStore workflows, JsonMapper mapper, Messages messages, SurfaceIdentity surfaces, Clock clock, SecureRandom random, TurnCheckService turnChecks,
-            ChangeJournalService journal, OperationReceipts receipts) {
+            ChangeJournalService journal, OperationReceipts receipts, WorkflowDocuments documents, WorkflowSettlement settlement) {
         this.receipts = receipts;
         this.journal = journal;
         this.turnChecks = turnChecks;
@@ -460,6 +344,8 @@ public class ContinuityService {
         this.random = random;
         this.store = store;
         this.workflows = workflows;
+        this.documents = documents;
+        this.settlement = settlement;
         this.mapper = mapper;
         this.messages = messages;
         this.surfaces = surfaces;
@@ -708,7 +594,7 @@ public class ContinuityService {
         if (task.suppressed()) {
             return;
         }
-        Summary summary = summary(task);
+        Summary summary = summary(task, false);
         if (summary == null) {
             return;
         }
@@ -727,53 +613,49 @@ public class ContinuityService {
 
     @Transactional
     public List<MessageRef> resumeContext(String rawSessionId) {
-        Task task = session(rawSessionId);
-        List<MessageRef> restored = restoreCurrent(task);
-        if (restored != null) {
-            return restored;
-        }
-        if (task.suppressed() || !(summary(task) instanceof WorkflowSummary workflow)) {
-            return null;
-        }
-        return List.of(MessageRef.of("continuity.restore.candidate", "source", workflow.source().name(), "epoch", workflow.epoch(), "revision", workflow.revision(), "digest", workflow.snapshotDigest(),
-                "candidateToken", restoreToken(task, workflow)));
+        return sessionStartContext(session(rawSessionId), false);
     }
 
     @Transactional
     public List<MessageRef> compactContext(String rawSessionId) {
-        Task task = session(rawSessionId);
+        return sessionStartContext(session(rawSessionId), true);
+    }
+
+    private List<MessageRef> sessionStartContext(Task task, boolean compacted) {
         if (task.suppressed()) {
             return null;
         }
-        Restorable restorable = restorable(task);
-        if (restorable == null) {
-            return checkpointCue(task, true);
-        }
-        return switch (restorable.summary()) {
-            case DirectSummary direct -> compactDirect(task);
-            case WorkflowSummary workflow -> compactWorkflow(task, workflow, restorable.card());
-        };
-    }
-
-    private List<MessageRef> compactDirect(Task task) {
         Snapshot snapshot = store.getCurrent(task.taskCorrelation(), task.currentEpoch());
-        if (snapshot == null || snapshot.memoryJson() == null) {
-            return null;
+        List<MessageRef> restored = new ArrayList<>();
+        WorkflowCard card = null;
+        if (task.rootId() != null) {
+            Set<String> bound = new LinkedHashSet<>(store.boundRoots(task.taskCorrelation(), task.currentEpoch()));
+            bound.add(task.rootId());
+            for (String rootId : bound) {
+                switch (documents.read(rootId)) {
+                    case Readable workflow -> {
+                        if (rootId.equals(task.rootId())) {
+                            card = card(mapper, task.taskCorrelation(), task.currentEpoch(), workflow.root(), workflow.latestRun());
+                        }
+                    }
+                    case Unavailable unreadable -> restored.add(workflowUnavailable(unreadable));
+                }
+            }
         }
-        verify(snapshot);
-        // SessionStart(compact) signals a new context even if PreCompact was absent or the saved state changed since it.
-        store.consumeDirectMarker(task.taskCorrelation(), task.currentEpoch(), snapshot.stateToken(), snapshot.memoryDigest(), now());
-        List<MessageRef> restored = new ArrayList<>(List.of(MessageRef.of("continuity.restore.current", "stateToken", snapshot.stateToken(), "body", SessionText.quoted(snapshot.memoryJson()))));
-        WorkflowCard card = task.rootId() == null ? null : workflowProjection(task);
+        if (snapshot != null && snapshot.memoryJson() != null) {
+            verify(snapshot);
+            // SessionStart(compact) signals a new context even if PreCompact was absent or the saved state changed since it.
+            if (compacted) {
+                store.consumeDirectMarker(task.taskCorrelation(), task.currentEpoch(), snapshot.stateToken(), snapshot.memoryDigest(), now());
+            }
+            restored.add(MessageRef.of("continuity.restore.current", "stateToken", snapshot.stateToken(), "body", SessionText.quoted(snapshot.memoryJson())));
+        } else if (compacted && card != null) {
+            store.consumeWorkflowMarker(task.taskCorrelation(), task.currentEpoch(), card.rootId(), card.revision(), card.snapshotDigest(), now());
+        }
         if (card != null) {
             restored.add(MessageRef.of("continuity.restore.workflowCard", "card", SessionText.quoted(mapper.writeValueAsString(card))));
         }
-        return restored;
-    }
-
-    private List<MessageRef> compactWorkflow(Task task, WorkflowSummary summary, WorkflowCard card) {
-        store.consumeWorkflowMarker(task.taskCorrelation(), task.currentEpoch(), card.rootId(), summary.revision(), summary.snapshotDigest(), now());
-        return List.of(MessageRef.of("continuity.restore.workflowCard", "card", SessionText.quoted(mapper.writeValueAsString(card))));
+        return restored.isEmpty() ? (compacted ? checkpointCue(task, true) : null) : restored;
     }
 
     /**
@@ -792,15 +674,14 @@ public class ContinuityService {
     /**
      * What a main agent's turn end does, as one use case in one transaction: the stage check, the turn evidence (hosts that check turn work, when the turn was not continued
      * already) and the save check each find what they find, and are said in one continuation. A turn is continued once, so what one of them says must not use up what the others
-     * would. A paused task keeps its unfinished work, but does not ask the user to continue it until a later checkpoint changes that status.
+     * would. A saved task pause suppresses turn-work reminders. Workflow checks follow the selected run’s own state.
      */
     @Transactional
-    public List<MessageRef> onTurnEnded(String rawSessionId, String rootActor, boolean alreadyContinued, boolean continuable, boolean checksTurnWork) {
-        boolean paused = paused(rawSessionId);
-        List<MessageRef> phase = paused || !continuable ? null : phaseCheck(rawSessionId, alreadyContinued, null);
-        List<MessageRef> work = !paused && !alreadyContinued && checksTurnWork ? turnWorkCheck(rawSessionId) : null;
+    public PhaseCheck onTurnEnded(String rawSessionId, String rootActor, boolean alreadyContinued, boolean continuable, boolean checksTurnWork) {
+        List<MessageRef> work = continuable && !alreadyContinued && checksTurnWork && !paused(rawSessionId) ? turnWorkCheck(rawSessionId) : null;
         List<MessageRef> save = turnChecks.turnEnded(rawSessionId, rootActor, alreadyContinued, continuable);
-        return joined(joined(phase, work), save);
+        PhaseCheck phase = phaseCheck(rawSessionId, alreadyContinued, null);
+        return new PhaseCheck(joined(joined(phase.guidance(), work), save), phase.violations());
     }
 
     /** A prompt or workflow attribution does not resume the task's saved pause; only a later checkpoint changes its status. */
@@ -888,7 +769,7 @@ public class ContinuityService {
 
     /**
      * The card of the workflow this session is bound to, for a subagent that starts in it: where the run stands, its scope and its criteria, which the saved state of the session does not carry.
-     * Null when the session has no bound workflow, or when the card does not {@code fit} the room the start text has left.
+     * A damaged workflow gets recovery guidance. Null when the session has no bound workflow or the resulting text does not {@code fit}.
      */
     @Transactional(readOnly = true)
     public List<MessageRef> workflowCardForSubagent(String rawSessionId, Predicate<String> fits) {
@@ -896,11 +777,14 @@ public class ContinuityService {
         if (task == null || task.suppressed() || task.rootId() == null) {
             return null;
         }
-        WorkflowCard card = workflowProjection(task);
-        if (card == null) {
-            return null;
-        }
-        List<MessageRef> text = List.of(MessageRef.of("continuity.restore.workflowCard", "card", SessionText.quoted(mapper.writeValueAsString(card))));
+        MessageRef line = switch (documents.read(task.rootId())) {
+            case Readable workflow -> {
+                WorkflowCard card = card(mapper, task.taskCorrelation(), task.currentEpoch(), workflow.root(), workflow.latestRun());
+                yield MessageRef.of("continuity.restore.workflowCard", "card", SessionText.quoted(mapper.writeValueAsString(card)));
+            }
+            case Unavailable unreadable -> workflowUnavailable(unreadable);
+        };
+        List<MessageRef> text = List.of(line);
         return fits.test(messages.renderLines(text)) ? text : null;
     }
 
@@ -934,6 +818,20 @@ public class ContinuityService {
             recordEdit(c, e, now, actor);
         }
         long windowStart = windowStart(c, e);
+        List<ActiveRun> activity = List.of();
+        if (!targets.isEmpty()) {
+            try {
+                Activity read = workflowActivity(task, Owner.ANY, false);
+                if (!read.unavailable().isEmpty()) {
+                    recordUnavailable(c, e, windowStart, now, failureCode(read.unavailable().getFirst().cause()));
+                    return workflowUnavailableLines(read.unavailable());
+                }
+                activity = read.runs();
+            } catch (DataAccessException | IllegalStateException failure) {
+                LOG.warn("The edit gate could not read the session's workflows", failure);
+                return unavailable(c, e, windowStart, now, failureCode(failure));
+            }
+        }
         List<SurfaceIdentity.ActiveRoot> roots;
         try {
             roots = surfaces.activeRoots();
@@ -963,13 +861,6 @@ public class ContinuityService {
         }
         if (targets.isEmpty()) {
             return null;
-        }
-        List<ActiveRun> activity;
-        try {
-            activity = workflowActivity(task, Owner.ANY);
-        } catch (DataAccessException | JacksonException | IllegalStateException failure) {
-            LOG.warn("The edit gate could not read the session's workflows", failure);
-            return unavailable(c, e, windowStart, now, failureCode(failure));
         }
         // An edit belongs to the instance whose change plan has its file, among the instances the agent took for this request (opened or resumed) and whose kind edits files.
         Attribution attributed = attributionOf(task, actor);
@@ -1054,12 +945,98 @@ public class ContinuityService {
     public record OpenInstance(String runId, WorkflowKind kind, String phase, String goal) {
     }
 
+    public record OpenInstances(List<OpenInstance> instances, List<MessageRef> unavailable) {
+    }
+
+    public record OpenInstanceCount(int count, List<MessageRef> unavailable) {
+    }
+
     private static final int OPEN_INSTANCES_SHOWN = 20;
     private static final int GOAL_SHOWN_CHARACTERS = 200;
 
     private long lastTurnStart(String c) {
         ObservationAt start = store.lastObservationAnyEpoch(c, WorkflowEvents.TURN_START);
         return start == null ? 0 : start.id();
+    }
+
+    @Override
+    @Transactional
+    public void issue(HostId host, String session, String fingerprint) {
+        String c = correlate(session);
+        store.ensureTask(c, now());
+        Task task = store.readTaskForUpdate(c);
+        store.recordObservation(c, task.currentEpoch(), retryEvent(host, "issued"), fingerprint, true, now());
+    }
+
+    @Override
+    @Transactional
+    public boolean consume(HostId host, String session, String fingerprint) {
+        String c = correlate(session);
+        Task task = store.readTaskForUpdate(c);
+        if (task == null) {
+            return false;
+        }
+        long after = retryBoundary(c, host);
+        if (!store.hasObservationAnyEpochAfter(c, retryEvent(host, "issued"), fingerprint, after)) {
+            clearRetry(task, host, after);
+            return false;
+        }
+        // A redelivered callback must not create a new input or consume a second continuation.
+        String accepted = retryEvent(host, "accepted");
+        if (!store.hasObservationAnyEpochAfter(c, accepted, fingerprint, after)) {
+            store.recordObservation(c, task.currentEpoch(), accepted, fingerprint, true, now());
+        }
+        return true;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean continued(HostId host, String session) {
+        String c = correlate(session);
+        return store.countObservationsAnyEpochAfter(c, retryEvent(host, "accepted"), retryBoundary(c, host)) != 0;
+    }
+
+    @Override
+    @Transactional
+    public void clear(HostId host, String session) {
+        String c = correlate(session);
+        Task task = store.readTaskForUpdate(c);
+        if (task != null) {
+            clearRetry(task, host, retryBoundary(c, host));
+        }
+    }
+
+    private void clearRetry(Task task, HostId host, long after) {
+        String c = task.taskCorrelation();
+        if (store.countObservationsAnyEpochAfter(c, retryEvent(host, "issued"), after) != 0) {
+            store.recordObservation(c, task.currentEpoch(), retryEvent(host, "cleared"), null, true, now());
+        }
+    }
+
+    private long retryBoundary(String c, HostId host) {
+        ObservationAt cleared = store.lastObservationAnyEpoch(c, retryEvent(host, "cleared"));
+        return Math.max(lastTurnStart(c), cleared == null ? 0 : cleared.id());
+    }
+
+    @Override
+    @Transactional
+    public void rememberStop(HostId host, String rawSessionId, String reason) {
+        String c = correlate(rawSessionId);
+        // A deferred notice belongs to the conversation, regardless of whether its earlier roots have settled.
+        store.ensureTask(c, now());
+        store.readTaskForUpdate(c);
+        workflows.saveStopNotice(host.label(), c, reason, now());
+    }
+
+    @Override
+    @Transactional
+    public String takeStopNotice(HostId host, String rawSessionId) {
+        String c = correlate(rawSessionId);
+        return store.readTaskForUpdate(c) == null ? null : workflows.takeStopNotice(host.label(), c);
+    }
+
+    private static String retryEvent(HostId host, String event) {
+        return "hook-retry:" + host.label() + ":" + event;
     }
 
     private WorkflowKind kindOf(String c, long e, String rootId) {
@@ -1091,7 +1068,7 @@ public class ContinuityService {
     /** A prompt opens a turn: the instances taken before it no longer stand for the request. */
     @Transactional
     public void startTurn(String rawSessionId) {
-        Task task = session(rawSessionId);
+        Task task = store.readTaskForUpdate(session(rawSessionId).taskCorrelation());
         store.recordObservation(task.taskCorrelation(), task.currentEpoch(), WorkflowEvents.TURN_START, null, true, now());
     }
 
@@ -1101,54 +1078,79 @@ public class ContinuityService {
      */
     @Transactional(readOnly = true)
     public Attribution attribution(String rawSessionId, String actor) {
+        return attributionCheck(rawSessionId, actor).requireReadable();
+    }
+
+    record AttributionCheck(Attribution serving, List<Unavailable> unavailable) {
+        Attribution requireReadable() {
+            if (!unavailable.isEmpty()) {
+                throw unavailable.getFirst().cause();
+            }
+            return serving;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public AttributionCheck attributionCheck(String rawSessionId, String actor) {
         Task task = store.readTask(correlate(rawSessionId));
         if (task == null) {
-            return Attribution.NONE;
+            return new AttributionCheck(Attribution.NONE, List.of());
         }
         Attribution taken = attributionOf(task, actor);
         if (!taken.any()) {
-            return taken;
+            return new AttributionCheck(taken, List.of());
         }
-        Set<String> open = workflowActivity(task, Owner.ANY).stream().filter(run -> run.receipt().state() == RunState.RUNNING)
-                .map(ActiveRun::rootId).collect(Collectors.toSet());
-        Map<String, WorkflowKind> serving = new LinkedHashMap<>(taken.instances());
-        serving.keySet().retainAll(open);
-        return serving.isEmpty() ? Attribution.NONE : new Attribution(serving);
-    }
-
-    /** A completed or explicitly held instance still handled this request; it grants no further tool execution. */
-    @Transactional(readOnly = true)
-    public boolean handledInTurn(String rawSessionId, String actor) {
-        Task task = store.readTask(correlate(rawSessionId));
-        if (task == null) {
-            return false;
+        Map<String, WorkflowKind> serving = new LinkedHashMap<>();
+        List<Unavailable> unavailable = new ArrayList<>();
+        for (String rootId : store.boundRoots(task.taskCorrelation(), task.currentEpoch())) {
+            WorkflowKind kind = taken.instances().get(rootId);
+            if (kind == null) {
+                continue;
+            }
+            switch (documents.readCurrent(rootId)) {
+                case Readable read -> {
+                    if (read.latestRun() != null && read.latestRun().state() == RunState.RUNNING) {
+                        serving.put(rootId, kind);
+                    }
+                }
+                case Unavailable problem -> unavailable.add(problem);
+            }
         }
-        long turnStart = actor == null ? lastTurnStart(task.taskCorrelation()) : 0;
-        String transition = WorkflowEvents.transitionPrefix(actor == null ? null : hashOpaque("actor", actor), turnStart);
-        return attributionOf(task, actor).any() || !store.observationEventsAfter(task.taskCorrelation(), task.currentEpoch(), transition, turnStart).isEmpty();
+        return new AttributionCheck(serving.isEmpty() ? Attribution.NONE : new Attribution(serving), List.copyOf(unavailable));
     }
 
     /** The actual number of open instances, without the prompt list's display limit. */
     @Transactional(readOnly = true)
-    public int openInstanceCount(String rawSessionId) {
+    public OpenInstanceCount openInstanceCount(String rawSessionId) {
         Task task = store.readTask(correlate(rawSessionId));
-        return task == null ? 0 : workflowActivity(task, Owner.ANY).size();
+        if (task == null) {
+            return new OpenInstanceCount(0, List.of());
+        }
+        Activity activity = workflowActivity(task, Owner.ANY, false);
+        return new OpenInstanceCount(activity.runs().size(), activity.unavailable().stream().map(this::workflowUnavailable).toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<MessageRef> currentWorkflowProblems(String rawSessionId) {
+        return openInstanceCount(rawSessionId).unavailable();
     }
 
     /** The open instances of the session, up to a limit, for the prompt to show. */
     @Transactional(readOnly = true)
-    public List<OpenInstance> openInstances(String rawSessionId) {
+    public OpenInstances openInstances(String rawSessionId) {
         Task task = store.readTask(correlate(rawSessionId));
         if (task == null) {
-            return List.of();
+            return new OpenInstances(List.of(), List.of());
         }
-        return workflowActivity(task, Owner.ANY).stream().limit(OPEN_INSTANCES_SHOWN).map(run -> {
+        Activity activity = workflowActivity(task, Owner.ANY, true);
+        List<OpenInstance> open = activity.runs().stream().limit(OPEN_INSTANCES_SHOWN).map(run -> {
             WorkflowKind kind = kindOf(task.taskCorrelation(), task.currentEpoch(), run.rootId());
             String phase = run.receipt().state() == RunState.RUNNING
                     ? kind.allowsFileEdits() ? journal.phase(run.runId()).map(Enum::name).orElse(kind.firstPhase().id()) : kind.firstPhase().id()
                     : run.receipt().state().name();
             return new OpenInstance(run.runId(), kind, phase, boundedText(WHITESPACE.matcher(run.root().taskEnvelope().objective()).replaceAll(" ").trim(), GOAL_SHOWN_CHARACTERS));
         }).toList();
+        return new OpenInstances(open, activity.unavailable().stream().map(this::workflowUnavailable).toList());
     }
 
     /**
@@ -1171,19 +1173,34 @@ public class ContinuityService {
         return attribution(rawSessionId, actor).instances().entrySet().stream().filter(entry -> entry.getValue().closing() == WorkflowKind.Closing.TURN_END).map(Map.Entry::getKey).toList();
     }
 
-    /** Whether the turn end may be held once more for the missing workflow: the question is counted per prompt, so it has a limit. */
+    public enum StopSelection { SELECTED, RECHECK, LAST_RECHECK, EXHAUSTED, UNAVAILABLE }
+
+    /** Checks and charges only an input with no workflow selection. Completed and explicitly held instances still serve that input. */
     @Transactional
-    public boolean claimStopBlock(String rawSessionId, int limit) {
-        // The hold belongs to the current prompt even if an older root cannot be read.
+    public StopSelection checkStopSelection(String rawSessionId, String actor, int limit) {
         String c = correlate(rawSessionId);
         String now = now();
-        Task task = store.ensureTask(c, now);
-        long e = task.currentEpoch();
-        if (store.observationEventsAfter(c, e, WorkflowEvents.STOP_BLOCKED, lastTurnStart(c)).size() >= limit) {
-            return false;
+        Task task = store.readTaskForUpdate(c);
+        if (task == null) {
+            return StopSelection.UNAVAILABLE;
         }
-        store.recordObservation(c, e, WorkflowEvents.STOP_BLOCKED, null, true, now);
-        return true;
+        long requestStart = actor == null ? lastTurnStart(c) : 0;
+        String exhausted = actorEvent(WorkflowEvents.STOP_EXHAUSTED, actor);
+        if (store.countObservationsAnyEpochAfter(c, exhausted, requestStart) != 0) {
+            return StopSelection.EXHAUSTED;
+        }
+        String transition = WorkflowEvents.transitionPrefix(actor == null ? null : hashOpaque("actor", actor), requestStart);
+        if (attributionOf(task, actor).any() || !store.observationEventsAfter(c, task.currentEpoch(), transition, requestStart).isEmpty()) {
+            return StopSelection.SELECTED;
+        }
+        String event = actorEvent(WorkflowEvents.STOP_BLOCKED, actor);
+        long claimed = store.countObservationsAnyEpochAfter(c, event, requestStart);
+        if (claimed >= limit) {
+            store.recordObservation(c, task.currentEpoch(), exhausted, null, true, now);
+            return StopSelection.EXHAUSTED;
+        }
+        store.recordObservation(c, task.currentEpoch(), event, null, true, now);
+        return claimed + 1 == limit ? StopSelection.LAST_RECHECK : StopSelection.RECHECK;
     }
 
     /**
@@ -1255,7 +1272,7 @@ public class ContinuityService {
         if (task == null) {
             return List.of();
         }
-        return workflowActivity(task, Owner.ANY).stream().map(ActiveRun::runId).toList();
+        return workflowActivity(task, Owner.ANY, false).requireReadable().stream().map(ActiveRun::runId).toList();
     }
 
     private String outsideWritePrefix(String actor) {
@@ -1274,11 +1291,15 @@ public class ContinuityService {
     }
 
     private MessageRef unavailable(String c, long e, long windowStart, String now, String code) {
+        recordUnavailable(c, e, windowStart, now, code);
+        return MessageRef.of("hooks.gateRefused", "reason", code);
+    }
+
+    private void recordUnavailable(String c, long e, long windowStart, String now, String code) {
         String event = GATE_UNAVAILABLE_PREFIX + code;
         if (store.observationEventsAfter(c, e, event, windowStart).isEmpty()) {
             store.recordObservation(c, e, event, null, false, now);
         }
-        return MessageRef.of("hooks.gateRefused", "reason", code);
     }
 
     private void recordEdit(String c, long e, String now, String actor) {
@@ -1313,20 +1334,29 @@ public class ContinuityService {
         }
     }
 
-    private record ActiveRun(String rootId, String runId, RootDoc root, RunDoc receipt) {
+    private record ActiveRun(ConvergenceRoot root, WorkflowReceipt receipt) {
+        String rootId() {
+            return root.rootId();
+        }
+
+        String runId() {
+            return receipt.runId();
+        }
     }
 
-    private List<ActiveRun> workflowActivity(Task task, Owner owner) {
+    private record Activity(List<ActiveRun> runs, List<Unavailable> unavailable) {
+        List<ActiveRun> requireReadable() {
+            if (!unavailable.isEmpty()) {
+                throw unavailable.getFirst().cause();
+            }
+            return runs;
+        }
+    }
+
+    private Activity workflowActivity(Task task, Owner owner, boolean diagnoseHistory) {
         List<ActiveRun> active = new ArrayList<>();
+        List<Unavailable> unavailable = new ArrayList<>();
         for (String rootId : store.boundRoots(task.taskCorrelation(), task.currentEpoch())) {
-            WorkflowStore.Snapshot snapshot = workflows.getConvergenceSnapshot(rootId);
-            if (snapshot == null) {
-                continue;
-            }
-            RootDoc root = mapper.readValue(snapshot.rootJson(), RootDoc.class);
-            if (!root.state().isActive()) {
-                continue;
-            }
             if (!owner.any()) {
                 boolean other = owner.actor() == null ? store.hasObservation(task.taskCorrelation(), task.currentEpoch(), PHASE_CHILD_ROOT_EVENT + rootId)
                         : !store.hasObservation(task.taskCorrelation(), task.currentEpoch(), PHASE_ROOT_ACTOR_EVENT + hashOpaque("actor", owner.actor()) + ":" + rootId);
@@ -1334,26 +1364,48 @@ public class ContinuityService {
                     continue;
                 }
             }
-            List<String> runs = snapshot.workflowRunIds();
-            String runId = runs.isEmpty() ? null : runs.getLast();
-            String receiptJson = runId == null ? null : workflows.getRun(runId);
-            if (receiptJson == null) {
-                continue;
-            }
-            RunDoc receipt = mapper.readValue(receiptJson, RunDoc.class);
-            if (!receipt.state().isTerminal()) {
-                active.add(new ActiveRun(rootId, runId, root, receipt));
+            switch (documents.readCurrent(rootId)) {
+                case Readable workflow -> {
+                    if (workflow.root().state().isActive() && workflow.latestRun() != null && !workflow.latestRun().state().isTerminal()) {
+                        active.add(new ActiveRun(workflow.root(), workflow.latestRun()));
+                    }
+                    if (diagnoseHistory && documents.read(rootId) instanceof Unavailable damagedHistory) {
+                        unavailable.add(damagedHistory);
+                    }
+                }
+                case Unavailable unreadable -> unavailable.add(unreadable);
             }
         }
-        return active;
+        return new Activity(active, unavailable);
     }
 
-    /** A running instance of this request needs an explicit disposition, even with no stages or after every stage passed. */
+    private MessageRef workflowUnavailableLines(List<Unavailable> problems) {
+        MessageRef lines = workflowUnavailable(problems.getLast());
+        for (int index = problems.size() - 2; index >= 0; index--) {
+            lines = MessageRef.of("hooks.workflowUnavailable.lines", "first", workflowUnavailable(problems.get(index)), "rest", lines);
+        }
+        return lines;
+    }
+
+    MessageRef workflowUnavailable(Unavailable problem) {
+        String code = problem.cause() instanceof JacksonException ? "INVALID_WORKFLOW_JSON" : failureCode(problem.cause());
+        Object run = problem.runId() == null ? "" : MessageRef.of("hooks.workflowUnavailable.run", "runId", problem.runId());
+        return MessageRef.of("hooks.workflowUnavailable.root", "code", code, "rootId", problem.rootId(), "run", run);
+    }
+
+    public record StopViolation(String rootId, String runId, WorkflowKind kind) {
+    }
+
+    public record PhaseCheck(List<MessageRef> guidance, List<StopViolation> violations) {
+        private static final PhaseCheck NONE = new PhaseCheck(null, List.of());
+    }
+
+    /** A running workflow needs an explicit disposition, even with no stages or after every stage passed. */
     @Transactional
-    public List<MessageRef> phaseCheck(String rawSessionId, boolean quiet, String actor) {
+    public PhaseCheck phaseCheck(String rawSessionId, boolean quiet, String actor) {
         Task task = store.readTask(correlate(rawSessionId));
         if (task == null) {
-            return null;
+            return PhaseCheck.NONE;
         }
         String c = task.taskCorrelation();
         long e = task.currentEpoch();
@@ -1366,35 +1418,46 @@ public class ContinuityService {
             failures.addAll(store.observationEventsAfter(c, e, GATE_UNAVAILABLE_PREFIX, lastCheck));
         }
         boolean editWindow = edit != 0 && edit > lastCheck;
-        Attribution taken = attributionOf(task, actor);
-        List<ActiveRun> activity = null;
+        Attribution taken;
         try {
-            activity = workflowActivity(task, Owner.of(actor));
-        } catch (DataAccessException | JacksonException | IllegalStateException failure) {
+            taken = attributionOf(task, actor);
+        } catch (DataAccessException | IllegalStateException failure) {
+            LOG.warn("The phase check could not read what serves the request", failure);
+            failures.add(GATE_UNAVAILABLE_PREFIX + failureCode(failure));
+            // Leave the check window open. The selection recheck is already committed.
+            List<MessageRef> guidance = quiet ? null : List.of(MessageRef.of("hooks.phaseCheck.unavailable", "codes", String.join(", ", new LinkedHashSet<>(failures))));
+            return new PhaseCheck(guidance, List.of());
+        }
+        List<ActiveRun> activity = List.of();
+        List<MessageRef> unreadableWorkflows = List.of();
+        try {
+            // Historical damage is reported at the prompt and on restore. Stop checks the current workflows.
+            Activity read = workflowActivity(task, Owner.of(actor), false);
+            activity = read.runs();
+            unreadableWorkflows = read.unavailable().stream().map(this::workflowUnavailable).toList();
+        } catch (DataAccessException | IllegalStateException failure) {
             LOG.warn("The phase check could not read the session's workflows", failure);
             failures.add(GATE_UNAVAILABLE_PREFIX + failureCode(failure));
         }
-        int pendingCount = 0;
-        if (activity != null) {
-            for (ActiveRun run : activity) {
-                if (run.receipt().state() != RunState.RUNNING || run.root().state() != RootState.OPEN
-                        || kindOf(c, e, run.rootId()).closing() == WorkflowKind.Closing.TURN_END
-                        || !taken.instances().containsKey(run.rootId())) {
-                    continue;
-                }
-                pendingCount++;
+        List<StopViolation> violations = new ArrayList<>();
+        for (ActiveRun run : activity) {
+            WorkflowKind kind = taken.instances().get(run.rootId());
+            if (run.receipt().state() != RunState.RUNNING || run.root().state() != RootState.OPEN
+                    || kind == null || kind.closing() == WorkflowKind.Closing.TURN_END) {
+                continue;
             }
+            violations.add(new StopViolation(run.rootId(), run.runId(), kind));
         }
-        if (!editWindow && pendingCount == 0 && failures.isEmpty()) {
-            return null;
+        if (!editWindow && violations.isEmpty() && failures.isEmpty() && unreadableWorkflows.isEmpty()) {
+            return PhaseCheck.NONE;
         }
         // What a subagent wrote that no running workflow's writeTargets cover, since its last check: a fact the gate saw, told at its end.
         String outsidePrefix = actor == null ? null : outsideWritePrefix(actor);
         List<String> outsideWrites = outsidePrefix == null ? List.of()
                 : store.observationEventsAfter(c, e, outsidePrefix, lastCheck).stream().map(event -> event.substring(outsidePrefix.length())).toList();
-        store.recordObservation(c, e, checkEvent, null, pendingCount == 0 && failures.isEmpty() && outsideWrites.isEmpty(), now());
+        store.recordObservation(c, e, checkEvent, null, violations.isEmpty() && failures.isEmpty() && unreadableWorkflows.isEmpty() && outsideWrites.isEmpty(), now());
         boolean unchecked = failures.stream().anyMatch(code -> code.startsWith(GATE_UNAVAILABLE_PREFIX)) || !store.observationEventsAfter(c, e, START_FAILURE_PASS_EVENT, lastCheck).isEmpty();
-        List<MessageRef> lines = new ArrayList<>();
+        List<MessageRef> lines = new ArrayList<>(unreadableWorkflows);
         if (!failures.isEmpty()) {
             String codes = String.join(", ", new LinkedHashSet<>(failures));
             lines.add(MessageRef.of(unchecked ? "hooks.phaseCheck.unavailable" : "hooks.phaseCheck.startFailed", "codes", codes));
@@ -1402,11 +1465,7 @@ public class ContinuityService {
         if (!outsideWrites.isEmpty()) {
             lines.add(MessageRef.of("hooks.phaseCheck.outsideScope", "paths", String.join(", ", outsideWrites)));
         }
-        if (pendingCount > 0) {
-            lines.add(MessageRef.of("hooks.phaseCheck.summary", "count", pendingCount));
-        }
-        // Repeated Stop must not bypass an undisposed run. Explicit PAUSED/user gates and host cancellation are exits, not fabricated completion.
-        return lines.isEmpty() || quiet && pendingCount == 0 ? null : lines;
+        return new PhaseCheck(quiet && violations.isEmpty() ? null : lines, List.copyOf(violations));
     }
 
     // ------------------------------------------------------------------------------------------------------------- internals
@@ -1420,7 +1479,8 @@ public class ContinuityService {
      */
     private Task session(String rawSessionId) {
         String correlation = correlate(rawSessionId);
-        return settled(correlation, store.ensureTask(correlation, now()));
+        String now = now();
+        return settlement.settle(store.ensureTask(correlation, now), now);
     }
 
     /**
@@ -1431,7 +1491,7 @@ public class ContinuityService {
      */
     private Optional<Task> existingSession(String rawSessionId) {
         String correlation = correlate(rawSessionId);
-        return Optional.ofNullable(store.readTask(correlation)).map(task -> settled(correlation, task));
+        return Optional.ofNullable(store.readTask(correlation)).map(task -> settlement.settle(task, now()));
     }
 
     /** The refusal of a save or a purge by a session that has no task: the state moved on (there is none), with no {@code actualStateToken} because none exists to be shown. */
@@ -1439,47 +1499,7 @@ public class ContinuityService {
         return new ConflictException(code, Map.of(), SennardException.args("reasonCode", STATE_STALE, "expectedStateToken", expectedStateToken));
     }
 
-    private Task settled(String correlation, Task task) {
-        if (task.rootId() == null) {
-            return task;
-        }
-        long epoch = task.currentEpoch();
-        return store.rotateEpoch(correlation, now(), new Expected(epoch, task.rootId(),
-                () -> store.boundRoots(correlation, epoch).stream().allMatch(this::rootSettled), true));
-    }
 
-    private boolean rootSettled(String rootId) {
-        WorkflowStore.Snapshot snapshot = workflows.getConvergenceSnapshot(rootId);
-        if (snapshot == null) {
-            return false;
-        }
-        boolean terminal = !mapper.readValue(snapshot.rootJson(), RootStateDoc.class).state().isActive();
-        if (!terminal && snapshot.workflowRunIds().isEmpty()) {
-            return false;
-        }
-        for (String runId : snapshot.workflowRunIds()) {
-            String receipt = workflows.getRun(runId);
-            if (receipt == null || !mapper.readValue(receipt, RunStateDoc.class).state().isTerminal()) {
-                return false;
-            }
-        }
-        Map<String, OutcomeDoc> outcomes = new LinkedHashMap<>();
-        snapshot.outcomes().forEach(text -> {
-            OutcomeDoc outcome = mapper.readValue(text, OutcomeDoc.class);
-            outcomes.put(outcome.leaseId(), outcome);
-        });
-        for (String text : snapshot.leases()) {
-            LeaseDoc lease = mapper.readValue(text, LeaseDoc.class);
-            if (lease.state() != LeaseState.CONSUMED) {
-                continue;
-            }
-            OutcomeDoc outcome = outcomes.get(lease.leaseId());
-            if (outcome == null || !rootId.equals(outcome.rootId()) || !outcome.epoch().equals(lease.epoch()) || !outcome.ordinal().equals(lease.ordinal())) {
-                return false;
-            }
-        }
-        return true;
-    }
 
     private List<MessageRef> checkpointCue(Task task, boolean missingOnly) {
         if (task.suppressed()) {
@@ -1497,18 +1517,6 @@ public class ContinuityService {
                 MessageRef.of("hooks.checkpointCue.save"), MessageRef.of("hooks.checkpointCue.mark"), MessageRef.of("hooks.checkpointCue.resume"));
     }
 
-    private List<MessageRef> restoreCurrent(Task task) {
-        if (task.suppressed()) {
-            return null;
-        }
-        Snapshot snapshot = store.getCurrent(task.taskCorrelation(), task.currentEpoch());
-        if (snapshot == null || snapshot.memoryJson() == null) {
-            return null;
-        }
-        verify(snapshot);
-        return List.of(MessageRef.of("continuity.restore.current", "stateToken", snapshot.stateToken(), "body", SessionText.quoted(snapshot.memoryJson())));
-    }
-
     private Candidate candidateFor(String correlation, long expectedEpoch) {
         Task task = store.readTask(correlation);
         if (task == null || task.currentEpoch() != expectedEpoch) {
@@ -1517,7 +1525,7 @@ public class ContinuityService {
         if (task.suppressed()) {
             return rejected(ReasonCode.RESTORE_SUPPRESSED);
         }
-        Summary summary = summary(task);
+        Summary summary = summary(task, true);
         if (summary == null) {
             return rejected(ReasonCode.NO_RESTORE_CANDIDATE);
         }
@@ -1540,53 +1548,51 @@ public class ContinuityService {
         return sign(payload);
     }
 
-    /** A summary and, for a workflow's, the card it was made from. */
-    private record Restorable(Summary summary, WorkflowCard card) {
-    }
-
-    private Summary summary(Task task) {
-        Restorable restorable = restorable(task);
-        return restorable == null ? null : restorable.summary();
-    }
-
     /** The session's own record comes first; a bound root without one is restored from the workflow projection. */
-    private Restorable restorable(Task task) {
+    private Summary summary(Task task, boolean requireWorkflow) {
         Snapshot snapshot = store.getCurrent(task.taskCorrelation(), task.currentEpoch());
         if (snapshot != null && snapshot.memoryJson() != null) {
             verify(snapshot);
             MemoryStatus status = mapper.readValue(snapshot.memoryJson(), MemoryStatusDoc.class).status();
-            return new Restorable(new DirectSummary(SCHEMA_VERSION, ContextSource.DIRECT, task.taskCorrelation(), task.currentEpoch(), snapshot.stateToken(), status == null ? "" : status.name(),
-                    snapshot.memoryDigest(), snapshot.updatedAt()), null);
+            return new DirectSummary(SCHEMA_VERSION, ContextSource.DIRECT, task.taskCorrelation(), task.currentEpoch(), snapshot.stateToken(), status == null ? "" : status.name(),
+                    snapshot.memoryDigest(), snapshot.updatedAt());
         }
-        WorkflowCard card = task.rootId() == null ? null : workflowProjection(task);
+        WorkflowCard card = task.rootId() == null ? null : workflowProjection(task, requireWorkflow);
         if (card == null) {
             return null;
         }
-        return new Restorable(new WorkflowSummary(SCHEMA_VERSION, ContextSource.WORKFLOW, task.taskCorrelation(), task.currentEpoch(), card.revision(),
-                card.rootState() == null ? "" : card.rootState().name(), card.snapshotDigest(), card.updatedAt()), card);
+        return new WorkflowSummary(SCHEMA_VERSION, ContextSource.WORKFLOW, task.taskCorrelation(), task.currentEpoch(), card.revision(),
+                card.rootState().name(), card.snapshotDigest(), card.updatedAt());
     }
 
     /** A bounded card of the workflow a task is bound to; {@code verified} is what the server itself hashed, never a provider's claim. */
     private WorkflowCard workflowProjection(Task task) {
-        WorkflowStore.Snapshot snapshot = workflows.getConvergenceSnapshot(task.rootId());
-        if (snapshot == null) {
-            return null;
-        }
-        RootDoc root = mapper.readValue(snapshot.rootJson(), RootDoc.class);
-        String latestRunId = snapshot.workflowRunIds().isEmpty() ? null : snapshot.workflowRunIds().getLast();
-        String receiptJson = latestRunId == null ? null : workflows.getRun(latestRunId);
-        RunDoc receipt = receiptJson == null ? null : mapper.readValue(receiptJson, RunDoc.class);
-        return card(mapper, task.taskCorrelation(), task.currentEpoch(), root, receipt);
+        return workflowProjection(task, true);
     }
 
-    /** The card of a root and the receipt of its latest run (null when it has none); its digest is that of the canonical form of the card without it. */
-    static WorkflowCard card(JsonMapper mapper, String taskCorrelation, long epoch, RootDoc root, RunDoc receipt) {
-        TaskEnvelopeDoc envelope = root.taskEnvelope();
+    private WorkflowCard workflowProjection(Task task, boolean required) {
+        return switch (documents.read(task.rootId())) {
+            case Readable workflow -> card(mapper, task.taskCorrelation(), task.currentEpoch(), workflow.root(), workflow.latestRun());
+            case Unavailable unreadable -> {
+                if (required) {
+                    throw unreadable.cause();
+                }
+                yield null;
+            }
+        };
+    }
+
+    /** The card of a root and its latest run; its digest is that of the canonical form of the card without it. */
+    static WorkflowCard card(JsonMapper mapper, String taskCorrelation, long epoch, ConvergenceRoot root, WorkflowReceipt receipt) {
+        TaskEnvelope envelope = root.taskEnvelope();
         List<ContinuityTools.EvidenceRef> evidence = new ArrayList<>(WORKFLOW_CARD_EVIDENCE_LIMIT);
         int total = 0;
         if (receipt != null) {
-            for (StageResultDoc result : receipt.stageResults()) {
-                for (ArtifactDoc artifact : result.output().artifacts()) {
+            for (StageResult result : listOrEmpty(receipt.stageResults())) {
+                if (result.output() == null) {
+                    continue;
+                }
+                for (ProviderArtifact artifact : listOrEmpty(result.output().artifacts())) {
                     if (total++ < WORKFLOW_CARD_EVIDENCE_LIMIT) {
                         evidence.add(new ContinuityTools.EvidenceRef(boundedText(artifact.artifactId(), 80), boundedText(artifact.attachmentId(), 160), artifact.digest(), hashed(result, artifact)));
                     }
@@ -1594,28 +1600,28 @@ public class ContinuityService {
             }
         }
         WorkflowCard draft = new WorkflowCard(SCHEMA_VERSION, ContextSource.WORKFLOW, taskCorrelation, epoch, root.revision(), boundedText(root.rootId(), 160), root.state(),
-                boundedText(envelope.taskId(), 160), boundedText(envelope.objective(), 800), bounded(envelope.scope().included(), 4, 120), bounded(envelope.scope().excluded(), 4, 120),
+                boundedText(orEmpty(envelope.taskId()), 160), boundedText(envelope.objective(), 800), bounded(envelope.scope().included(), 4, 120), bounded(envelope.scope().excluded(), 4, 120),
                 bounded(envelope.acceptanceCriteria(), 4, 240), bounded(envelope.constraints(), 4, 240),
                 new Authorization(bounded(envelope.authorization().allowedActions(), 4, 120), bounded(envelope.authorization().prohibitedActions(), 4, 120),
                         bounded(envelope.authorization().approvalRequired(), 4, 120)),
                 receipt == null ? null : receipt.state(), receipt == null ? null : receipt.plan().currentStageId(), receipt == null ? null : receipt.plan().nextStageId(),
                 receipt == null ? List.of() : bounded(receipt.blockers(), 4, 200), receipt == null ? List.of() : bounded(receipt.unresolved(), 4, 200), evidence,
-                Math.max(0, total - WORKFLOW_CARD_EVIDENCE_LIMIT), root.updatedAt(), null);
+                Math.max(0, total - WORKFLOW_CARD_EVIDENCE_LIMIT), root.updatedAt().toString(), null);
         return draft.withDigest(CanonicalJson.digest(mapper.valueToTree(draft)));
     }
 
     /** The attachment this artifact names has the digest the stage recorded. */
-    private static boolean hashed(StageResultDoc result, ArtifactDoc artifact) {
-        for (CheckDoc check : result.artifactChecks()) {
-            if (lookup(CheckSource.class, check.source()) == CheckSource.ARTIFACT && lookup(ArtifactCheck.class, check.check()) == ArtifactCheck.SHA256_MATCHED
-                    && artifact.artifactId().equals(check.artifactId()) && artifact.attachmentId().equals(check.attachmentId())) {
-                return true;
-            }
-        }
-        return false;
+    private static boolean hashed(StageResult result, ProviderArtifact artifact) {
+        return listOrEmpty(result.artifactChecks()).stream().anyMatch(check -> check != null && check.source() == CheckSource.ARTIFACT && check.check() == ArtifactCheck.SHA256_MATCHED
+                && artifact.artifactId().equals(check.artifactId()) && artifact.attachmentId().equals(check.attachmentId()));
+    }
+
+    private static <T> List<T> listOrEmpty(List<T> list) {
+        return list == null ? List.of() : list;
     }
 
     private static List<String> bounded(List<String> values, int maxItems, int maxLength) {
+        values = listOrEmpty(values);
         int size = values.size();
         List<String> result = new ArrayList<>(Math.min(size, maxItems));
         for (int index = 0; index < Math.min(size, maxItems); index++) {

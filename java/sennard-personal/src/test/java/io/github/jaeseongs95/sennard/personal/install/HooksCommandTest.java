@@ -22,6 +22,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import io.github.jaeseongs95.sennard.domain.Digests;
 import io.github.jaeseongs95.sennard.domain.error.UnavailableCode;
 import io.github.jaeseongs95.sennard.domain.error.UnavailableException;
 import io.github.jaeseongs95.sennard.hookclient.HookClientMain;
@@ -61,11 +62,13 @@ class HooksCommandTest {
     }
 
     private Installer installer() throws IOException {
-        Path root = temporary.resolve("install");
+        return installer(prompt -> { throw new AssertionError("Unexpected confirmation: " + prompt); });
+    }
+
+    private Installer installer(ClaudeStopConfirmation confirmation) throws IOException {
+        Path root = installRoot();
         InstalledVersion version = new InstalledVersion(root.resolve(InstalledVersion.VERSIONS).resolve("6.0.0"));
-        // The files that have the names the command reads: the application jar makes the folder an installed version, and the hook client's jar is what the definitions run.
-        write(version.appJar(), "a file with the name of the application jar");
-        write(version.folder().resolve("lib").resolve("sennard-hook-client-6.0.0.jar"), "a file with the name of the hook client's jar");
+        InstallStandIns.installedRuntime(version.folder(), version.version());
         // The settings file keeps the server's state folder in the temporary folder, away from the user's own.
         write(version.settingsFile(), "sennard:\n  state-dir: '" + temporary.resolve("state") + "'\n");
         Commands training = (argv, variables, timeout) -> {
@@ -73,7 +76,7 @@ class HooksCommandTest {
             return new Commands.Result(0, "");
         };
         InstallEnvironment environment = new InstallEnvironment(Map.of("SENNARD_INSTALL_ROOT", root.toString()), temporary.resolve("home"), () -> java(), training, StandardCharsets.UTF_8);
-        return new Installer(environment, RunningProgram.elsewhere(), "6.0.0", new PrintStream(printed, true, StandardCharsets.UTF_8));
+        return new Installer(environment, RunningProgram.elsewhere(), "6.0.0", new PrintStream(printed, true, StandardCharsets.UTF_8), confirmation);
     }
 
     private static void write(Path file, String text) throws IOException {
@@ -88,6 +91,28 @@ class HooksCommandTest {
     private void record(Path installPath, String version) throws IOException {
         write(plugins().resolve("installed_plugins.json"), "{\"version\":2,\"plugins\":{\"sennard@m\":[{\"scope\":\"user\",\"installPath\":"
                 + JSON.writeValueAsString(installPath.toString()) + ",\"version\":\"" + version + "\"}]}}");
+    }
+
+    private Path fetchedMarketplace() throws IOException {
+        Path cacheCopy = plugins().resolve("cache/m/sennard/6.0.0");
+        write(cacheCopy.resolve("hooks/hooks.json"), shipped("hooks/hooks.json"));
+        write(cacheCopy.resolve(".mcp.json"), shipped(".mcp.json"));
+        write(cacheCopy.resolve(".claude-plugin/plugin.json"), "{\"version\":\"6.0.0\"}");
+        record(cacheCopy, "6.0.0");
+        write(plugins().resolve("known_marketplaces.json"), "{\"m\":{\"source\":{\"source\":\"github\",\"repo\":\"o/r\"},\"installLocation\":" + JSON.writeValueAsString(plugins().resolve("marketplaces/m").toString()) + "}}");
+        return cacheCopy;
+    }
+
+    private Path claudeSettings() {
+        return plugins().resolveSibling("settings.json");
+    }
+
+    private Path installRoot() {
+        return temporary.resolve("install");
+    }
+
+    private static String settingsWithCap(String cap) {
+        return "{\n  \"env\": {\"" + ClaudeStopSettings.KEY + "\": \"" + cap + "\", \"OTHER\": \"keep\"}\n}\n";
     }
 
     /** The content of the file a package ships for Claude Code at {@code relativePath}: what the host's copy holds until the installation writes its definition. */
@@ -110,6 +135,7 @@ class HooksCommandTest {
         Path source = marketplace.resolve("claude-plugin");
         String shippedHooks = shipped("hooks/hooks.json");
         write(source.resolve("hooks/hooks.json"), shippedHooks);
+        write(source.resolve(".claude-plugin/plugin.json"), "{\"version\":\"6.0.0\"}");
         write(marketplace.resolve(".claude-plugin/marketplace.json"), "{\"name\":\"m\",\"owner\":{\"name\":\"o\"},\"plugins\":[{\"name\":\"sennard\",\"source\":\"./claude-plugin\"}]}");
         write(plugins().resolve("known_marketplaces.json"), "{\"m\":{\"source\":{\"source\":\"directory\",\"path\":" + JSON.writeValueAsString(marketplace.toString())
                 + "},\"installLocation\":" + JSON.writeValueAsString(marketplace.toString()) + "}}");
@@ -142,11 +168,7 @@ class HooksCommandTest {
 
     @Test
     void aFetchedMarketplacesPluginIsWrittenInTheCacheAndTheCommandSucceeds() throws IOException {
-        Path cacheCopy = plugins().resolve("cache/m/sennard/6.0.0");
-        write(cacheCopy.resolve("hooks/hooks.json"), shipped("hooks/hooks.json"));
-        write(cacheCopy.resolve(".mcp.json"), shipped(".mcp.json"));
-        record(cacheCopy, "6.0.0");
-        write(plugins().resolve("known_marketplaces.json"), "{\"m\":{\"source\":{\"source\":\"github\",\"repo\":\"o/r\"},\"installLocation\":" + JSON.writeValueAsString(plugins().resolve("marketplaces/m").toString()) + "}}");
+        Path cacheCopy = fetchedMarketplace();
 
         installer().hooks();
 
@@ -162,5 +184,82 @@ class HooksCommandTest {
         JsonNode relay = JSON.readTree(Files.readString(mcp, StandardCharsets.UTF_8)).path("mcpServers").path("sennard");
         assertEquals(java().toString(), relay.path("command").stringValue(), "the MCP registration runs the installation's java");
         assertTrue(relay.path("args").valueStream().anyMatch(argument -> argument.stringValue().equals(McpRelayMain.class.getName())), relay.toString());
+    }
+
+    @Test
+    void uninstallKeepsUserZero() throws IOException {
+        fetchedMarketplace();
+        write(claudeSettings(), settingsWithCap("0"));
+        Installer installer = installer();
+        installer.hooks();
+
+        installer.uninstall();
+
+        assertFalse(Files.exists(installRoot()));
+        assertEquals(settingsWithCap("0"), Files.readString(claudeSettings()));
+    }
+
+    @Test
+    void uninstallKeepsTheUsersLaterChange() throws IOException {
+        fetchedMarketplace();
+        Installer installer = installer();
+        installer.hooks();
+        write(claudeSettings(), settingsWithCap("12"));
+
+        installer.uninstall();
+
+        assertFalse(Files.exists(installRoot()));
+        assertEquals(settingsWithCap("12"), Files.readString(claudeSettings()));
+    }
+
+    @Test
+    void uninstallKeepsTheZeroWrittenByHooks() throws IOException {
+        fetchedMarketplace();
+        Installer installer = installer();
+        installer.hooks();
+        String registered = Files.readString(claudeSettings());
+        assertEquals("0", JSON.readTree(registered).path("env").path(ClaudeStopSettings.KEY).stringValue());
+
+        installer.uninstall();
+
+        assertFalse(Files.exists(installRoot()));
+        assertEquals(registered, Files.readString(claudeSettings()));
+    }
+
+    @Test
+    void uninstallIgnoresLegacyClaudeSettingsRecords() throws IOException {
+        write(claudeSettings(), settingsWithCap("0"));
+        Path settings = claudeSettings().toRealPath();
+        Path records = installRoot().resolve("host-packages/claude-stop-settings");
+        var previous = JSON.createObjectNode().put("settings", settings.toString()).put("previous", "\"7\"").put("createdEnv", false);
+
+        Installer installer = installer();
+        write(records.resolve(Digests.sha256Hex(settings.toString()) + ".json"), previous.toString());
+        write(records.resolve("applied.json"), previous.put("applied", true).toString());
+
+        installer.uninstall();
+
+        assertFalse(Files.exists(installRoot()));
+        assertEquals(settingsWithCap("0"), Files.readString(settings));
+    }
+
+    @Test
+    void reportsTheSettingWhenHooksAddsOrReplacesIt() throws IOException {
+        fetchedMarketplace();
+        installer().hooks();
+        Path settings = claudeSettings().toRealPath();
+        assertSettingReported(settings);
+
+        write(settings, settingsWithCap("7"));
+        printed.reset();
+        installer(prompt -> ClaudeStopConfirmation.Answer.YES).hooks();
+        assertEquals(settingsWithCap("0"), Files.readString(settings));
+        assertSettingReported(settings);
+    }
+
+    private void assertSettingReported(Path settings) {
+        String output = printed.toString(StandardCharsets.UTF_8);
+        assertTrue(output.lines().anyMatch(line -> line.contains(ClaudeStopSettings.KEY)
+                && line.contains("\"0\"") && line.contains(settings.toString())), output);
     }
 }

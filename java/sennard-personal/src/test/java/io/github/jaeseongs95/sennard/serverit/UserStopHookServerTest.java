@@ -36,13 +36,9 @@ import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Prepared against HEAD 8857; NOT RUN by its author. Real HTTP hook/MCP/PG paths,
- * with recorded host envelopes edited for this test's own sessions.
- * observe* methods cover the unchanged controls; contract* is the user-stop
- * requirement oracle. The former pending-stage baseline is logged separately,
- * without asserting the continuation that this requirement rejects.
- * The stop sentence below is constructed test input, not the missing original prompt.
- * No model response or natural-language stop parser is supplied.
+ * Exercises user-stop behavior through the HTTP hooks and MCP against PostgreSQL,
+ * using recorded host envelopes and a constructed stop prompt. The contract cases
+ * exercise the saved turn context and the workflow run's disposition independently.
  */
 @Execution(ExecutionMode.SAME_THREAD)
 @Tag("business-db")
@@ -50,7 +46,7 @@ class UserStopHookServerTest {
     private static final Logger LOG = LoggerFactory.getLogger(UserStopHookServerTest.class);
     private static final String SAVE_CHECK = "[Sennard save check]";
     private static final String STAGE_CHECK = "[Sennard stage check]";
-    private static final String WORK_CHECK = "[Sennard turn check]";
+    private static final String WORK_CHECK = "[Sennard work check]";
     private static final String STOP_INPUT = "지금 작업을 중단하고 내 다음 지시를 기다려.";
     private static final String ORDINARY_INPUT = "현재 작업 상태를 설명해 줘.";
     private static final TurnSaveCheckServerTest.Host CLAUDE = new TurnSaveCheckServerTest.Host("claude", "claude-code", "UserPromptSubmit");
@@ -68,7 +64,7 @@ class UserStopHookServerTest {
     record Session(TurnSaveCheckServerTest.Host host, String id, Path workspace) {
     }
 
-    record Pending(Session session, String runId) {
+    record Pending(Session session, String runId, long pausedRevision) {
     }
 
     static Stream<TurnSaveCheckServerTest.Host> hosts() {
@@ -147,7 +143,7 @@ class UserStopHookServerTest {
         LOG.info("REQ-PAUSED-PENDING host={} runId={} continuationPresent={}",
                 host.label(), pending.runId(), continuation(pending.session(), answer).isPresent());
         assertTrue(continuation(pending.session(), answer).isEmpty(),
-                "An accepted PAUSED checkpoint must not be overridden by a demand to finish pending stages: " + answer);
+                "An explicitly paused run must not be asked to finish pending stages: " + answer);
     }
 
     @ParameterizedTest
@@ -156,8 +152,9 @@ class UserStopHookServerTest {
         Pending pending = pausedWithPendingStage(host);
         Session session = pending.session();
         prompt(session, ORDINARY_INPUT);
-        // Taking the same workflow attributes this turn; it must not resume the saved task.
-        call(session, "resume_workflow", Map.of("runId", pending.runId()));
+        // The new request can be answered while the earlier run stays paused.
+        inquiry(session);
+        assertRunPaused(pending);
         JsonNode afterPrompt = call(session, "load_context", DomainServerSupport.arguments());
         assertEquals("PAUSED", afterPrompt.path("memory").path("status").asString(), afterPrompt.toString());
 
@@ -174,6 +171,7 @@ class UserStopHookServerTest {
         assertFalse(marked.path("turnStartedAt").asString().isBlank(), marked.toString());
         JsonNode afterMark = call(session, "load_context", DomainServerSupport.arguments());
         assertEquals("PAUSED", afterMark.path("memory").path("status").asString(), afterMark.toString());
+        assertRunPaused(pending);
         JsonNode answer = stop(session, false);
         assertTrue(continuation(session, answer).isEmpty(),
                 "An ordinary prompt and a satisfied save obligation must leave the pending task paused: " + answer);
@@ -201,11 +199,17 @@ class UserStopHookServerTest {
         assertEquals("ACTIVE", saved.path("memory").path("status").asString(), saved.toString());
         JsonNode afterResume = call(session, "load_context", DomainServerSupport.arguments());
         assertEquals("ACTIVE", afterResume.path("memory").path("status").asString(), afterResume.toString());
+        assertRunPaused(pending);
+        JsonNode checkpointAnswer = stop(session, false);
+        assertTrue(continuation(session, checkpointAnswer).isEmpty(), checkpointAnswer.toString());
+        JsonNode resumed = call(session, "resume_workflow", Map.of("runId", pending.runId(), "expectedRevision", pending.pausedRevision(),
+                "operationKey", OperationKeys.fresh()));
+        assertEquals("RUNNING", resumed.path("state").asString(), resumed.toString());
 
         JsonNode answer = stop(session, false);
         String continued = continuation(session, answer).orElseThrow(() -> new AssertionError(answer.toString()));
         assertTrue(continued.contains(STAGE_CHECK), continued);
-        assertTrue(continued.contains("Workflow gates open for the current request: 1"), continued);
+        assertTrue(continued.contains(DomainServerSupport.englishMessage(server, "hooks.phaseCheck.summary", Map.of("count", 1))), continued);
         assertFalse(continued.contains(pending.runId()), continued);
         assertFalse(continued.contains("stage-01-minimal-implementation"), continued);
         assertFalse(continued.contains(SAVE_CHECK), continued);
@@ -269,6 +273,12 @@ class UserStopHookServerTest {
         return session.host().continuation(answer);
     }
 
+    private static void assertRunPaused(Pending pending) throws IOException {
+        JsonNode run = call(pending.session(), "get_workflow_status", Map.of("runId", pending.runId(), "detail", "compact"));
+        assertEquals("PAUSED", run.path("state").asString(), run.toString());
+        assertEquals(pending.pausedRevision(), run.path("revision").asLong(), run.toString());
+    }
+
     private static void paused(Session session) throws IOException {
         String key = "user-stop-paused-" + UUID.randomUUID();
         JsonNode stale = ChangeWorkflows.callAs(server, session.host().label(), session.id(), "checkpoint_context",
@@ -317,6 +327,9 @@ class UserStopHookServerTest {
         prompt(session, STOP_INPUT);
         call(session, "resume_workflow", Map.of("runId", runId));
         paused(session);
-        return new Pending(session, runId);
+        JsonNode pausedRun = call(session, "pause_workflow", Map.of("runId", runId, "expectedRevision", started.path("revision").asLong(),
+                "reason", "The user requested a pause", "resumeCondition", "The user explicitly resumes"));
+        assertEquals("PAUSED", pausedRun.path("state").asString(), pausedRun.toString());
+        return new Pending(session, runId, pausedRun.path("revision").asLong());
     }
 }

@@ -14,6 +14,7 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 import io.github.jaeseongs95.sennard.server.config.SennardProperties;
+import io.github.jaeseongs95.sennard.server.hook.HostEvent;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts;
 import io.github.jaeseongs95.sennard.server.hook.ShellPaths;
@@ -24,6 +25,7 @@ import io.github.jaeseongs95.sennard.server.hook.ToolCall;
 final class ClaudeWorkFacts implements HostWorkFacts {
     static final Set<String> EDIT_TOOLS = Set.of("Edit", "Write", "MultiEdit", "NotebookEdit");
     static final Pattern NATIVE_PEER_SEND = Pattern.compile("^(SendMessage|SubagentHandback)$");
+    private static final String PARENT_ADDRESS = "main";
     private static final Pattern PLUGIN_SKILL = Pattern.compile("^sennard:([a-z0-9][a-z0-9-]*)$");
 
     private final Path configDirectory;
@@ -63,8 +65,32 @@ final class ClaudeWorkFacts implements HostWorkFacts {
     }
 
     @Override
+    public boolean runsToolScript(ToolCall tool) {
+        return "REPL".equals(tool.name());
+    }
+
+    @Override
     public boolean sendsNativePeerMessage(ToolCall tool) {
         return tool.name() != null && NATIVE_PEER_SEND.matcher(tool.name()).matches();
+    }
+
+    @Override
+    public Optional<NativeRecipient> nativeRecipient(ToolCall tool) {
+        if (!"SendMessage".equals(tool.name())) {
+            return Optional.empty();
+        }
+        return HookJson.present(tool.input(), "to").map(address -> new NativeRecipient(address, PARENT_ADDRESS.equals(address)));
+    }
+
+    @Override
+    public Set<String> subagentAddresses(HostEvent event) {
+        return switch (event) {
+            case HostEvent.SubagentStarted started ->
+                HookJson.present(started.context().actor().agentKey()).map(Set::of).orElse(Set.of());
+            case HostEvent.ToolFinished finished when !finished.reportedFailure() && "Agent".equals(finished.tool().name()) ->
+                HookJson.present(finished.tool().input(), "name").map(Set::of).orElse(Set.of());
+            default -> Set.of();
+        };
     }
 
     @Override

@@ -4,10 +4,9 @@
 
 package io.github.jaeseongs95.sennard.server.updates;
 
-import java.math.BigInteger;
 import java.time.Clock;
 import java.time.format.DateTimeParseException;
-import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -17,6 +16,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import io.github.jaeseongs95.sennard.service.store.UpdateComparison;
 import io.github.jaeseongs95.sennard.service.store.modules.StoreValues;
@@ -38,13 +39,17 @@ public class PluginUpdateService {
     public static final String PLUGIN_ID = "sennard";
     private static final long SUCCESS_TTL_MS = 24 * 3600_000L;
     private static final long FAILURE_RETRY_MS = 3600_000L;
-    private static final Pattern STABLE = Pattern.compile("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$");
     private static final Pattern PRERELEASE = Pattern.compile("^([^-]+)-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*$");
     private static final Pattern COMMIT = Pattern.compile("^[a-f0-9]{40}$");
     private static final String REPOSITORY = "https://github.com/jaeseongs95/Sennard-Personal";
 
     public record Status(String schemaVersion, String pluginId, String currentVersion, String latestVersion, String latestTag, String latestCommit, UpdateComparison comparison,
-            String lastAttemptAt, String lastSuccessfulCheckAt, String nextCheckAt, boolean stale, String lastErrorCode, boolean automaticInstall) {
+            String lastAttemptAt, String lastSuccessfulCheckAt, String nextCheckAt, boolean stale, String lastErrorCode, boolean automaticInstall,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<HostPackageStatus.Mismatch> hostPackageMismatches) {
+        Status withHostPackageMismatches(List<HostPackageStatus.Mismatch> mismatches) {
+            return new Status(schemaVersion, pluginId, currentVersion, latestVersion, latestTag, latestCommit, comparison,
+                    lastAttemptAt, lastSuccessfulCheckAt, nextCheckAt, stale, lastErrorCode, automaticInstall, mismatches);
+        }
     }
 
     /** Why a check recorded a failure; the name is the status's {@code lastErrorCode}. */
@@ -54,33 +59,6 @@ public class PluginUpdateService {
 
     /** What a check starts from: the stored state, whether the repository is to be asked, and the status to answer when it is not. */
     record Due(PluginUpdateState state, boolean ask, Status status) {
-    }
-
-    /** A release version {@code major.minor.patch}, compared numerically. */
-    record StableVersion(BigInteger major, BigInteger minor, BigInteger patch) implements Comparable<StableVersion> {
-        private static final Comparator<StableVersion> ORDER = Comparator.comparing(StableVersion::major).thenComparing(StableVersion::minor).thenComparing(StableVersion::patch);
-
-        static StableVersion of(Matcher parts) {
-            return new StableVersion(new BigInteger(parts.group(1)), new BigInteger(parts.group(2)), new BigInteger(parts.group(3)));
-        }
-
-        static StableVersion parse(String text) {
-            Matcher parts = STABLE.matcher(text);
-            if (!parts.matches()) {
-                throw new IllegalArgumentException("Not a release version: " + text);
-            }
-            return of(parts);
-        }
-
-        @Override
-        public int compareTo(StableVersion other) {
-            return ORDER.compare(this, other);
-        }
-
-        @Override
-        public String toString() {
-            return major + "." + minor + "." + patch;
-        }
     }
 
     private final WorkflowStore store;
@@ -144,7 +122,7 @@ public class PluginUpdateService {
             return empty(now, null);
         }
         boolean latestValid = stored.latestVersion() == null ? stored.latestTag() == null && stored.latestCommit() == null
-                : STABLE.matcher(stored.latestVersion()).matches() && ("v" + stored.latestVersion()).equals(stored.latestTag())
+                : StableVersion.accepts(stored.latestVersion()) && ("v" + stored.latestVersion()).equals(stored.latestTag())
                         && stored.latestCommit() != null && COMMIT.matcher(stored.latestCommit()).matches();
         if (!latestValid || !validDate(stored.nextCheckAt())) {
             return empty(now, Reason.INVALID_RESPONSE.name());
@@ -214,7 +192,7 @@ public class PluginUpdateService {
     private Status publicStatus(PluginUpdateState state, long now) {
         long next = StoreValues.parseIso(state.nextCheckAt());
         return new Status("1.0.0", PLUGIN_ID, version, state.latestVersion(), state.latestTag(), state.latestCommit(), state.comparison(), state.lastAttemptAt(),
-                state.lastSuccessfulCheckAt(), state.nextCheckAt(), state.lastSuccessfulCheckAt() == null || state.lastErrorCode() != null || now >= next, state.lastErrorCode(), false);
+                state.lastSuccessfulCheckAt(), state.nextCheckAt(), state.lastSuccessfulCheckAt() == null || state.lastErrorCode() != null || now >= next, state.lastErrorCode(), false, List.of());
     }
 
     /** The one-time notice of a turn: the cached status and the claim of its notice, as one use case in one transaction; empty when there is nothing new to say. */

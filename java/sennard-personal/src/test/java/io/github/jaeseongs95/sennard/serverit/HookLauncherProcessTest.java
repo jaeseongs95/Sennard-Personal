@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -795,15 +796,22 @@ class HookLauncherProcessTest {
     // ---------------------------------------------------------------------------------------------------------------------------- Gemini
 
     @Test
+    @Tag("business-db")
     void geminiSessionStartPrintsAnAnswerThatHoldsContextWhenTheServerIsUp() throws Exception {
-        handler.next.set(new HookVerdict.AddContext(List.of(new ContextBlock("hello", false))));
-        JsonNode file = hooks(HookAdapters.gemini(), liveFile);
+        try (RunningServer ready = SessionServerSupport.started(List.of(ServerFixtures.Beans.class, GeminiHookServerTest.Verdicts.class))) {
+            var readyHandler = ready.bean(HookTestSupport.ScriptedHostEventHandler.class);
+            readyHandler.next.set(new HookVerdict.AddContext(List.of(new ContextBlock("hello", false))));
+            Path readyAddress = temporary.resolve(ServerAddress.FILE_NAME);
+            InstalledHookCommand.announceThisProcess(readyAddress, ready.port);
+            JsonNode file = hooks(HookAdapters.gemini(), readyAddress);
 
-        Finished finished = run(handlerOf(file, "SessionStart", 0), GEMINI_SESSION_START.getBytes(StandardCharsets.UTF_8));
+            Finished finished = run(handlerOf(file, "SessionStart", 0), GEMINI_SESSION_START.getBytes(StandardCharsets.UTF_8));
 
-        assertEquals(0, finished.exit(), finished.stderr());
-        assertEquals("hello", finished.json().path("hookSpecificOutput").path("additionalContext").stringValue());
-        assertEquals(HookTestSupport.SESSION, onlyCall().context().sessionId());
+            assertEquals(0, finished.exit(), finished.stderr());
+            assertEquals("hello", finished.json().path("hookSpecificOutput").path("additionalContext").stringValue());
+            assertEquals(1, readyHandler.calls.size(), readyHandler.calls.toString());
+            assertEquals(HookTestSupport.SESSION, readyHandler.calls.getFirst().event().context().sessionId());
+        }
     }
 
     @Test

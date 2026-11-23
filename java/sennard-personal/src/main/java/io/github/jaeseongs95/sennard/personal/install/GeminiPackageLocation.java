@@ -51,14 +51,14 @@ final class GeminiPackageLocation implements HostPackageLocation {
 
     /** One copy at most; its version is the one in the extension's own {@code gemini-extension.json}. */
     @Override
-    public List<InstalledPackage> packages(InstallEnvironment environment) throws IOException {
+    public Scan scan(InstallEnvironment environment) throws IOException {
         Path root = environment.home().resolve(".gemini/extensions").resolve(EXTENSION);
         if (!Files.isDirectory(root)) {
-            return List.of();
+            return new Scan(List.of(), List.of());
         }
         BasicFileAttributes attributes = Files.readAttributes(root, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
         boolean plainFolder = attributes.isDirectory() && !attributes.isSymbolicLink() && !attributes.isOther();
-        return List.of(new InstalledPackage(root, version(root), plainFolder));
+        return new Scan(List.of(new InstalledPackage(root, version(root), plainFolder, null)), List.of());
     }
 
     private String version(Path root) throws IOException {

@@ -27,7 +27,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import io.github.jaeseongs95.sennard.domain.Timestamps;
-import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -66,7 +65,7 @@ class WorkflowCompletionHookServerTest {
         JsonNode opened = operation(session);
         String runId = opened.path("runId").asString();
         String continued = continuation(session, stop(session, false));
-        assertEquals("[Sennard stage check] Workflow gates open for the current request: 1.", continued);
+        assertEquals(pendingWorkflows(1), continued);
         assertFalse(continued.contains(runId), continued);
         // A later end cannot silently turn an unfinished operation into a completed one.
         assertEquals(continued, continuation(session, stop(session, true)));
@@ -97,14 +96,14 @@ class WorkflowCompletionHookServerTest {
                 "stages", List.of("minimal-implementation"), "skills", List.of(Map.of("skillId", "minimal-implementation", "reason", "test receipt")),
                 "acceptanceCriteria", List.of("The change is complete"), "writeTargets", List.of("done.txt"), "changePlan", List.of("done.txt")));
         String runId = opened.path("runId").asString();
-        // Explicit database fixture for the hook's all-passed input, not evidence that any stage work/model was executed.
-        // Stage recording/artifact validation is covered by WorkflowToolsServerTest; this test never finalizes this synthetic receipt.
-        JsonMapper mapper = server.bean(JsonMapper.class);
-        ObjectNode receipt = (ObjectNode) mapper.readTree(server.bean(WorkflowStore.class).getRun(runId));
-        receipt.putArray("stageResults").addObject().put("stageId", "stage-01-minimal-implementation").put("state", "PASSED");
-        SessionServerSupport.update(server, "UPDATE sennard.workflow_runs SET receipt_json = ? WHERE run_id = ?", mapper.writeValueAsString(receipt), runId);
+        JsonNode run = call(session, "get_workflow_status", Map.of("runId", runId, "detail", "full"));
+        JsonNode recorded = call(session, "record_stage_result",
+                DomainServerSupport.passedStageArguments(server, host.label(), session.id(), run));
+        assertEquals("RUNNING", recorded.path("state").asString(), recorded.toString());
+        assertEquals(1, recorded.path("stageResults").size(), recorded.toString());
+        assertEquals("PASSED", recorded.path("stageResults").path(0).path("state").asString(), recorded.toString());
         String continued = continuation(session, stop(session, false));
-        assertEquals("[Sennard stage check] Workflow gates open for the current request: 1.", continued);
+        assertEquals(pendingWorkflows(1), continued);
         assertFalse(continued.contains(runId), continued);
         assertFalse(continued.contains("stages not yet passed"), continued);
     }
@@ -145,7 +144,7 @@ class WorkflowCompletionHookServerTest {
         Session session = session(host);
         operation(session);
         operation(session);
-        assertEquals("[Sennard stage check] Workflow gates open for the current request: 2.", continuation(session, stop(session, false)));
+        assertEquals(pendingWorkflows(2), continuation(session, stop(session, false)));
     }
 
     private static Session session(TurnSaveCheckServerTest.Host host) throws Exception {
@@ -172,8 +171,13 @@ class WorkflowCompletionHookServerTest {
     }
 
     private static JsonNode operation(Session session) throws IOException {
-        return call(session, "start_operation_workflow", Map.of("goal", "Inspect the test operation", "target", session.workspace().toString(),
-                "workspace", session.workspace().toString(), "skills", List.of(Map.of("skillId", "session-board", "reason", "inspect shared test work"))));
+        String workspace = session.workspace().toString();
+        return call(session, "start_operation_workflow", DomainServerSupport.operationArguments("Inspect the test operation",
+                workspace, workspace, "session-board", "Inspect shared test work"));
+    }
+
+    private static String pendingWorkflows(int count) {
+        return DomainServerSupport.englishMessage(server, "hooks.phaseCheck.summary", Map.of("count", count));
     }
 
     private static JsonNode call(Session session, String tool, Map<String, Object> args) throws IOException {

@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -75,6 +76,18 @@ class AdminOpTest {
         return assertThrows(SennardException.class, () -> VERIFIER.bindChange(tree(json)), json);
     }
 
+    @Test
+    void unblockingRequiresAnExactRecordIdAndKey() {
+        String digest = "a".repeat(64);
+        Map<String, String> base = Map.of("op", "WORKFLOW_PLAN_UNBLOCK", "workspaceId", digest, "kind", "CHANGE",
+                "planDigest", "sha256:" + digest, "recordId", "4e40cfec-db65-4842-b08b-c0d039205f93");
+        for (String field : List.of("workspaceId", "kind", "planDigest", "recordId")) {
+            Map<String, String> changed = new HashMap<>(base);
+            changed.put(field, "-".repeat(36));
+            refused(MAPPER.writeValueAsString(changed));
+        }
+    }
+
     /** One change of each kind in the form the page writes it, and the chain it is appended to. */
     private record Sample(String json, String target) {
     }
@@ -101,6 +114,9 @@ class AdminOpTest {
         samples.put(AdminOp.RESOURCE_LIMITS_SET, new Sample("{\"op\":\"RESOURCE_LIMITS_SET\",\"limits\":{\"csArtifactMaxBytes\":8388608,\"maxOpenWorkflowsPerSession\":5}}", "resourceLimits"));
         samples.put(AdminOp.ATTACHMENT_STORAGE_SET, new Sample(MAPPER.writeValueAsString(Map.of("op", "ATTACHMENT_STORAGE_SET", "settings", Map.of("directory", absolute, "maxFileBytes", 1073741824L, "stagingBudgetBytes", 4294967296L, "attachmentBudgetBytes", 10737418240L, "maxOpenPerOwner", 4, "diskMarginBytes", 67108864L))), "attachmentStorage"));
         samples.put(AdminOp.ROOT_APPROVE, new Sample("{\"op\":\"ROOT_APPROVE\",\"approvalId\":\"a-1\",\"scopeDigest\":\"" + FINGERPRINT + "\"}", "rootApproval:a-1"));
+        String recordId = "4e40cfec-db65-4842-b08b-c0d039205f93";
+        samples.put(AdminOp.WORKFLOW_PLAN_UNBLOCK, new Sample(MAPPER.writeValueAsString(Map.of("op", "WORKFLOW_PLAN_UNBLOCK",
+                "workspaceId", "a".repeat(64), "kind", "CHANGE", "planDigest", FINGERPRINT, "recordId", recordId)), "workflowPlanUnblock:" + recordId));
         samples.put(AdminOp.ROOT_RELEASE, new Sample("{\"op\":\"ROOT_RELEASE\",\"rootId\":\"root-1\",\"expectedRevision\":3,\"reason\":\"The owner session ended.\"}", "rootRelease:root-1"));
         // The link of the business database: the driver and the password file as paths, the URL without a password, the protection as a constant's name; no password anywhere.
         samples.put(AdminOp.DATABASE_LINK, new Sample("{\"op\":\"DATABASE_LINK\",\"driverPath\":" + MAPPER.writeValueAsString(absolute) + ",\"jdbcUrl\":\"jdbc:postgresql://127.0.0.1:5432/sennard\","

@@ -8,6 +8,11 @@ import java.util.Optional;
 
 /** A protocol input classified before any native event consumer. An intercepted event never reaches the ordinary domains. */
 public interface HookBoundary {
+    /** Resolves server-side event state before any boundary or domain consumes the event. */
+    default HostEvent prepareEvent(HostEvent event) {
+        return event;
+    }
+
     default boolean bootstrap(HostEvent event, HookVerdict verdict, String wakeKey) {
         return event instanceof HostEvent.SessionStarted started && bootstrap(started, wakeKey);
     }
@@ -17,5 +22,9 @@ public interface HookBoundary {
     }
     Optional<HookVerdict> before(HostEvent event);
     default void after(HostEvent event, HookVerdict verdict) {
+    }
+
+    /** Records state tied to the rendered answer before it can be returned to the host. */
+    default void afterResponse(HostEvent event, HookVerdict verdict, HookOutput output) {
     }
 }

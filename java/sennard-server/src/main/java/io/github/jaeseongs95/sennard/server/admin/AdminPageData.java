@@ -37,6 +37,8 @@ import io.github.jaeseongs95.sennard.domain.jvm.JvmPresets;
 import io.github.jaeseongs95.sennard.domain.jvm.MemoryEstimate;
 import io.github.jaeseongs95.sennard.server.approval.RootApprovalService;
 import io.github.jaeseongs95.sennard.server.approval.RootReleaseService;
+import io.github.jaeseongs95.sennard.server.workflow.BlockedPlanAdminService;
+import io.github.jaeseongs95.sennard.service.store.modules.WorkflowStore.BlockedPlanView;
 import io.github.jaeseongs95.sennard.server.web.RequestLocale;
 import io.github.jaeseongs95.sennard.server.board.PresenceStore;
 import io.github.jaeseongs95.sennard.server.context.AdminLog;
@@ -156,7 +158,7 @@ public class AdminPageData {
             ContextLayerService.GlobalView global, List<ContextLayerService.GlobalHistoryItem> globalHistory, List<ContextLayerService.RolePageView> roles,
             List<ContextLayerService.BindingView> bindings, List<ContextLayerService.ProposalView> proposals, List<ContextLayerService.FailureView> failures,
             ContextLayerService.SignedSettings signedSettings, long lastSeq, int globalMaxBytes, int roleMaxBytes, int roleNameMaxLength, SessionsError sessionsError,
-            List<SessionView> sessions, Settings settings, List<RootApprovalService.Pending> rootApprovals, OpenRoots openRoots, DatabaseLinkView link) {
+            List<SessionView> sessions, Settings settings, List<RootApprovalService.Pending> rootApprovals, OpenRoots openRoots, List<BlockedPlanView> blockedPlans, DatabaseLinkView link) {
     }
 
     /** The link the user signed on the page, as the settings database keeps it. The password is not here (nor anywhere in the settings database): only the file that holds it. */
@@ -206,6 +208,7 @@ public class AdminPageData {
     private final MessageSource messages;
     private final RootApprovalService rootApprovals;
     private final RootReleaseService rootReleases;
+    private final BlockedPlanAdminService blockedPlans;
     /** The hosts whose hooks cannot tell a subagent from a main agent, by the name their sessions are stored under. */
     private final Set<String> hostsMarkingNoSubagents;
     private final Clock clock;
@@ -216,7 +219,7 @@ public class AdminPageData {
     private final DatabaseLinkSettings links;
 
     public AdminPageData(ContextLayerService context, PresenceStore presence, BoardService board, JevProviders providers, JevReadiness readiness, JevBudget budget, SkillUsageService skillUsage, WorkflowStatsService workflowStats,
-            SkillInventoryReader inventory, RootApprovalService rootApprovals, RootReleaseService rootReleases, List<HostCallerAdapter> hosts,
+            SkillInventoryReader inventory, RootApprovalService rootApprovals, RootReleaseService rootReleases, BlockedPlanAdminService blockedPlans, List<HostCallerAdapter> hosts,
             JvmInstallation jvmInstallation, MessageSource messages, Clock clock, PreLinkAdminService preLink, AdminLogSource logs, PreparedStore prepared,
             DatabaseLinkSettings links, PasskeyRevocations revocations, io.github.jaeseongs95.sennard.app.attachment.AttachmentProperties attachmentProperties) {
         this.attachmentProperties = attachmentProperties;
@@ -226,6 +229,7 @@ public class AdminPageData {
         this.prepared = prepared;
         this.links = links;
         this.rootReleases = rootReleases;
+        this.blockedPlans = blockedPlans;
         this.jvmInstallation = jvmInstallation;
         this.messages = messages;
         this.clock = clock;
@@ -423,7 +427,7 @@ public class AdminPageData {
         Sessions sessions = sessions(admin);
         return new State(SCHEMA_VERSION, AdminWebAuthn.RP_ID, admin.keys(), admin.bootstrap(), admin.resets(), admin.global(), admin.globalHistory(), admin.roles(), admin.bindings(),
                 admin.proposals(), admin.failures(), admin.signedSettings(), admin.lastSeq(), ContextLayerService.GLOBAL_CONTEXT_MAX_BYTES, ContextLayerService.ROLE_CONTEXT_MAX_BYTES,
-                AdminLog.ROLE_NAME_MAX_LENGTH, sessions.error(), sessions.views(), settings(admin.signedSettings()), rootApprovals.pending(), openRoots(), link(false));
+                AdminLog.ROLE_NAME_MAX_LENGTH, sessions.error(), sessions.views(), settings(admin.signedSettings()), rootApprovals.pending(), openRoots(), blockedPlans.list(), link(false));
     }
 
     /** The page before the link: the keys and the failed records of the settings database's log, the link, and nothing of the business database (it is not there). */
@@ -432,7 +436,7 @@ public class AdminPageData {
         revocations.reconcile(admin.revokedKeys());
         return new State(SCHEMA_VERSION, AdminWebAuthn.RP_ID, admin.keys(), admin.bootstrap(), admin.resets(), null, List.of(), List.of(), List.of(), List.of(), admin.failures(),
                 admin.signedSettings(), admin.lastSeq(), ContextLayerService.GLOBAL_CONTEXT_MAX_BYTES, ContextLayerService.ROLE_CONTEXT_MAX_BYTES, AdminLog.ROLE_NAME_MAX_LENGTH, null,
-                List.of(), null, List.of(), new OpenRoots(List.of()), link(true));
+                List.of(), null, List.of(), new OpenRoots(List.of()), List.of(), link(true));
     }
 
     /** The roots a person may release. */

@@ -35,6 +35,10 @@ public sealed interface HookVerdict {
     record ContinueTurn(String instruction) implements HookVerdict {
     }
 
+    /** End the current turn with a reason, taking precedence over another continuation. */
+    record TerminateTurn(String reason) implements HookVerdict {
+    }
+
     /**
      * One piece of context.
      *
@@ -50,6 +54,7 @@ public sealed interface HookVerdict {
             case AddContext ignored -> !(event instanceof SessionEnded);
             case Refuse ignored -> event instanceof ToolRequested || event instanceof UserPromptSubmitted || event instanceof HostEvent.NativePeerResult;
             case ContinueTurn ignored -> event instanceof TurnEnded || event instanceof HostEvent.SubagentEnded;
+            case TerminateTurn ignored -> event instanceof TurnEnded || event instanceof HostEvent.SubagentEnded;
         };
     }
 }
