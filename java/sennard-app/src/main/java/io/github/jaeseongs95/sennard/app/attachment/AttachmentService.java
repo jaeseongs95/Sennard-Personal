@@ -169,6 +169,17 @@ public class AttachmentService {
 
     // ------------------------------------------------------------------------------------------------------------ begin
 
+    /** Reads a completed begin before the entrance checks available disk space. A completed bundle needs no further writes. */
+    @Transactional(readOnly = true)
+    public Optional<Begun> replayCompletedBegin(@NotBlank String owner, @Valid @NotNull BeginRequest request) {
+        List<UploadStaging> existing = uploads.findByOwnerAndOperationKey(owner, request.operationKey());
+        if (existing.isEmpty() || existing.stream().anyMatch(row -> row.state() != UploadStaging.State.COMPLETED)) {
+            return Optional.empty();
+        }
+        requireSupportedPurpose(request);
+        return Optional.of(replayBegin(existing, request.files()));
+    }
+
     /**
      * Starts the uploads of a bundle, or answers the ones the same author began with the same operationKey and the same files (the design's 3). The limits are looked at here and a
      * request over one is refused whole, never cut: the number of files, the size of a file, the bundles the author has open, the budget of the open uploads, the budget of the
@@ -176,25 +187,11 @@ public class AttachmentService {
      */
     @Transactional
     public Begun begin(@NotBlank String owner, @Valid @NotNull BeginRequest request) {
-        ArtifactPurpose purpose = request.purpose() == null ? ArtifactPurpose.EVIDENCE
-                : ArtifactPurpose.of(request.purpose()).orElseThrow(() -> ArtifactErrors.unsupportedPurpose(request.purpose()));
-        if (!purpose.supported()) {
-            throw ArtifactErrors.unsupportedPurpose(purpose.wire());
-        }
+        requireSupportedPurpose(request);
         List<BeginFile> declared = request.files();
         List<UploadStaging> existing = uploads.findByOwnerAndOperationKey(owner, request.operationKey());
         if (!existing.isEmpty()) {
-            if (existing.size() != declared.size()) {
-                throw ArtifactErrors.operationConflict();
-            }
-            for (int seq = 0; seq < declared.size(); seq++) {
-                UploadStaging row = existing.get(seq);
-                BeginFile file = declared.get(seq);
-                if (row.seq() != seq || !row.fileName().equals(file.fileName()) || row.declaredSize() != file.size() || !row.declaredSha256().equals(Sha256Text.hex(file.sha256()))) {
-                    throw ArtifactErrors.operationConflict();
-                }
-            }
-            return begun(existing);
+            return replayBegin(existing, declared);
         }
         if (declared.size() > MAX_FILES) {
             throw ArtifactErrors.limit(ArtifactErrors.Limit.FILE_COUNT, declared.size(), MAX_FILES);
@@ -236,10 +233,27 @@ public class AttachmentService {
         return new Begun(attachmentId, List.copyOf(made), AttachmentFileStore.MAX_CHUNK_BYTES, expiresAt);
     }
 
-    private static Begun begun(List<UploadStaging> rows) {
+    private static void requireSupportedPurpose(BeginRequest request) {
+        ArtifactPurpose purpose = request.purpose() == null ? ArtifactPurpose.EVIDENCE
+                : ArtifactPurpose.of(request.purpose()).orElseThrow(() -> ArtifactErrors.unsupportedPurpose(request.purpose()));
+        if (!purpose.supported()) {
+            throw ArtifactErrors.unsupportedPurpose(purpose.wire());
+        }
+    }
+
+    private static Begun replayBegin(List<UploadStaging> rows, List<BeginFile> declared) {
+        if (rows.size() != declared.size()) {
+            throw ArtifactErrors.operationConflict();
+        }
         List<BegunFile> made = new ArrayList<>();
-        for (UploadStaging row : rows) {
-            made.add(new BegunFile(row.seq(), row.id()));
+        for (int seq = 0; seq < declared.size(); seq++) {
+            UploadStaging row = rows.get(seq);
+            BeginFile file = declared.get(seq);
+            if (row.seq() != seq || !row.fileName().equals(file.fileName()) || !row.mediaType().equals(file.mediaType())
+                    || row.declaredSize() != file.size() || !row.declaredSha256().equals(Sha256Text.hex(file.sha256()))) {
+                throw ArtifactErrors.operationConflict();
+            }
+            made.add(new BegunFile(seq, row.id()));
         }
         return new Begun(rows.get(0).attachmentId(), List.copyOf(made), AttachmentFileStore.MAX_CHUNK_BYTES, rows.get(0).expiresAt());
     }
@@ -317,7 +331,7 @@ public class AttachmentService {
     public FinishPlan planFinish(@NotBlank String attachmentId) {
         List<UploadStaging> rows = uploads.findByAttachmentId(attachmentId);
         if (rows.isEmpty()) {
-            // The upload rows are gone once the cleaner has removed them; the attachment they made has the same id.
+            // Older cleaners removed completed upload rows. The attachment they made has the same id.
             return new FinishPlan.Done(kept(attachments.findById(attachmentId).orElseThrow(ArtifactErrors::notFound)));
         }
         if (rows.get(0).state() == UploadStaging.State.COMPLETED) {
@@ -446,34 +460,28 @@ public class AttachmentService {
         return candidates.expired(now(), limit);
     }
 
-    /** At most {@code limit} uploads whose attachment is made. */
-    @Transactional(readOnly = true)
-    public List<UploadCandidates.Candidate> completedUploads(@Min(1) int limit) {
-        return candidates.completed(limit);
-    }
-
     /** The cleaner's delete of an expired upload: the whole condition is looked at again by the statement. True only for the caller whose statement deleted the row. */
     @Transactional
     public boolean deleteExpired(@NotBlank String uploadId) {
         return uploads.deleteExpired(uploadId, now()) == 1;
     }
 
-    /** The cleaner's delete of a done upload's row; its file is the attachment's. */
-    @Transactional
-    public boolean deleteCompleted(@NotBlank String uploadId) {
-        return uploads.deleteCompleted(uploadId) == 1;
-    }
-
     /**
      * What the rows say a storage key is, for the comparison of the folder with the rows (the design's 7). A copy row decides first: the file is the current copy of its file, or a
-     * replaced copy. The row of a finished upload that the cleaner has not removed yet names the same storage key as the file's first copy, so it must not make a replaced copy look in
-     * use. A key that no copy row names is in use only while an upload row names it (an upload in progress), else no row has it.
+     * replaced copy. Completed upload rows keep the begin result. Only a staging row owns a key that has no copy row.
      */
     @Transactional(readOnly = true)
     public KeyUse useOf(@NotBlank String storageKey) {
         Optional<AttachmentStorage> copy = storages.byStorageKey(storageKey);
         if (copy.isEmpty()) {
-            return uploads.countByKey(storageKey) > 0 ? new KeyUse(UseKind.IN_USE, null) : new KeyUse(UseKind.UNREFERENCED, null);
+            if (uploads.countStagingByKey(storageKey) > 0) {
+                return new KeyUse(UseKind.IN_USE, null);
+            }
+            // A finish can commit the first copy between the two reads at READ COMMITTED.
+            copy = storages.byStorageKey(storageKey);
+            if (copy.isEmpty()) {
+                return new KeyUse(UseKind.UNREFERENCED, null);
+            }
         }
         AttachmentStorage row = copy.get();
         Optional<AttachmentStorage> current = storages.current(row.attachmentId(), row.seq());

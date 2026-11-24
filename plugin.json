@@ -2,7 +2,7 @@
   "name": "sennard",
   "displayName": "Sennard",
   "description": "Route governance and engineering specialists through declarative provider contracts, a local MCP convergence guard, opt-in task continuity, and an MCP-assisted Korean prose workflow.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "suggestedPrompts": [
     "Classify the governance specialist skills this task needs and plan the workflow",
     "Check the active session board and any pending peer messages",

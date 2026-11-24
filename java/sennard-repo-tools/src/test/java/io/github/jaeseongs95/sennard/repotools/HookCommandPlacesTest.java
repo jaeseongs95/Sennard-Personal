@@ -128,9 +128,8 @@ class HookCommandPlacesTest {
     void geminiRunsEveryHookAsACommand() {
         JsonNode definition = hookDefinition(GeminiHost.ID);
 
-        Map<String, Integer> expected = once("SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "BeforeModel", "BeforeTool", "AfterTool", "PreCompress");
-        expected.put("AfterTool", 2);
-        assertEquals(expected, commandsByEvent(definition));
+        assertEquals(once("SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "BeforeModel", "BeforeTool", "AfterTool", "PreCompress"), commandsByEvent(definition),
+                "one command per event: a subagent's result (invoke_agent) has no hook of its own");
         assertEquals(Map.of(), otherTypes(definition));
     }
 }

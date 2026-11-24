@@ -1,16 +1,20 @@
 [한국어](collaboration.ko.md)
 # Session Collaboration
 
-Sennard sessions run on the same computer by the same OS user find each other through the status board and exchange PEER messages. Even with different hosts (Claude Code, Codex, Antigravity), the sessions use the same resident server and can therefore collaborate. The technical contract for message states and storage limits is in [Session Message Contract](../contributing/session-messaging.md).
+Confirmed Sennard main sessions can find each other through the status board and exchange PEER messages when they run on the same computer under the same OS user. Even with different hosts (Claude Code, Codex, Antigravity), the sessions use the same resident server and can therefore collaborate. The technical contract for message states and storage limits is in [Session Message Contract](../contributing/session-messaging.md).
 
 ## Status Board
 
 - Use `update_session_status` to record in one line what this session is currently doing, and use `list_session_status` to see the host, session ID, working folder, one-line summary, and role of other sessions.
-- Sennard identifies an Antigravity conversation created with `launch_managed_child` by the conversation ID returned at launch. For Antigravity's own subagents, Sennard learns the relationship from the first matched Sennard tool call. Before that call, a conversation without a summary or role can appear under "Undetermined" on the admin page. Claude Code identifies subagents (`agent_id`) and `--agent` sessions (`agent_type`) in the hook input.
+- The status board and session binding page follow the [Session Unit](../contributing/architecture.md#session-unit) contract.
 - The board itself keeps no request text; the user's messages are kept in the prompt archive described below. The session ID and working folder are filled in from the hook input.
 - For the role, the board shows the role of a binding signed on the admin page if one exists (`roleSource: "signed"`), and otherwise the role the session wrote for itself (`roleSource: "self"`). A role on the status board is neither an access permission nor an execution approval.
 - The status board is pull-based; changes are known only by reading it again. It is not a channel for stopping the work of another running session.
 - Ended sessions do not appear on the status board, even if they have a summary.
+
+## Messages Between Agents Inside One Session
+
+Claude Code, Codex and Antigravity have send tools of their own. Sennard lets such a message through only when it stays inside one delegation: a subagent sending to the agent that started it (its result going back or a question), and an agent sending to a subagent that its own session started. A message to another session, or to any agent that this session did not start, is refused whatever workflow is open, and the refusal says what to do instead: call `list_session_status` for the other session's `targetHost` and `targetSessionId`, then `prepare_session_message`, then `send_session_message`. A teammate or subagent that this session started is not "another session": once Sennard has recorded it (from its start, or from the id the host returned and the name it was started with), a message to it by that id or name passes. To reach one that was refused only because the id or name was not the recorded one, send again with the id the host gave it or the name it was started with. A call that names no recipient cannot be shown to stay inside the session, so it is refused too, and the refusal does not suggest sending it again with that tool: use the Sennard tools. The one exception is a host tool that itself delivers only inside the same delegation (currently the version-2 collaboration tools of Codex): it passes whether or not the recipient is recorded. Only the host tools Sennard knows as send tools are judged this way; any other tool call is not. A subagent's returned result is never held back by Sennard.
 
 ## What the User Said
 
@@ -23,7 +27,7 @@ Sennard sessions run on the same computer by the same OS user find each other th
 
 ## Sending Messages
 
-If you ask an agent, for example, "Find the session responsible for ○○ on the status board and request a review with a PEER message," the agent uses the following tools.
+From a confirmed main session, ask the agent to find the responsible main session on the board and send it a Sennard PEER message. A parent and a child it started use the host’s own send tools. See [Session Unit](../contributing/architecture.md#session-unit) for communication within a session.
 
 | Tool | What it does |
 | --- | --- |
@@ -43,9 +47,9 @@ The host must identify the active session before any of these tools can act. If 
 
 ## Creating a Managed Child Conversation
 
-From the active main session, call `launch_managed_child` with the model and reasoning effort that its host supports. When the connected host worker accepts the request, `CREATED` returns the new `childId`. Creation leaves the conversation idle. To send work, use the main session's host and session ID as the PEER destination and put the returned `childId` in `targetActorId`. The child sends its reply to the main session through PEER and acknowledges the messages it processed.
+From the active main session, call `launch_managed_child` with the model and reasoning effort supported by its host. When the connected host worker accepts the request, `CREATED` returns the new `childId`. Creation leaves the conversation idle. Task delivery and replies require host support for communication within the [Session Unit](../contributing/architecture.md#session-unit).
 
-An Antigravity managed conversation uses the host's existing `agy` sign-in and permission rules. Its worker resumes it over the same ACP connection. Tool calls that require interactive approval are cancelled. Running PEER tools unattended requires the corresponding Antigravity permissions. See [Antigravity MCP permissions](https://antigravity.google/docs/cli/mcp/#mcp-permissions-and-access-control).
+An Antigravity managed conversation uses the host's existing `agy` sign-in and permissions. The worker uses the same ACP connection. Tool calls that require interactive approval are cancelled.
 
 The caller receives `SELECTION_UNSUPPORTED` for an unsupported selection and `NOT_SENT` when the worker could not send the creation request. For `UNKNOWN` or a lost response, use the original `operationKey` and identical input to read the retained result. A new key can create another conversation.
 
@@ -57,7 +61,7 @@ How an idle session is woken after a message is queued differs by host.
 | --- | --- |
 | Claude Code | Two wait hooks are registered, on session start and on Claude Code’s `Stop`. Each hook waits for messages from the server when its event fires. When a message arrives, it wakes the idle session while delivering that message. When the session resumes work, the wait ends and messages are delivered at the boundaries below. A single wait lasts at most 24 hours. If the session has been idle longer than that, or if the Sennard server restarted in the meantime, it can be woken again at the next `Stop` event. This works only in an interactive session with a person attached; a session started with `-p` is not woken, and sessions started through the SDK have not been measured. The distinction relies on the value of `CLAUDE_CODE_SESSION_ATTENDED` that Claude Code passes to hooks, a variable that is not in Claude Code's official documentation (measured with Claude Code 2.1.319; in a separate measurement with Claude Code 2.1.316 on Windows, the value was `0` in a `-p` session and `1` in an interactive session with a person attached). |
 | Codex | Native queue wake is enabled by default. It requires a native executable and a live generation owned by this server. After Sennard restarts, the next eligible `Stop` can register a fresh worker. |
-| Antigravity | The interactive main session uses `agentapi` with connection values from its own hook. The worker wakes its managed children over ACP. Messages use ordinary delivery boundaries when native wake is unavailable. |
+| Antigravity | The interactive main session uses `agentapi` with connection values from its own hook. Messages use ordinary delivery boundaries when native wake is unavailable. |
 
 An advisory `autoWake` is attached to `send_session_message` results and to `get_session_message_status`. The sessions on the status board do not carry it. It only reports the fact of whether the receiving session's wake path can be used now, and it is not evidence of delivery, processing, or completion.
 

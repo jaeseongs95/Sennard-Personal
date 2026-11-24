@@ -17,7 +17,7 @@ JDK 25와 저장소의 Gradle Wrapper를 씁니다. Wrapper를 시작할 JDK 17 
 | `./gradlew :sennard-repo-tools:antigravityPackage -Ptool="--ref <ref> --out <zip>"` | Antigravity 설치 묶음 생성 |
 | `./gradlew :sennard-personal:jarRun` | 이 빌드의 릴리스 jar를 사용자가 실행하듯, ASCII 밖의 이름을 가진 폴더에서 파일 이름으로 실행(install, status, start, stop, upgrade, uninstall). `test`에 포함되지 않습니다 |
 | `./gradlew :sennard-repo-tools:checkWhitespace -Ptool="--base <sha>"` | `git diff --check`가 하는, 추가된 줄의 공백 검사(기준이 없으면 `HEAD`를 그 부모와 비교) |
-| `./gradlew :sennard-repo-tools:checkReleaseArchive`, `:sennard-repo-tools:checkReleaseChecksums` | 릴리스 워크플로의 jar 이름(태그와 대조)·체크섬 검사(인자는 작업 설명 참조). 릴리스 첨부는 Gradle 작업이 아닙니다. 릴리스에 쓸 수 있는 작업은 하나뿐이며, 저장소를 내려받지 않고 검사를 마친 파일을 `gh release upload`로 올립니다 |
+| `./gradlew :sennard-repo-tools:checkReleaseArchive`, `:sennard-repo-tools:checkReleaseChecksums` | 릴리스 워크플로의 jar 이름(태그와 대조)·체크섬·설치 실행 파일(`release/*.template`에서 만든 `setup.cmd`는 CRLF, `setup.sh`는 LF) 검사(인자는 작업 설명 참조). 릴리스 첨부는 Gradle 작업이 아닙니다. 릴리스에 쓸 수 있는 작업은 하나뿐이며, 저장소를 내려받지 않고 검사를 마친 파일을 `gh release upload`로 올립니다 |
 | `./gradlew :sennard-repo-tools:syncReleaseMetadata`, `:sennard-repo-tools:checkReleaseMetadata` | 버전 표면 동기화·검사 |
 | `./gradlew :sennard-repo-tools:updateSourceLock` | `skills/source-lock.json`의 통합 checksum 갱신 |
 | `./gradlew :sennard-repo-tools:updateClassificationDigests` | 스킬 `classification.json` span의 digest를 인용한 파일에서 다시 계산(줄·바이트 범위는 사람이 정하며 옮기지 않고, 파일을 벗어나면 실패) |

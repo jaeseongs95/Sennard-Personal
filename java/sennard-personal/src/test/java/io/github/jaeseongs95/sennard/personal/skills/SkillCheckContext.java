@@ -25,7 +25,6 @@ import io.github.jaeseongs95.sennard.personal.LocalFileFacts;
 import io.github.jaeseongs95.sennard.personal.BatchFileArguments;
 import io.github.jaeseongs95.sennard.personal.LocalProcessRunner;
 import io.github.jaeseongs95.sennard.personal.ProgramLocator;
-import io.github.jaeseongs95.sennard.personal.RunEnvironment;
 import io.github.jaeseongs95.sennard.personal.PersonalProperties;
 import io.github.jaeseongs95.sennard.server.config.SennardProperties;
 import io.github.jaeseongs95.sennard.server.limits.ResourceLimitSource;
@@ -76,7 +75,7 @@ public final class SkillCheckContext {
         context.registerBean(ResourceLimitSource.class, () -> resourceLimits);
         context.registerBean("personalProperties", PersonalProperties.class, () -> new PersonalProperties(stateDirectory, Path.of("."), new PersonalProperties.Store(false, org.springframework.transaction.annotation.Isolation.READ_COMMITTED)));
         context.registerBean("sennardProperties", SennardProperties.class, () -> new Binder(new MapConfigurationPropertySource(settings)).bindOrCreate("sennard", SennardProperties.class));
-        context.register(LocalProcessRunner.class, RunEnvironment.class, BatchFileArguments.class, ProgramLocator.class);
+        context.register(LocalProcessRunner.class, BatchFileArguments.class, ProgramLocator.class, io.github.jaeseongs95.sennard.server.execution.StopDeadline.class);
         context.registerBean("clock", java.time.Clock.class, java.time.Clock::systemUTC); // the application's one Clock bean (AppConfiguration in the product)
         // The wording the checks speak: the same message source the application has, over the same catalogs.
         context.registerBean("jsonMapper", JsonMapper.class, () -> TestJson.MAPPER); // the application's JsonMapper bean (Boot's auto-configuration in the product)

@@ -20,7 +20,7 @@
 
 - Codex 대기열 깨우기는 기본으로 켜져 있다. 워커는 `SENNARD_CODEX_QUEUE_WAKE`가 설정되어 있으면 그 값(`0`은 끄기, `1`은 켜기)을 사용한다. 변수가 없으면 절대 경로 `PLUGIN_DATA/session-messaging.json`의 `codex.queueWake`를 읽는다. 파일 제한은 4096바이트이며 `{"schemaVersion":"1.0.0","codex":{"queueWake":false}}`처럼 `queueWake` 값은 JSON 불리언이다. 변수 값이 비어 있거나 잘못된 경우, 또는 적용할 파일을 읽을 수 없거나 형식이 잘못된 경우에는 사전 조건 누락으로 보고한다. 워커는 관리 패키지 폴더나 훅의 PATH에서 네이티브 실행 파일을 찾아 `queue --thread <session> --message <marker>`를 호출한다.
 - Antigravity는 절대 경로인 `ANTIGRAVITY_AGENTAPI_EXE`나 훅의 PATH에서 native 실행 파일을 찾는다. `ANTIGRAVITY_CONVERSATION_ID`가 있으면 관측한 대화와 일치해야 한다. 대화형 메인 세션에서 `agentapi send-message <conversation> <marker>`를 호출할 때는 `ANTIGRAVITY_PROJECT_ID`, `ANTIGRAVITY_CSRF_TOKEN`과 루프백 `ANTIGRAVITY_LS_ADDRESS`가 필요하다. 주소에는 `localhost`, 표준 표기의 IPv4 루프백 주소 또는 `[::1]`와 1~65535번 포트를 쓸 수 있다.
-- Antigravity 관리형 자식을 만들 때 워커는 메인 세션의 작업 폴더에서 `agy acp`를 시작해 호스트가 지원하는 모델과 추론값을 확인한다. ACP 연결이 살아 있는 동안 호스트가 반환한 대화 ID를 유지하며, 첫 훅부터 워커가 등록한 결속을 사용한다. ACP 요청에는 예약 표식만 넣고 서버는 호출 직전 훅으로 peer 메시지를 제공한다. ACP 제어 요청은 10초, 수신 프레임은 1 MiB로 제한한다. 호스트의 기존 MCP 권한 규칙을 적용하며, 사용자 확인이 필요한 요청은 워커가 취소한다.
+- Antigravity 관리형 자식을 만들 때 워커는 메인 세션의 작업 폴더에서 `agy acp`를 시작해 호스트가 지원하는 모델과 추론값을 확인한다. ACP 연결이 살아 있는 동안 호스트가 반환한 대화 ID를 유지하며, 첫 훅부터 워커가 등록한 결속을 사용한다. 워커는 ACP 연결로 하위 대화를 시작하고 관리한다. PEER 깨우기는 메인으로 확인된 세션에 적용한다. ACP 제어 요청은 10초, 수신 프레임은 1 MiB로 제한한다. 호스트의 기존 MCP 권한 규칙을 적용하며, 사용자 확인이 필요한 요청은 워커가 취소한다.
 
 네이티브 `agentapi` 호출은 10초와 출력 64 KiB로 제한한다. 깨우기 요청으로 등록 키, 기능, 정해진 상태값, 표식과 결과를 교환한다. 허용 목록에 있는 호스트 환경과 연결 토큰은 로컬 워커와 네이티브 자식 프로세스에만 남는다.
 

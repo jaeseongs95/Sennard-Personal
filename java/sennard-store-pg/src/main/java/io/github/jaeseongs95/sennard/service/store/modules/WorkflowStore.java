@@ -7,9 +7,15 @@ package io.github.jaeseongs95.sennard.service.store.modules;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -103,6 +109,7 @@ public class WorkflowStore extends ModuleStore {
     private static final List<RootState> ACTIVE_ROOTS = Arrays.stream(RootState.values()).filter(RootState::isActive).toList();
     private static final List<RootState> SETTLED_ROOTS = Arrays.stream(RootState.values()).filter(state -> !state.isActive()).toList();
     private static final List<RunState> TERMINAL_RUNS = Arrays.stream(RunState.values()).filter(RunState::isTerminal).toList();
+    private static final List<RunState> LIVE_RUNS = Arrays.stream(RunState.values()).filter(state -> !state.isTerminal()).toList();
 
     /** The names a column holds for these constants (Spring Data JDBC's mapping of an enum): what a named list parameter binds for {@code IN (:states)}, which Spring expands to one placeholder per value. */
     private static List<String> names(List<? extends Enum<?>> constants) {
@@ -166,8 +173,17 @@ public class WorkflowStore extends ModuleStore {
     /**
      * {@code fresh}: identities derived for existing roots, saved even when {@code conflict} is set. {@code own}: for the new root, saved only when there is no conflict.
      * {@code activeSurface}: where the new root writes, the key of its row in {@code convergence_active_surfaces} (the primary key of that table) while the root is active.
+     * {@code yielded}: the active roots the plan left out of the conflict check because they overlap the new root's surface and nobody runs them; each gives its row of that surface up to the
+     * new root, on the condition that its revision is still the one the plan read.
      */
-    public record RootInsertionPlan<C>(C conflict, List<IdentityRow> fresh, IdentityRow own, String activeSurface) {
+    public record RootInsertionPlan<C>(C conflict, List<IdentityRow> fresh, IdentityRow own, String activeSurface, List<Yield> yielded) {
+        public RootInsertionPlan(C conflict, List<IdentityRow> fresh, IdentityRow own, String activeSurface) {
+            this(conflict, fresh, own, activeSurface, List.of());
+        }
+    }
+
+    /** An active root that gives its row of {@code convergence_active_surfaces} up, and the revision it was read at: the give-up is a compare-and-set on that revision. */
+    public record Yield(String rootId, long revision) {
     }
 
     public record GuardedBinding(String rootJson, String proposalJson, String leaseJson, String outcomeJson) {
@@ -456,7 +472,7 @@ public class WorkflowStore extends ModuleStore {
      * Inserts a root; {@code planner} sees the active roots and returns the plan. Returns the plan's conflict, or null when the root was inserted. The check is an ordinary read of the
      * committed active roots inside the caller's transaction, so it cannot see a root that another transaction has not committed yet. Two roots of the same write surface opened at the same
      * moment are decided by the primary key of {@code convergence_active_surfaces}: the second one's INSERT of its surface row ends in {@code StoreCode.ROOT_CONFLICT}. Two roots that only overlap (a folder and a file of it)
-     * and are opened at the same moment may both open (accepted, see {@code WorkflowService}).
+     * and are opened at the same moment may both open (accepted, see {@code WorkflowService}). The rows are taken in the order of {@link #takeRootRows}.
      */
     public <C> C insertConvergenceRoot(RootRow root, String parentRootId, Function<List<ActiveRootRow>, RootInsertionPlan<C>> planner) {
         StoredRoot parent = parentRootId == null ? null : rootRow(parentRootId);
@@ -464,44 +480,179 @@ public class WorkflowStore extends ModuleStore {
             throw new StoreException(StoreCode.INVALID_INPUT, "The parent convergence root was not found.");
         }
         RootInsertionPlan<C> plan = planner.apply(readActiveRoots());
-        for (IdentityRow identity : plan.fresh()) {
-            saveRootIdentity(identity, root.createdAt());
-        }
-        if (plan.conflict() != null) {
-            return plan.conflict();
-        }
-        if (parent != null) {
-            String abandoned = records.withText(records.withNumber(records.withState(parent.rootJson(), RootState.ABANDONED),
-                    "revision", parent.revision() + 1), "updatedAt", root.createdAt());
-            casRoot(new RootRow(parentRootId, parent.revision() + 1, RootState.ABANDONED, null, null, abandoned, null, root.createdAt(), 0, null), parent.revision());
-        }
-        update("INSERT INTO " + T + "convergence_roots (root_id, revision, state, workspace_id, workspace_locator, root_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                root.rootId(), root.revision(), root.state(), root.workspaceId(), root.workspaceLocator(), root.rootJson(), StoreValues.ts(root.createdAt()), StoreValues.ts(root.updatedAt()));
-        // An active root holds its write surface in a row of convergence_active_surfaces, so of two roots of one surface that are opened together the second INSERT meets the first one's
-        // primary key. A root that is not active has no row.
-        if (root.state().isActive()) {
-            try {
-                update("INSERT INTO " + T + "convergence_active_surfaces (active_surface, root_id) VALUES (?, ?)", plan.activeSurface(), root.rootId());
-            } catch (StoreException lost) {
-                if (lost.code() != StoreCode.STORE_UNIQUE_VIOLATION) {
-                    throw lost;
-                }
-                // The root id of this row is the root just inserted above, which no other row holds (the table's UNIQUE key on it cannot fail), so a unique violation of this INSERT is
-                // the primary key on the surface: a root that is active holds the same write surface already. That is the store's ROOT_CONFLICT; this call ends with it, the root INSERT
-                // above rolls back with the transaction, and nothing goes on or runs again.
-                throw new StoreException(StoreCode.ROOT_CONFLICT, null, lost.effect(), "An active root holds the same write surface.", lost);
+        return losingRace(StoreCode.ROOT_CONFLICT, () -> {
+            saveFreshIdentities(plan, root.createdAt());
+            if (plan.conflict() != null) {
+                return plan.conflict();
             }
-        }
-        insertEpoch(root, root.createdAt());
-        saveRootIdentity(plan.own(), root.createdAt());
-        return null;
+            update("INSERT INTO " + T + "convergence_roots (root_id, revision, state, workspace_id, workspace_locator, root_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    root.rootId(), root.revision(), root.state(), root.workspaceId(), root.workspaceLocator(), root.rootJson(), StoreValues.ts(root.createdAt()), StoreValues.ts(root.updatedAt()));
+            List<LockedRoot> locked = new ArrayList<>();
+            if (parent != null) {
+                String abandoned = records.withText(records.withNumber(records.withState(parent.rootJson(), RootState.ABANDONED),
+                        "revision", parent.revision() + 1), "updatedAt", root.createdAt());
+                locked.add(LockedRoot.rewritten(new RootRow(parentRootId, parent.revision() + 1, RootState.ABANDONED, null, null, abandoned, null, root.createdAt(), 0, null), parent.revision()));
+            }
+            // An active root holds its write surface in a row of convergence_active_surfaces, so of two roots of one surface that are opened together the second INSERT meets the first one's
+            // primary key. A root that is not active has no row.
+            boolean active = root.state().isActive();
+            List<Yield> yielded = active ? plan.yielded() : List.of();
+            Taken taken = takeRootRows(locked, yielded, root.createdAt());
+            takeSurfaceRows(taken.replaced(), yielded, active ? root.rootId() : null, plan.activeSurface());
+            insertEpoch(root, root.createdAt());
+            saveRootIdentity(plan.own(), root.createdAt());
+            return null;
+        });
     }
 
-    /** Every active root with its stored identity (the planner input and the edit gate's read). */
+    /** What {@link #holdSurface} did: the plan's conflict (nothing taken), or whether the root was still at the revision the caller read (when it was not, nothing was taken and the caller's own write of the root fails). */
+    public record SurfaceTake<C>(C conflict, boolean rootAtRevision) {
+    }
+
+    /**
+     * A root that is active and holds no row of {@code convergence_active_surfaces} (it gave the row up to another root while nobody ran it) takes its write surface again before it
+     * starts or claims an attempt: only the root that holds the row of a surface works on its files. {@code planner} sees the active roots, as in {@link #insertConvergenceRoot}, and returns
+     * the plan: the conflict with a root that holds the files (returned, nothing taken), or the surface to take and the idle roots that give theirs up. A root that holds its row already
+     * asks for nothing ({@link #holdsSurface}). The take ends in {@code StoreCode.ROOT_CONFLICT} when an idle root's revision moved since the plan read it (its owner started an attempt
+     * first), when another root holds the key of the surface, or when the call lost a lock race ({@link #losingRace}); the caller's transaction then rolls back whole. The rows are taken in
+     * the order of {@link #takeRootRows}, the caller's own root included, whatever the caller writes of its root next.
+     *
+     * @param revision the revision of the root the caller read; the caller's own write of the root expects it too
+     * @return the plan's conflict, or whether the root was still at {@code revision} (see {@link SurfaceTake})
+     */
+    public <C> SurfaceTake<C> holdSurface(String rootId, long revision, Function<List<ActiveRootRow>, RootInsertionPlan<C>> planner, String now) {
+        RootInsertionPlan<C> plan = planner.apply(readActiveRoots());
+        return losingRace(StoreCode.ROOT_CONFLICT, () -> {
+            saveFreshIdentities(plan, now);
+            if (plan.conflict() != null) {
+                return new SurfaceTake<>(plan.conflict(), true);
+            }
+            if (!takeRootRows(List.of(LockedRoot.kept(rootId, revision)), plan.yielded(), now).ownAtRevision()) {
+                return new SurfaceTake<>(null, false);
+            }
+            takeSurfaceRows(List.of(), plan.yielded(), rootId, plan.activeSurface());
+            return new SurfaceTake<>(null, true);
+        });
+    }
+
+    /** Whether the root holds a row of {@code convergence_active_surfaces}: the root that does is the one that may work on the files of that surface. */
+    public boolean holdsSurface(String rootId) {
+        return !jdbc.sql("SELECT 1 FROM " + T + "convergence_active_surfaces WHERE root_id = :rootId").param("rootId", rootId).query(Integer.class).list().isEmpty();
+    }
+
+    /**
+     * Whether the root has a run that is not over: one running, or one held (paused) for its owner to resume. Only the runs' states are read, never their receipts.
+     */
+    public boolean hasLiveRun(String rootId) {
+        return !jdbc.sql("SELECT 1 FROM " + T + "workflow_attempt_links l JOIN " + T + "workflow_runs r ON r.run_id = l.run_id WHERE l.root_id = :rootId AND r.state IN (:states)")
+                .param("rootId", rootId).param("states", names(LIVE_RUNS)).query(Integer.class).list().isEmpty();
+    }
+
+    /**
+     * A root row that a surface write takes in {@link #takeRootRows}: the caller's own root ({@code replacement} null: its row stays as it is, only taken), or a root that the write
+     * replaces (the parent a new root replaces, which is written at its place in the order).
+     */
+    private record LockedRoot(String rootId, long revision, RootRow replacement) {
+        static LockedRoot kept(String rootId, long revision) {
+            return new LockedRoot(rootId, revision, null);
+        }
+
+        static LockedRoot rewritten(RootRow replacement, long revision) {
+            return new LockedRoot(replacement.rootId(), revision, replacement);
+        }
+    }
+
+    /**
+     * The order in which one transaction takes the rows that a surface write touches, the same for every caller (a new root, the claim of an attempt, a start of a run, the move of a root to
+     * its review), so that two transactions that need some of the same rows never wait for each other: (1) the identities of the roots that were derived, by root id; (2) the root rows,
+     * by root id, the caller's own root among them: an idle root that gives its row up is written (compare-and-set on the revision the plan read), the caller's own root is taken without a
+     * change (a row that is only taken stays as it is, and the caller's own write of it follows), a replaced parent is rewritten; (3) the rows of {@code convergence_active_surfaces}
+     * ({@link #takeSurfaceRows}). A caller does not order anything itself and writes nothing of the surface rows before this has run. The lease rows of a root come after the root's own
+     * row in the writes that issue and consume a lease ({@link #insertAttemptLease}, {@link #insertGuardedRun}).
+     *
+     * <p>Every surface write of a root is behind its root rows, the replaced parent's too: the parent is rewritten here without the end of its row of the surface ({@link #writeRoot}, the
+     * write of {@link #casRoot} that is not the surface's), and that row ends with the others in step (3). A parent's row ended in its own step (2) would hold a surface row while a
+     * root row with a larger id is still to be taken, the order the rule rules out. The writes that move one root alone ({@link #updateConvergenceRoot}) take its row and then its
+     * surface row, which is this order for a set of one.
+     *
+     * @return whether the caller's own root was still at the revision it read (when it was not, nothing is taken after that: the caller's own write fails the same way), and the replaced
+     *         parents that were rewritten: a replaced parent's compare-and-set that was lost is not asked about, as it never was, and its row of the surface is left as it is
+     * @throws StoreException ROOT_CONFLICT when an idle root's revision moved since the plan read it
+     */
+    private Taken takeRootRows(List<LockedRoot> own, List<Yield> yielded, String now) {
+        List<String> replaced = new ArrayList<>();
+        Map<String, LockedRoot> ownById = new TreeMap<>();
+        own.forEach(root -> ownById.put(root.rootId(), root));
+        Map<String, Yield> givingById = new TreeMap<>();
+        yielded.forEach(giving -> givingById.put(giving.rootId(), giving));
+        Set<String> order = new TreeSet<>(ownById.keySet());
+        order.addAll(givingById.keySet());
+        for (String rootId : order) {
+            Yield giving = givingById.get(rootId);
+            if (giving != null) {
+                giveUp(giving, now);
+                continue;
+            }
+            LockedRoot mine = ownById.get(rootId);
+            if (mine.replacement() != null) {
+                if (writeRoot(mine.replacement(), mine.revision())) {
+                    replaced.add(rootId);
+                }
+            } else if (update("UPDATE " + T + "convergence_roots SET revision = revision WHERE root_id = ? AND revision = ?", mine.rootId(), mine.revision()) != 1) {
+                return new Taken(false, replaced);
+            }
+        }
+        return new Taken(true, replaced);
+    }
+
+    /** What {@link #takeRootRows} took: whether the caller's own root was still at its revision, and the replaced parents whose rows it rewrote (their rows of the surface end in {@link #takeSurfaceRows}). */
+    private record Taken(boolean ownAtRevision, List<String> replaced) {
+    }
+
+    /**
+     * An idle root that overlaps the surface gives its row up: it stays active, only its claim on the file ends. The give-up is a compare-and-set on the root's revision, the write every
+     * start and claim of that root makes: it changes the row only if nobody started an attempt of that root since the plan read it, and when two of them meet one waits for the other's
+     * commit and then finds the revision moved. A write that lost the compare-and-set changed nothing and ends the call.
+     */
+    private void giveUp(Yield giving, String now) {
+        StoredRoot current = rootRow(giving.rootId());
+        boolean given = current != null && current.state().isActive() && current.revision() == giving.revision()
+                && casRoot(new RootRow(giving.rootId(), giving.revision() + 1, current.state(), null, null,
+                        records.withText(records.withNumber(current.rootJson(), "revision", giving.revision() + 1), "updatedAt", now), null, now, 0, null), giving.revision());
+        if (!given) {
+            throw new StoreException(StoreCode.ROOT_CONFLICT, "An idle root was taken up by its owner before it gave its write surface up.");
+        }
+    }
+
+    /**
+     * The last step of a surface write, after every root row ({@link #takeRootRows}): the rows of the roots whose claim on the surface ends (the ones that gave it up, the parent the new
+     * root replaces), by root id, then the root takes its own. A root that is given up and holds no row has none to end. The key of the surface is the primary key of the table, so of two
+     * roots that take one surface the second INSERT waits for the first one's commit and then meets it (a unique violation, which {@link #losingRace} answers as ROOT_CONFLICT: a root
+     * that is active holds the same write surface already).
+     *
+     * @param ending the replaced parent that {@link #takeRootRows} rewrote, or none (a parent whose compare-and-set was lost keeps its row, as before)
+     * @param yielded the idle roots that give their rows up
+     * @param ownRootId the root that takes the surface, or null when the write takes none (a new root that is not active)
+     */
+    private void takeSurfaceRows(List<String> ending, List<Yield> yielded, String ownRootId, String activeSurface) {
+        Set<String> ended = new TreeSet<>(ending);
+        yielded.forEach(giving -> ended.add(giving.rootId()));
+        ended.forEach(rootId -> update("DELETE FROM " + T + "convergence_active_surfaces WHERE root_id = ?", rootId));
+        if (ownRootId != null) {
+            update("INSERT INTO " + T + "convergence_active_surfaces (active_surface, root_id) VALUES (?, ?)", activeSurface, ownRootId);
+        }
+    }
+
+    /** The identities of the active roots that the plan derived, saved even when the plan has a conflict, in the order of {@link #takeRootRows}. */
+    private void saveFreshIdentities(RootInsertionPlan<?> plan, String now) {
+        plan.fresh().stream().sorted(Comparator.comparing(IdentityRow::rootId)).forEach(identity -> saveRootIdentity(identity, now));
+    }
+
+    /** Every active root with its stored identity (the planner input and the edit gate's read), by root id. */
     public List<ActiveRootRow> readActiveRoots() {
         return jdbc.sql("SELECT r.root_id, r.root_json, r.revision, i.identity_json, i.surface_digest FROM " + T + "convergence_roots r "
                 + "LEFT JOIN " + T + "convergence_root_identities i ON i.root_id = r.root_id "
-                + "WHERE r.state IN (:states)").param("states", names(ACTIVE_ROOTS)).query(ActiveRootRow.class).list();
+                + "WHERE r.state IN (:states) ORDER BY r.root_id").param("states", names(ACTIVE_ROOTS)).query(ActiveRootRow.class).list();
     }
 
     /** The root document alone, without loading its attempt history. */
@@ -551,16 +702,30 @@ public class WorkflowStore extends ModuleStore {
 
     // --------------------------------------------------------------------------------------------------------------- leases
 
-    /** A busy database or a second issued lease on the root (the unique key of the issued leases, or of the lease rows) is LEASE_CONFLICT. */
-    private static <V> V contending(Supplier<V> body) {
+    /**
+     * What a lost race is, for every write of the roots, leases and surfaces: a busy database, a key that was just taken (the unique key of the issued leases, of the lease rows, or of
+     * the surface), or the loss of a deadlock or a serialization failure (the database ends one of the transactions, which rolls back and writes nothing). The one set, so that the writes
+     * answer the same loss the same way.
+     */
+    private static final Set<StoreCode> LOST_RACE = EnumSet.of(StoreCode.STORE_BUSY, StoreCode.STORE_UNIQUE_VIOLATION, StoreCode.STORE_CONFLICT);
+
+    /**
+     * A write that lost a race ({@link #LOST_RACE}) is refused with {@code lostAs}, the code of a lost race of that write (a lease: LEASE_CONFLICT; a surface: ROOT_CONFLICT), not as a
+     * failure of the server. Anything else the write threw passes as it is.
+     */
+    private static <V> V losingRace(StoreCode lostAs, Supplier<V> body) {
         try {
             return body.get();
         } catch (StoreException failure) {
-            if (failure.code() == StoreCode.STORE_BUSY || failure.code() == StoreCode.STORE_UNIQUE_VIOLATION) {
-                throw new StoreException(StoreCode.LEASE_CONFLICT, null, failure.effect(), "The convergence database is busy or a lease was just issued.", failure);
+            if (LOST_RACE.contains(failure.code())) {
+                throw new StoreException(lostAs, null, failure.effect(), "The convergence database is busy, the key of a lease or of a write surface was just taken, or the call lost a deadlock.", failure);
             }
             throw failure;
         }
+    }
+
+    private static <V> V contending(Supplier<V> body) {
+        return losingRace(StoreCode.LEASE_CONFLICT, body);
     }
 
 
@@ -615,16 +780,19 @@ public class WorkflowStore extends ModuleStore {
                 return null;
             }
             String consumed = records.withState(leaseJson, LeaseState.CONSUMED);
-            if (update("UPDATE " + T + "convergence_leases SET state = ?, lease_json = ? WHERE lease_id = ? AND state = ?",
-                    LeaseState.CONSUMED, consumed, leaseId, LeaseState.ISSUED) != 1) {
-                return null;
-            }
-            update("DELETE FROM " + T + "convergence_issued_leases WHERE lease_id = ?", leaseId);
             String rootJson = records.withText(records.withNumber(rootRow.rootJson(), "revision", expectedRootRevision + 1), "updatedAt", consumedAt);
             RootRow root = new RootRow(rootId, expectedRootRevision + 1, rootRow.state(), null, null, rootJson, null, consumedAt, 0, null);
+            // The root row comes before the lease rows, as in the claim of an attempt (insertAttemptLease): two transactions that write one root and its lease never wait for each other.
+            // Nothing is written before this compare-and-set, so a start that lost it returns null with nothing changed.
             if (!casRoot(root, expectedRootRevision)) {
                 return null;
             }
+            // The root moved with every lease that was issued or superseded, so a lease that is no longer issued after the compare-and-set held is not a race a caller can act on.
+            if (update("UPDATE " + T + "convergence_leases SET state = ?, lease_json = ? WHERE lease_id = ? AND state = ?",
+                    LeaseState.CONSUMED, consumed, leaseId, LeaseState.ISSUED) != 1) {
+                throw new StoreException(StoreCode.LEASE_CONFLICT, "The lease was consumed or superseded while its root stayed at the revision the start read.");
+            }
+            update("DELETE FROM " + T + "convergence_issued_leases WHERE lease_id = ?", leaseId);
             insertRun(receipt, consumedAt, kind, skills);
             long epoch = leaseRow.epoch();
             long ordinal = leaseRow.ordinal();
@@ -867,10 +1035,18 @@ public class WorkflowStore extends ModuleStore {
         return one("SELECT root_id, state, root_revision, epoch, ordinal, lease_json, proposal_json FROM " + T + "convergence_leases WHERE lease_id = ?", StoredLease.class, leaseId);
     }
 
-    /** Writes the root only if it is still at expectedRevision; true when exactly one row changed. */
-    private boolean casRoot(RootRow root, long expectedRevision) {
-        boolean changed = update("UPDATE " + T + "convergence_roots SET revision = ?, state = ?, root_json = ?, updated_at = ? WHERE root_id = ? AND revision = ?",
+    /** Writes the root's row only if it is still at expectedRevision; true when exactly one row changed. Its row of the surface is not touched: see {@link #casRoot}. */
+    private boolean writeRoot(RootRow root, long expectedRevision) {
+        return update("UPDATE " + T + "convergence_roots SET revision = ?, state = ?, root_json = ?, updated_at = ? WHERE root_id = ? AND revision = ?",
                 root.revision(), root.state(), root.rootJson(), StoreValues.ts(root.updatedAt()), root.rootId(), expectedRevision) == 1;
+    }
+
+    /**
+     * Writes the root only if it is still at expectedRevision; true when exactly one row changed. For the write of one root: the root row, then its own row of the surface. A write of
+     * several roots ({@link #takeRootRows}) ends a root's row of the surface in its place after every root row instead ({@link #takeSurfaceRows}).
+     */
+    private boolean casRoot(RootRow root, long expectedRevision) {
+        boolean changed = writeRoot(root, expectedRevision);
         // A root that is no longer active gives up its write surface in the same transaction, so the surface can be held by the next root. A write that lost the compare-and-set
         // changed nothing and keeps the surface.
         if (changed && !root.state().isActive()) {

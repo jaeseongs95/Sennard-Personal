@@ -4,18 +4,12 @@
 
 package io.github.jaeseongs95.sennard.personal.wake;
 
-import java.io.BufferedInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
@@ -23,8 +17,6 @@ import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.Launch;
 import io.github.jaeseongs95.sennard.protocol.ToolProcess;
 import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.Outcome;
 import tools.jackson.core.JacksonException;
-import tools.jackson.core.StreamReadFeature;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectReader;
 import tools.jackson.databind.json.JsonMapper;
@@ -32,10 +24,11 @@ import tools.jackson.databind.json.JsonMapper;
 /** One ACP connection owns the session it created until the worker releases it. */
 final class AntigravityManagedConversation implements NativeWakeAdapter.ManagedConversation, AutoCloseable {
     private static final System.Logger LOG = System.getLogger(AntigravityManagedConversation.class.getName());
-    private static final int MAX_FRAME_BYTES = 1024 * 1024;
-    private static final Duration CONTROL_DEADLINE = Duration.ofSeconds(10);
+    private static final String CLOSED_OUTPUT = "Antigravity closed its ACP output.";
+    private static final ManagedExchangeDeadline CONTROL_DEADLINE = new ManagedExchangeDeadline(Duration.ofSeconds(10),
+            "Antigravity did not answer before the ACP control deadline.", "The Antigravity ACP exchange failed.", false);
     private final ToolProcess.Stdio process;
-    private final BufferedInputStream output;
+    private final ManagedStreamFrames frames;
     private final JsonMapper mapper;
     private final ObjectReader reader;
     private final String threadId;
@@ -62,10 +55,10 @@ final class AntigravityManagedConversation implements NativeWakeAdapter.ManagedC
             throws IOException, InterruptedException {
         this.process = process;
         this.mapper = mapper;
-        output = new BufferedInputStream(process.output());
-        reader = mapper.readerFor(JsonNode.class).with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-        threadId = timed(() -> {
+        frames = new ManagedStreamFrames(process.output(), process.input(),
+                "Antigravity exceeded the ACP frame limit.", () -> new IOException(CLOSED_OUTPUT));
+        reader = WakeJson.strictReader(mapper, JsonNode.class);
+        threadId = CONTROL_DEADLINE.run(() -> {
             JsonNode initialized = request("initialize", Map.of("protocolVersion", 1, "clientCapabilities", Map.of()));
             if (!initialized.path("protocolVersion").isInt() || initialized.path("protocolVersion").intValue() != 1) {
                 throw new IOException("Antigravity did not negotiate ACP version 1.");
@@ -137,7 +130,7 @@ final class AntigravityManagedConversation implements NativeWakeAdapter.ManagedC
         }
         try {
             if (runningTurn != null) {
-                await(runningTurn);
+                CONTROL_DEADLINE.await(runningTurn);
             }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
@@ -147,7 +140,7 @@ final class AntigravityManagedConversation implements NativeWakeAdapter.ManagedC
             return new Outcome.NotSent("MANAGED_AGY_PREVIOUS_TURN_UNAVAILABLE");
         }
         try {
-            int id = timed(() -> send("session/prompt", Map.of("sessionId", threadId,
+            int id = CONTROL_DEADLINE.run(() -> send("session/prompt", Map.of("sessionId", threadId,
                     "prompt", List.of(Map.of("type", "text", "text", marker)))));
             // ACP replies to session/prompt at the end of the turn. The relay reports submission when the frame was written.
             runningTurn = new FutureTask<>(() -> {
@@ -226,55 +219,23 @@ final class AntigravityManagedConversation implements NativeWakeAdapter.ManagedC
     }
 
     private void write(Map<String, ?> frame) throws IOException {
-        var input = process.input();
-        input.write(mapper.writeValueAsBytes(frame));
-        input.write('\n');
-        input.flush();
+        frames.write(mapper.writeValueAsBytes(frame));
     }
 
     private JsonNode read() throws IOException {
-        var bytes = new ByteArrayOutputStream();
-        for (int octet = output.read(); octet != -1; octet = output.read()) {
-            if (octet == '\n') {
-                try {
-                    JsonNode frame = reader.readValue(bytes.toByteArray());
-                    if (frame != null && frame.isObject() && "2.0".equals(frame.path("jsonrpc").stringValue(null))) {
-                        return frame;
-                    }
-                } catch (JacksonException invalid) {
-                    throw new IOException("Antigravity sent invalid ACP JSON.");
-                }
-                throw new IOException("Antigravity sent an invalid ACP frame.");
-            }
-            if (bytes.size() == MAX_FRAME_BYTES) {
-                throw new IOException("Antigravity exceeded the ACP frame limit.");
-            }
-            bytes.write(octet);
+        byte[] bytes = frames.read();
+        if (bytes == null) {
+            throw new IOException(CLOSED_OUTPUT);
         }
-        throw new IOException("Antigravity closed its ACP output.");
-    }
-
-    private static <T> T timed(Callable<T> exchange) throws IOException, InterruptedException {
-        var operation = new FutureTask<>(exchange);
-        Thread.ofVirtual().start(operation);
         try {
-            return await(operation);
-        } finally {
-            operation.cancel(true);
-        }
-    }
-
-    private static <T> T await(FutureTask<T> operation) throws IOException, InterruptedException {
-        try {
-            return operation.get(CONTROL_DEADLINE.toNanos(), TimeUnit.NANOSECONDS);
-        } catch (TimeoutException timedOut) {
-            throw new IOException("Antigravity did not answer before the ACP control deadline.");
-        } catch (ExecutionException failed) {
-            if (failed.getCause() instanceof IOException io) {
-                throw io;
+            JsonNode frame = reader.readValue(bytes);
+            if (frame != null && frame.isObject() && "2.0".equals(frame.path("jsonrpc").stringValue(null))) {
+                return frame;
             }
-            throw new IOException("The Antigravity ACP exchange failed.");
+        } catch (JacksonException invalid) {
+            throw new IOException("Antigravity sent invalid ACP JSON.");
         }
+        throw new IOException("Antigravity sent an invalid ACP frame.");
     }
 
     @Override

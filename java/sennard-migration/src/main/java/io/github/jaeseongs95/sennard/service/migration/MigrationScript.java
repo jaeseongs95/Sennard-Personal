@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -24,8 +25,32 @@ import io.github.jaeseongs95.sennard.domain.Digests;
  * One migration script of the jar: {@code V<number>__<description>.sql} under a location such as {@code db/expand}. The number orders the scripts; the digest is the SHA-256 of the
  * file's bytes as they are in the jar, so it is the same on every database whatever type name {@code ${long_text}} becomes there.
  */
-public record MigrationScript(long version, String file, byte[] bytes, String digest) {
+public record MigrationScript(long version, String file, byte[] bytes, String digest, String source) {
     private static final Pattern NAME = Pattern.compile("^V(\\d+)__.+\\.sql$");
+
+    /** A script supplied directly rather than loaded from the classpath. */
+    public MigrationScript(long version, String file, byte[] bytes, String digest) {
+        this(version, file, bytes, digest, "");
+    }
+
+    /** Whether the script has the exact resource file name, including case. */
+    public boolean hasFileName(String expectedFile) {
+        return Objects.equals(file, expectedFile);
+    }
+
+    /** Whether this script came from the exact classpath resource, including its directory. */
+    public boolean loadedFrom(String classpathPath) {
+        try {
+            for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath*:" + classpathPath)) {
+                if (source.equals(resource.getURL().toExternalForm())) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (IOException failure) {
+            throw new MigrationException(MigrationCode.FAILED, "The migration location could not be checked: " + classpathPath, failure);
+        }
+    }
 
     /** The text of the script as the database takes it: the long text type of the database for {@code ${long_text}}, and the product's spelling of the phrases it spells otherwise ({@link ScriptDialect}). */
     String text(String longTextType, ScriptDialect dialect) {
@@ -48,7 +73,7 @@ public record MigrationScript(long version, String file, byte[] bytes, String di
                     throw new MigrationException(MigrationCode.FAILED, "Two migration scripts have the number " + version + " under " + location + ".");
                 }
                 byte[] bytes = resource.getContentAsByteArray();
-                scripts.add(new MigrationScript(version, file, bytes, Digests.sha256Hex(bytes)));
+                scripts.add(new MigrationScript(version, file, bytes, Digests.sha256Hex(bytes), resource.getURL().toExternalForm()));
             }
         } catch (IOException failure) {
             throw new UncheckedIOException("The migration scripts under " + location + " cannot be read.", failure);

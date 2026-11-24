@@ -927,12 +927,14 @@ public class ContextLayerService {
 
     /** The binding is the user's assignment and is given even while its role has no body yet. */
     private static void addRoleLine(List<MessageRef> lines, Binding binding, RoleView role, boolean sendBody, boolean changed, boolean sameRoleHadBody) {
-        if (sendBody && role != null && !role.body().isEmpty()) {
+        boolean hasBody = role != null && !role.body().isEmpty();
+        if (sendBody && hasBody) {
             lines.add(MessageRef.of(ROLE_BLOCK, "role", binding.role(), "stateToken", role.stateToken(), "changed", changed ? "yes" : "no", "body", SessionText.quoted(role.body())));
-        } else if (changed && sameRoleHadBody) {
+        } else if (!hasBody && changed && sameRoleHadBody) {
             lines.add(MessageRef.of("hooks.contextLayers.cleared", "layer", "role", "role", binding.role()));
         } else {
-            lines.add(MessageRef.of("hooks.contextLayers.roleBound", "role", binding.role(), "changed", changed ? "yes" : "no"));
+            lines.add(MessageRef.of("hooks.contextLayers.roleBound", "role", binding.role(), "changed", changed ? "yes" : "no",
+                    "state", (hasBody ? RoleBodyState.FILLED : RoleBodyState.EMPTY).wire()));
         }
     }
 

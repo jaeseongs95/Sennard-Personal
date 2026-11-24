@@ -8,11 +8,13 @@ package io.github.jaeseongs95.sennard.service.session;
  * What a stored session is, as far as the host has shown ({@code session_ref.kind}, holding the constant's name). Only {@code MAIN} sessions
  * are listed: the session list and the admin page's session binding are for main agents.
  *
- * <p>{@code CHILD} is a conversation a tool call's metadata named as a child of another; it is never changed afterwards, because a
+ * <p>{@code UNKNOWN} is a conversation whose hooks leave its role unresolved. A correlated call can classify it.
+ * {@code CHILD} is a conversation observed as a child of another; it is never changed afterwards, because a
  * conversation does not become a root. {@code PRESET_AGENT} is a session its host started with an agent chosen at launch (Claude Code's
  * {@code --agent}); a later hook of a main agent in the same session makes it {@code MAIN} again.
  */
 public enum SessionKind {
+    UNKNOWN,
     MAIN,
     CHILD,
     PRESET_AGENT

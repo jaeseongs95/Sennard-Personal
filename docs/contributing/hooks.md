@@ -43,7 +43,7 @@ The extension folder is `gemini-extension/` (`gemini-extension.json`, `hooks/hoo
 | AfterAgent | Sennard client | TurnEnded. Continuing the turn uses `decision: "deny"` with `reason` |
 | BeforeModel | Sennard client | ModelCallStarting |
 | BeforeTool | Sennard client | ToolRequested. Blocking uses `decision: "deny"` |
-| AfterTool | Sennard client | ToolFinished. Text goes in `hookSpecificOutput.additionalContext` |
+| AfterTool | Sennard client | ToolFinished. Text goes in `hookSpecificOutput.additionalContext`. A result is never denied, a subagent's (`invoke_agent`) included: Gemini CLI puts "Tool result blocked" in place of a denied result (`packages/core/src/core/coreToolHookTriggers.ts`), and the parent would lose what the subagent returned |
 | PreCompress | Sennard client | CompactionStarting |
 | AfterModel | Not received | Official: the event fires for every response chunk, so it does not mean "the model call finished" |
 | BeforeToolSelection, Notification | Not received | No corresponding Sennard collected event exists |
@@ -118,7 +118,7 @@ Because no OS service registration (schtasks, systemctl, launchctl) exists, the 
 
 **A tool-admission hook stops the tool when it cannot obtain a server decision.** This includes connection failures, client timeouts and HTTP refusals. SessionStart, UserPromptSubmit, PostToolUse and Stop have their own failure responses.
 
-A gate can stop a tool at `HostEvent.ToolRequested`. The Codex `continuity` registration runs on every `PreToolUse` event the host emits. On Claude Code, `governance` handles Sennard tools and `continuity` checks the other `PreToolUse` calls. Gemini CLI uses `BeforeTool` and Antigravity uses `PreToolUse`. Codex, Claude Code and Antigravity register a separate `native-peer` gate for direct inter-agent send tools. The Antigravity registration matches `send_message` with or without `default_api:`. Claude Code uses exit 2 with a reason on stderr. Codex uses `hookSpecificOutput.permissionDecision: "deny"` with the reason on stdout and exit 0 because Windows PowerShell can turn a native exit code of 2 into 1. Antigravity and Gemini CLI use `decision: "deny"` with a reason on stdout. The Codex `peer-wait` registration supplies bounded-wait guidance.
+A gate can stop a tool at `HostEvent.ToolRequested`. The Codex `continuity` registration runs on every `PreToolUse` event the host emits. On Claude Code, `governance` handles Sennard tools and `continuity` checks the other `PreToolUse` calls. Gemini CLI uses `BeforeTool` and Antigravity uses `PreToolUse`. Codex, Claude Code and Antigravity register a separate `native-peer` gate for the host's own send tools (see "Host Send Tools" in `session-messaging.md`). The Antigravity registration matches `send_message` with or without `default_api:`. Claude Code uses exit 2 with a reason on stderr. Codex uses `hookSpecificOutput.permissionDecision: "deny"` with the reason on stdout and exit 0 because Windows PowerShell can turn a native exit code of 2 into 1. Antigravity and Gemini CLI use `decision: "deny"` with a reason on stdout. The Codex `peer-wait` registration supplies bounded-wait guidance.
 
 | Situation | Gate | Other hooks |
 |---|---|---|

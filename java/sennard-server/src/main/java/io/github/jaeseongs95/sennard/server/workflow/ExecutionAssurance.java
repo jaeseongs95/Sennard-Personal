@@ -88,6 +88,10 @@ public class ExecutionAssurance {
         }
         // The server keeps no model catalog: every model is recorded with its class unknown, none is refused.
         notes.add("MODEL_NOT_IN_CATALOG");
+        if (observed.fromRequestRecord()) {
+            // The model is the one the host sent the request with, which produced the call, not the one on the line that issued it.
+            notes.add("MODEL_FROM_REQUEST_RECORD");
+        }
         return new ExecutionContext(ContractValidator.CONTRACT_VERSION, observed.model(), null, effort, notes, ExecutionSource.RUNTIME, clock.instant(), observationId(call), binding.taskId(), binding.runId(),
                 binding.stageId(), binding.revision(), call.actorId(), null);
     }
@@ -105,7 +109,7 @@ public class ExecutionAssurance {
             String reason = null;
             if (call.execution() instanceof SelfSession.Execution.Unobserved unobserved) {
                 reason = unobserved.reason();
-                // What the host's reader found when it looked (transcriptReason, waitedMs, linesSeen): codes and numbers only.
+                // What the host's reader found when it looked (transcriptReason, linesSeen): codes and numbers only.
                 unobserved.facts().forEach((key, value) -> diagnosis.putIfAbsent(key, value));
             } else if (call.callId() == null) {
                 reason = "HOST_CALL_ID_UNAVAILABLE";

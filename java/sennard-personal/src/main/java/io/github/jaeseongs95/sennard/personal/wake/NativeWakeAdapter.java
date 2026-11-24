@@ -17,6 +17,10 @@ import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.Target;
 public interface NativeWakeAdapter {
     Availability connect(Map<String, String> environment, Target target);
 
+    default Optional<SessionTitleReader> sessionTitles(Map<String, String> environment, Target target) throws IOException {
+        return Optional.empty();
+    }
+
     default Optional<ManagedLauncher> managedLauncher(Map<String, String> environment, Target target) throws IOException {
         return Optional.empty();
     }
@@ -24,6 +28,11 @@ public interface NativeWakeAdapter {
     @FunctionalInterface
     interface ManagedLauncher {
         ManagedConversation create(Launch launch) throws IOException, InterruptedException;
+    }
+
+    @FunctionalInterface
+    interface SessionTitleReader {
+        Optional<String> read() throws IOException, InterruptedException;
     }
 
     interface ManagedConversation extends Connection {

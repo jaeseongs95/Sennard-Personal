@@ -15,6 +15,7 @@
   "error.GATE_FAILED": "A rule of the product refuses this step now.",
   "error.BINDING_REQUIRED": "This call needs the session it belongs to, and it does not say which one it is.",
   "error.BINDING_INVALID": "The session this call names is not valid.",
+  "error.PEER_MAIN_SESSION_REQUIRED": "PEER connects distinct main sessions. Use host messaging tools to report to your parent.",
   "error.REFERENCE_VIOLATION": "The data refers to something that does not exist, or to something that other data still refers to.",
   "error.VALUE_NOT_ALLOWED": "The store does not allow this value.",
   "error.RECAP_INVALID": "recap must be a summary that is not blank and weighs at most 500: 5 for each Korean, Chinese or Japanese character and 2 for any other (100 Korean or 250 other characters).",

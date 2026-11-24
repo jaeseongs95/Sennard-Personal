@@ -685,6 +685,7 @@ class UploadClientServerTest {
                 actual.writeBytes(read.page().data());
             }
             assertArrayEquals(source, actual.toByteArray());
+            sennard.bean(io.github.jaeseongs95.sennard.app.attachment.AttachmentMaintenance.class).reap();
             Finished replay = command(temp, "attachments", "upload", "--session-ref", ref, file.toString());
             assertEquals(0, replay.exit(), replay.stderr());
             assertEquals(first, ToolServerSupport.MAPPER.readTree(replay.stdout()));

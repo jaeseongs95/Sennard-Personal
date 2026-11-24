@@ -141,6 +141,7 @@ ul.cards{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;g
 .card{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:16px 18px;background:#fff;border-radius:8px;border:1px solid var(--line)}
 .card.req{border-color:#8FA9E0;box-shadow:inset 4px 0 0 var(--pri)}
 .card .ttl{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.sess .user-title{font-weight:700;overflow-wrap:anywhere}
 .card .doing{font-size:16px;font-weight:700;overflow-wrap:anywhere}
 .card.sess{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:8px}
 .sess .doing.none{font-weight:400;color:var(--muted)}
@@ -288,10 +289,10 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     tab: 'global', busy: null, status: {},
     g: { init: false, baseToken: null, baseRules: [], rules: [], conflict: false, compareOpen: false, saved: null, justRev: null, histSel: null },
     r: { query: '', newName: '', renaming: null },
-    b: { filter: 'active', limit: LIMIT },
+    b: { filter: 'active', query: '', limit: LIMIT },
     newKeyLabel: '',
     db: { driverPath: '', jdbcUrl: '', accountName: '', passwordRef: '', tls: 'LOOPBACK_PLAINTEXT' },
-    rr: { confirm: null, revision: null, reason: '', query: '', state: '', owner: '', sort: 'recent', limit: 20 },
+    rr: { confirm: null, revision: null, reason: '', query: '', state: '', runState: '', owner: '', sort: 'recent', limit: 20 },
     j: { base: null, cur: null }, ex: { base: [], cur: null, newPath: '' }, jv: { cur: null },
     cv: { attempts: null, epochs: null },
     rl: { draft: null, baseToken: null },
@@ -644,6 +645,7 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     { key: 'bindings', label: t('admin.page.nav.bindings') },
     { key: 'approvals', label: t('admin.page.nav.approvals'), group: t('admin.page.nav.groupWork') },
     { key: 'roots', label: t('admin.page.nav.roots') },
+    { key: 'blocked-plans', label: t('admin.page.nav.blockedPlans') },
     { key: 'jev', label: t('admin.page.nav.jev'), group: t('admin.page.nav.groupTools') },
     { key: 'general', label: t('admin.page.nav.general') },
     { key: 'stats', label: t('admin.page.nav.stats'), group: t('admin.page.nav.groupAnalytics') },
@@ -747,7 +749,7 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
   const PAGE_LANGUAGE = document.documentElement.lang === 'ko' ? 'ko' : 'en';
   let languageSwitching = false;
   const LANGUAGES = [['ko', 'admin.page.top.languageKo'], ['en', 'admin.page.top.languageEn']];
-  const workFiltersActive = () => !!(S.rr.query || S.rr.state || S.rr.owner || S.rr.sort !== 'recent' || S.rr.limit !== 20 ||
+  const workFiltersActive = () => !!(S.b.query || S.rr.query || S.rr.state || S.rr.runState || S.rr.owner || S.rr.sort !== 'recent' || S.rr.limit !== 20 ||
     S.w.query || S.w.kind || S.w.state || S.w.host || S.w.days !== 30);
   async function chooseLanguage(next) {
     if (next === PAGE_LANGUAGE || languageSwitching) return;
@@ -854,7 +856,8 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
         : h('p', { class: 'muted' }, t('admin.page.common.loading')));
       return;
     }
-    const v = { global: viewGlobal, roles: viewRoles, bindings: viewBindings, approvals: viewApprovals, roots: viewRoots, jev: viewJev, general: viewGeneral, stats: viewStats, workflows: viewWorkflows, passkey: viewPasskey,
+    const v = { global: viewGlobal, roles: viewRoles, bindings: viewBindings, approvals: viewApprovals, roots: viewRoots, 'blocked-plans': viewBlockedPlans,
+      jev: viewJev, general: viewGeneral, stats: viewStats, workflows: viewWorkflows, passkey: viewPasskey,
       database: viewDatabase }[S.tab];
     main.replaceChildren(v());
   }
@@ -909,7 +912,7 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
   // The codes that say the root changed or is gone since the list was loaded: the list is loaded again (their sentences are admin.page.error.<CODE>).
   const ROOT_CODES = new Set(['ADMIN_ROOT_NOT_FOUND', 'ADMIN_ROOT_NOT_ACTIVE', 'ADMIN_ROOT_STALE']);
   const ROOT_STATE_TEXT = { OPEN: 'stateOpen', NEEDS_REVIEW: 'stateNeedsReview', NEEDS_USER: 'stateNeedsUser' };
-  const rootListState = (r) => r.state === 'OPEN' && r.run?.state === 'PAUSED' ? 'PAUSED' : r.state;
+  const latestRunState = (r) => r.run?.state || 'noRun';
   function fmtDateTime(iso) {
     const d = iso ? new Date(iso) : null;
     return d && !isNaN(d.getTime()) ? d.toLocaleString() : '';
@@ -953,7 +956,7 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     const owners = r.owners.map((o) => h('span', { class: 'mono small' }, o.ref + (o.host ? ' · ' + o.host : '')));
     return panel({
       id: 'root-card-' + idSafe(r.rootId), title: h('span', { title: rt('objective') }, r.objective),
-      badge: h('span', { class: 'st ' + (r.state === 'OPEN' ? 'off' : 'warn'), title: rt('state') }, ROOT_STATE_TEXT[r.state] ? rt(ROOT_STATE_TEXT[r.state]) : r.state),
+      badge: h('span', { class: 'st ' + (r.state === 'OPEN' ? 'off' : 'warn') }, rt('stateLine', { state: ROOT_STATE_TEXT[r.state] ? rt(ROOT_STATE_TEXT[r.state]) : r.state })),
       body: [h('div', { class: 'work-meta' },
         h('span', null, tn('admin.page.rootRelease.runLine', { state: r.run ? workflowStateBadge(r.run.state) : rt('noRun') })),
         h('span', null, ownerLine(r)),
@@ -972,14 +975,16 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     const update = (name, value) => { rr[name] = value; rr.limit = 20; render(); };
     const ownerKind = (r) => !r.ownerBound ? 'unbound' : r.ownerPresence === 'online' ? 'online' : 'unknown';
     const query = norm(rr.query);
-    const states = [['', rt('allStates')], ['NEEDS_REVIEW', rt('stateNeedsReview')], ['NEEDS_USER', rt('stateNeedsUser')],
-      ['PAUSED', workflowStateLabel('PAUSED')], ['OPEN', rt('stateOtherOpen')]];
+    const states = [['', rt('allStates')], ...Object.entries(ROOT_STATE_TEXT).map(([state, label]) => [state, rt(label)])];
+    const runStates = [...new Set([...list.map(latestRunState), rr.runState])].filter(Boolean)
+      .map((state) => [state, state === 'noRun' ? rt('noRun') : workflowStateLabel(state)])
+      .sort((a, b) => a[1].localeCompare(b[1]));
     const counts = new Map();
     for (const root of list) {
-      const state = rootListState(root);
+      const state = root.state;
       counts.set(state, (counts.get(state) || 0) + 1);
     }
-    const matching = list.filter((r) => (!rr.state || rootListState(r) === rr.state) && (!rr.owner || ownerKind(r) === rr.owner) &&
+    const matching = list.filter((r) => (!rr.state || r.state === rr.state) && (!rr.runState || latestRunState(r) === rr.runState) && (!rr.owner || ownerKind(r) === rr.owner) &&
       (!query || norm([r.objective, r.rootId, r.run && r.run.runId, ...r.owners.flatMap((o) => [o.ref, o.host])].join(' ')).includes(query)))
       .slice().sort((a, b) => {
         const order = String(a.lastActivityAt).localeCompare(String(b.lastActivityAt)) || a.rootId.localeCompare(b.rootId);
@@ -998,10 +1003,11 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
         }, h('strong', null, num(state ? counts.get(state) : list.length)), h('span', null, state ? label : rt('total'))))),
       h('fieldset', { class: 'work-filters', disabled: !!S.busy || !!rr.confirm, 'aria-label': rt('filters') },
         workSearch('roots-query', rt('search'), rr.query, (value) => update('query', value)),
-        workSelect('roots-state', rt('listState'), rr.state, states, (value) => update('state', value)),
+        workSelect('roots-state', rt('state'), rr.state, states, (value) => update('state', value)),
+        workSelect('roots-run-state', rt('runState'), rr.runState, [['', rt('allStates')], ...runStates], (value) => update('runState', value)),
         workSelect('roots-owner', rt('owner'), rr.owner, [['', rt('allOwners')], ['online', rt('ownerOnline')], ['unknown', rt('ownerNotOnline')], ['unbound', rt('ownerNotBound')]], (value) => update('owner', value)),
         workSelect('roots-sort', rt('sort'), rr.sort, [['recent', rt('sortRecent')], ['oldest', rt('sortOldest')]], (value) => update('sort', value)),
-        h('button', { type: 'button', class: 'btn', id: 'roots-reset', onclick: () => { Object.assign(rr, { query: '', state: '', owner: '', sort: 'recent', limit: 20 }); render(); $('roots-query').focus(); } }, rt('reset'))),
+        h('button', { type: 'button', class: 'btn', id: 'roots-reset', onclick: () => { Object.assign(rr, { query: '', state: '', runState: '', owner: '', sort: 'recent', limit: 20 }); render(); $('roots-query').focus(); } }, rt('reset'))),
       pinned ? h('section', { class: 'col', 'aria-labelledby': 'roots-confirming-title' },
         h('h3', { id: 'roots-confirming-title' }, rt('confirmingWorkflow')),
         h('ul', { class: 'stack root-list', 'aria-labelledby': 'roots-confirming-title' }, rootCard(pinned))) : null,
@@ -1420,6 +1426,13 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
   }
   const STATE_CLASS = { online: 'on', unreachable: 'warn', ended: 'off', unlisted: 'warn' };
   const stateLabel = (state) => (has('admin.page.bindings.state.' + state) ? t('admin.page.bindings.state.' + state) : String(state));
+
+  function matchesBindingSearch({ s, prop }, query) {
+    const roleIds = [s.binding?.roleId, prop?.change.roleId];
+    const roleNames = roleIds.filter(Boolean).map(roleName);
+    return [s.sessionId, s.host, s.hostLabel, s.summary, s.cwd, ...roleNames]
+      .some((value) => value && norm(value).includes(query));
+  }
   // The page keeps nothing in the browser: its address (the port) changes at every start, so what a browser stored would be gone. A session the page cannot classify stays in
   // its own group ("undecided") until it is given a role or ends; there is no list to take it off.
   /** A session for which it is unknown whether it is a main session, because the host does not mark subagents. A binding or a binding request means the user already treated it as a main session. */
@@ -1433,7 +1446,11 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     const f = S.b.filter;
     const pick = (x) => f === 'ended' ? !isActive(x.s) : f === 'unbound' ? known(x) && !bound(x.s) : f === 'unknown' ? kindUnknown(x) : known(x);
     const rank = (x) => x.prop ? 0 : !bound(x.s) ? 1 : 2;
-    const list = all.filter(pick).sort((a, b) => rank(a) - rank(b) || String(b.s.lastSeenAt || '').localeCompare(String(a.s.lastSeenAt || '')));
+    const scoped = all.filter(pick);
+    const query = norm(S.b.query);
+    const list = scoped.filter((row) => !query || matchesBindingSearch(row, query))
+      .sort((a, b) => rank(a) - rank(b) || String(b.s.lastSeenAt || '').localeCompare(String(a.s.lastSeenAt || '')));
+    const search = (value) => { S.b.query = value; S.b.limit = LIMIT; render(); };
     const sec = h('section', { class: 'col', 'aria-labelledby': 'sb-title' });
     sec.append(h('div', { class: 'head' }, h('h1', { id: 'sb-title', tabindex: '-1' }, t('admin.page.bindings.title')),
       h('p', { class: 'desc' }, t('admin.page.bindings.desc')),
@@ -1460,11 +1477,20 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
       group.append(b);
     });
     sec.append(group);
+    sec.append(h('div', { class: 'work-filters' },
+      workSearch('bindings-query', t('admin.page.bindings.search'), S.b.query, search),
+      h('button', { type: 'button', class: 'btn', id: 'bindings-reset', disabled: !S.b.query,
+        onclick: () => { search(''); $('bindings-query').focus(); } }, t('admin.page.bindings.reset'))));
+    if (query && scoped.length) sec.append(h('p', { role: 'status', class: 'small muted' },
+      t('admin.page.bindings.matches', { shown: Math.min(S.b.limit, list.length), matching: list.length, total: scoped.length })));
     const nReq = all.filter((x) => x.prop).length;
     if (nReq && f !== 'ended') sec.append(h('div', { class: 'note-info', role: 'status' }, t('admin.page.bindings.requested', { count: nReq })));
     sec.append(statusEl('bind-screen'));
     if (!S.dialog) for (const k of ['bind', 'unbind']) if (S.status[k] && S.status[k].kind !== 'busy') sec.append(statusEl(k));
-    if (!list.length) { sec.append(h('p', { class: 'empty' }, t('admin.page.bindings.empty'))); return sec; }
+    if (!list.length) {
+      sec.append(h('p', { class: 'empty' }, t(scoped.length ? 'admin.page.bindings.noMatches' : 'admin.page.bindings.empty')));
+      return sec;
+    }
     const ul = h('ul', { class: 'cards', 'aria-label': t('admin.page.bindings.listLabel') });
     for (const x of list.slice(0, S.b.limit)) ul.append(sessionCard(x));
     sec.append(ul);
@@ -1506,7 +1532,7 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
       if (isActive(s)) acts.push(h('button', { type: 'button', class: 'btn pri', id: 'set-' + key, disabled: !!S.busy, onclick: (e) => openBind(x, 'set', e.currentTarget) }, t('admin.page.bindings.set')));
       if (kindUnknown(x)) notes.push(t('admin.page.bindings.maybeSub'));
     }
-    // What the person reads first is what the session is doing now (its summary), and on what basis (when it wrote that, and whether it was asked something since);
+    // The title identifies the session; the summary says what it is doing now and the basis says when it wrote that.
     // the role and the way to set it are right under it, so a role is chosen where the summary was read. The host, the id and the folder are the small print.
     const hasSummary = !!(s.summary && s.summary.trim());
     const stale = s.summaryStale === true;
@@ -1514,6 +1540,7 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     const basis = !hasSummary ? (s.lastPromptAt ? t('admin.page.bindings.basisNoSummary', { time: fmtTime(s.lastPromptAt) }) : t('admin.page.bindings.basisNoRequest'))
       : stale ? t('admin.page.bindings.basisStale', { time: fmtTime(s.summaryAt) }) : t('admin.page.bindings.basisFresh', { time: fmtTime(s.summaryAt) });
     return h('li', { class: 'card sess' + (p ? ' req' : '') },
+      s.userTitle ? h('div', { class: 'user-title' }, s.userTitle) : null,
       h('div', { class: 'ttl' }, h('span', { class: 'doing' + (hasSummary ? '' : ' none') }, hasSummary ? s.summary : t('admin.page.bindings.noSummary')), h('span', { class: 'st ' + stCls }, stLabel)),
       h('div', { class: 's-basis' + (thin ? ' thin' : '') }, thin ? h('span', { 'aria-hidden': 'true' }, '! ') : null, basis),
       h('div', { class: 's-role ' + roleCls },
@@ -2064,7 +2091,6 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
     if (st.resourceLimits) sec.append(viewResourceLimits(st.resourceLimits));
     if (st.attachmentStorage) sec.append(viewAttachmentStorage(st.attachmentStorage));
     if (st.convergence) sec.append(viewConvergence(st.convergence));
-    sec.append(viewBlockedPlans(S.data.blockedPlans || []));
     return sec;
   }
   function viewAttachmentStorage(view) {
@@ -2278,19 +2304,20 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
       statusEl('cv'));
   }
   let blockedPlanPageSize = 20;
-  function viewBlockedPlans(plans) {
+  function viewBlockedPlans() {
     const slot = 'blocked-plans';
     const message = (key, vars) => t('admin.page.general.blockedPlans.' + key, vars);
-    const box = h('section', { class: 'box', 'aria-labelledby': 'blocked-plans-title' },
-      h('h2', { id: 'blocked-plans-title', tabindex: '-1' }, message('heading')),
-      h('p', { class: 'desc' }, message('desc')), statusEl(slot));
+    const plans = S.data.blockedPlans || [];
+    const screen = h('section', { class: 'col', 'aria-labelledby': 'blocked-plans-title' },
+      head('blocked-plans-title', message('heading'), message('desc')), statusEl(slot));
     if (!plans.length) {
-      box.append(h('p', { class: 'muted' }, message('empty')));
-      return box;
+      screen.append(h('p', { class: 'empty' }, message('empty')));
+      return screen;
     }
+    const list = h('ul', { class: 'stack', 'aria-labelledby': 'blocked-plans-title' });
     for (const plan of plans.slice(0, blockedPlanPageSize)) {
       const reasonKey = 'admin.page.general.blockedPlans.' + plan.reason;
-      const row = h('div', { class: 'item' },
+      const row = h('li', { class: 'item box', id: 'blocked-plan-' + idSafe(plan.recordId) },
         kv([
           [message('workspace'), plan.workspacePath],
           [message('kind'), kindLabel(plan.kind)],
@@ -2309,17 +2336,18 @@ input[type="checkbox"][role="switch"]{width:20px;height:20px;margin:0}
           $('blocked-plans-title')?.focus();
         } }));
       row.querySelector('button').setAttribute('aria-label', message('unblockLabel', { runId: plan.runId }));
-      box.append(row);
+      list.append(row);
     }
+    screen.append(list);
     if (plans.length > blockedPlanPageSize) {
-      box.append(h('button', { type: 'button', class: 'btn', onclick: () => {
-        const firstNew = blockedPlanPageSize;
+      screen.append(h('button', { type: 'button', class: 'btn', onclick: () => {
+        const firstNew = plans[blockedPlanPageSize];
         blockedPlanPageSize += 20;
         render();
-        document.querySelectorAll('#blocked-plans-title ~ .item button')[firstNew]?.focus();
+        $('blocked-plan-' + idSafe(firstNew.recordId))?.querySelector('button')?.focus();
       } }, message('more')));
     }
-    return box;
+    return screen;
   }
 
   const EX_HINT = () => t('admin.page.general.exempt.hint');

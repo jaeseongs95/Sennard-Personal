@@ -163,6 +163,20 @@ final class ConvergenceLogic {
         return null;
     }
 
+    /**
+     * The idle roots whose files the candidate takes: those that overlap its write locations on the same host, or hold the very key it takes. A root that overlaps is no longer let
+     * work on those files, so the caller has it give up its row of the surface; a root that does not overlap keeps it.
+     */
+    static List<Identified> takenFrom(DocumentDigests digests, ConvergenceRoot candidateRoot, Identity candidate, String candidateKey, List<Identified> idle) {
+        List<Identified> taken = new ArrayList<>();
+        for (Identified root : idle) {
+            if (findRootConflict(candidateRoot, candidate, List.of(root)) != null || candidateKey.equals(surfaceKey(digests, root.identity()))) {
+                taken.add(root);
+            }
+        }
+        return taken;
+    }
+
     static Plan planRootInsertion(DocumentDigests digests, ConvergenceRoot root, List<Identified> actives, String hostId, IdentityResolver resolver) {
         Identity derived = resolver.resolve(root.frame().workspace().locator(), writeSurface(root), false);
         Identity identity = derived.withHost(hostId);

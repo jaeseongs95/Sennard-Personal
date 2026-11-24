@@ -34,9 +34,9 @@ import jakarta.validation.constraints.NotNull;
  *     configurable from the file limit (a resource policy, not a measurement)
  * @param uploadTtl how long after the last chunk an upload expires
  * @param orphanGrace how long a file without a row waits before it is moved to {@code orphans/}
- * @param reaperInterval how often the cleaner runs: it finds the expired upload rows and the done upload rows in the database and deletes them (a lookup of rows, never a walk of the folder)
+ * @param reaperInterval how often the cleaner finds expired staging rows in the database and deletes them with their files
  * @param reconcileInterval how often the folder is compared with the rows (the design's 7: files with no row, replaced files, the quarantine folder), besides at the start and by
- *     {@code sennard attachments purge-orphans}. The comparison looks at every file of the folder with one to three lookups each, so it is not run every minute like the cleaner. It is
+ *     {@code sennard attachments purge-orphans}. The comparison looks at every file of the folder with two to four lookups each, so it runs less often than the cleaner. It is
  *     24 hours by default, the same as the default of {@code orphanGrace}: a file with no row, and a file that a later file replaced, are moved only once
  *     {@code orphanGrace} has passed, so a comparison more often than that finds the same files again and gains nothing, and one run per grace moves a file at most one interval late (a
  *     judgement, not a measurement)

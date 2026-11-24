@@ -17,12 +17,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -41,6 +46,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 class CodexManagedConversationTest {
     private static final Duration DEADLINE = Duration.ofSeconds(8);
+    private static final long OBSERVED_AT_MILLIS = 1_700_000_000_123L;
+    private static final Clock OBSERVATION_CLOCK = Clock.fixed(Instant.ofEpochMilli(OBSERVED_AT_MILLIS), ZoneOffset.UTC);
     private static final String MARKER = "[sennard wake:01a14677-baf4-4350-922b-d5d63b40c168]";
     private static final String NEXT_MARKER = "[sennard wake:01a14677-baf4-4350-922b-d5d63b40c169]";
     private static final WakeTransport.Target PARENT = new WakeTransport.Target("parent", null);
@@ -48,6 +55,36 @@ class CodexManagedConversationTest {
 
     @TempDir
     Path workspace;
+
+    @Test
+    void readsOnlyTheMatchingThreadsUserTitleWithoutResumingIt() throws Exception {
+        try (var process = probe("named-thread")) {
+            assertEquals(Optional.of("Chosen title"), CodexAppServerConnection.readThreadTitle(process, mapper, DEADLINE, "session"));
+            assertFalse(process.isAlive());
+            var sent = requests();
+            assertEquals(List.of("initialize", "initialized", "thread/read"), methods(sent));
+            assertEquals("session", sent.getLast().path("params").path("threadId").asString());
+            assertTrue(sent.getLast().path("params").path("includeTurns").isBoolean());
+            assertFalse(sent.getLast().path("params").path("includeTurns").asBoolean());
+        }
+    }
+
+    @Test
+    void anUntitledThreadDoesNotSupplyAUserTitle() throws Exception {
+        try (var process = probe("untitled-thread")) {
+            assertEquals(Optional.empty(), CodexAppServerConnection.readThreadTitle(process, mapper, DEADLINE, "session"));
+            assertFalse(process.isAlive());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"wrong-thread", "internal-error", "malformed-title"})
+    void rejectsAnUnusableTitleResponseAndClosesTheProcess(String behavior) throws Exception {
+        try (var process = probe(behavior)) {
+            assertThrows(IOException.class, () -> CodexAppServerConnection.readThreadTitle(process, mapper, DEADLINE, "session"));
+            assertFalse(process.isAlive());
+        }
+    }
 
     @ParameterizedTest
     @CsvSource({"false,NONE", "true,ROOT"})
@@ -66,10 +103,71 @@ class CodexManagedConversationTest {
                     ? new WakeTransport.Availability.Ready((thread, marker) -> new WakeTransport.Outcome.Submitted())
                     : new WakeTransport.Availability.Disabled();
             assertEquals(0, NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), UUID.randomUUID().toString(),
-                    PARENT, Map.of(), adapter, mapper));
+                    PARENT, Map.of(), adapter, mapper, OBSERVATION_CLOCK));
             assertEquals(expected.name(), capability.get());
         } finally {
             server.stop(0);
+        }
+    }
+
+    @Test
+    void theWorkerReportsTheTitleWithItsRegistrationWhilePollingNormally() throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var key = UUID.randomUUID().toString();
+        var receivedKey = new AtomicReference<String>();
+        var firstTitle = new AtomicReference<NativeWakeProtocol.SessionTitle>();
+        var receivedTitle = new AtomicReference<NativeWakeProtocol.SessionTitle>();
+        var pollCount = new java.util.concurrent.atomic.AtomicInteger();
+        var reported = new CountDownLatch(1);
+        server.createContext(NativeWakeProtocol.SESSION_TITLE, exchange -> {
+            try (exchange) {
+                receivedKey.set(exchange.getRequestHeaders().getFirst(NativeWakeProtocol.KEY));
+                var title = mapper.readValue(exchange.getRequestBody(), NativeWakeProtocol.SessionTitle.class);
+                if (firstTitle.compareAndSet(null, title)) {
+                    exchange.sendResponseHeaders(503, -1);
+                    return;
+                }
+                receivedTitle.set(title);
+                exchange.sendResponseHeaders(204, -1);
+                reported.countDown();
+            }
+        });
+        server.createContext(NativeWakeProtocol.POLL, exchange -> {
+            try (exchange) {
+                try {
+                    int poll = pollCount.incrementAndGet();
+                    exchange.sendResponseHeaders(reported.await(6, TimeUnit.SECONDS) || poll >= 3 ? 410 : 204, -1);
+                } catch (InterruptedException stopped) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            server.setExecutor(executor);
+            server.start();
+            try {
+                NativeWakeAdapter adapter = new NativeWakeAdapter() {
+                    @Override
+                    public WakeTransport.Availability connect(Map<String, String> environment, WakeTransport.Target target) {
+                        return new WakeTransport.Availability.Ready((session, marker) -> new WakeTransport.Outcome.Submitted());
+                    }
+
+                    @Override
+                    public Optional<SessionTitleReader> sessionTitles(Map<String, String> environment, WakeTransport.Target target) {
+                        assertEquals(PARENT, target);
+                        var title = new AtomicReference<>("Review β");
+                        return Optional.of(() -> Optional.ofNullable(title.getAndSet(null)));
+                    }
+                };
+                assertEquals(0, NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), key, PARENT, Map.of(), adapter, mapper, OBSERVATION_CLOCK));
+                assertEquals(key, receivedKey.get());
+                assertNotNull(receivedTitle.get(), "a failed first upload must be retried without another title change");
+                assertEquals(firstTitle.get(), receivedTitle.get());
+                assertEquals("Review β", receivedTitle.get().title());
+                assertEquals(OBSERVED_AT_MILLIS, receivedTitle.get().observedAtMillis());
+            } finally {
+                server.stop(0);
+            }
         }
     }
 
@@ -115,7 +213,7 @@ class CodexManagedConversationTest {
                 process.set(probe(supported ? "ordinary" : "unlisted-effort"));
                 return CodexManagedConversation.open(process.get(), mapper, DEADLINE, request.model(), request.effort(), null);
             });
-            int exit = NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), key, PARENT, Map.of(), adapter, mapper);
+            int exit = NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), key, PARENT, Map.of(), adapter, mapper, OBSERVATION_CLOCK);
             assertEquals(0, exit);
             assertEquals(2, polled.get());
             assertEquals(NativeWakeProtocol.Capability.MANAGED.name(), capability.get());
@@ -180,7 +278,7 @@ class CodexManagedConversationTest {
                 return new WakeTransport.Outcome.Submitted();
             });
             var adapter = managedAdapter(root, request -> open(probe("ordinary"), null));
-            int exit = NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), key, PARENT, Map.of(), adapter, mapper);
+            int exit = NativeWakeWorker.watch(ServerAddress.ofThisProcess(server.getAddress().getPort()), key, PARENT, Map.of(), adapter, mapper, OBSERVATION_CLOCK);
             assertEquals(0, exit);
         } finally {
             server.stop(0);

@@ -4,6 +4,7 @@
 
 package io.github.jaeseongs95.sennard.personal;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -26,11 +27,55 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import io.github.jaeseongs95.sennard.server.execution.StopDeadline;
+import io.github.jaeseongs95.sennard.server.execution.StreamOutput;
+
 /**
- * What the runner keeps of the output of a command and what it does about a process that holds the pipes of the output after the command ended. The processes are real JVMs; the
- * order of what happens is fixed by files the programs write and wait for, and no time is asserted (a wait has a deadline only so that a failure ends the test).
+ * What the runner keeps of the output of a command (the first and the last bytes in memory, every byte in a log file up to its limit) and what it does about a process that holds the
+ * pipes of the output after the command ended. The processes are real JVMs; the order of what happens is fixed by files the programs write and wait for, and no time is asserted (a
+ * wait has a deadline only so that a failure ends the test).
  */
 class ProcessOutputTest {
+    private static final int MEMORY = StreamOutput.HEAD_BYTES + StreamOutput.TAIL_BYTES;
+    private static final long BIG = 64L * 1024 * 1024;
+    private static final AtomicInteger FILES = new AtomicInteger();
+
+    @TempDir
+    Path logs;
+
+    private LogFile log(long limit) throws IOException {
+        return LogFile.create(logs.resolve("log-" + FILES.incrementAndGet() + ".log"), limit);
+    }
+
+    private ProcessOutput output(InputStream stdout, InputStream stderr, Duration grace) throws IOException {
+        return new ProcessOutput(stdout, stderr, grace, log(BIG), log(BIG));
+    }
+
+    private static byte[] pattern(int length) {
+        byte[] bytes = new byte[length];
+        for (int i = 0; i < length; i++) {
+            bytes[i] = (byte) ('a' + (i * 7 + i / 251) % 26);
+        }
+        return bytes;
+    }
+
+    /** The size of all the log files made in this test, together. */
+    private long totalLogBytes() throws IOException {
+        long total = 0;
+        try (java.util.stream.Stream<Path> files = Files.list(logs)) {
+            for (Path file : files.toList()) {
+                total += Files.size(file);
+            }
+        }
+        return total;
+    }
+
+    private static byte[] joined(ProcessOutput.Kept kept) {
+        byte[] both = Arrays.copyOf(kept.head(), kept.head().length + kept.tail().length);
+        System.arraycopy(kept.tail(), 0, both, kept.head().length, kept.tail().length);
+        return both;
+    }
+
     private static final String JAVA = ProcessHandle.current().info().command().orElseThrow();
     /** The heap of every JVM the tests start (the property is set on the Test tasks in java/build.gradle.kts). */
     private static final String JAVA_HEAP = "-Xmx" + System.getProperty("sennard.test.childHeap");
@@ -207,14 +252,14 @@ class ProcessOutputTest {
     private static final int READ_AT_A_TIME = 8192;
 
     @Test
-    void aPipeThatAProcessHoldsOpenAndWritesNothingToIsReadAndClosedAndNoReaderWaitsOnIt() {
+    void aPipeThatAProcessHoldsOpenAndWritesNothingToIsReadAndClosedAndNoReaderWaitsOnIt() throws IOException {
         SilentPipe silent = new SilentPipe("the command's last line");
         try {
-            ProcessOutput output = new ProcessOutput(silent, new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(1));
+            ProcessOutput output = output(silent, new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(1));
 
             output.finish();
 
-            assertEquals("the command's last line", output.stdout().text(), "what was in the pipe when the command ended is kept");
+            assertEquals("the command's last line", new String(joined(output.stdout()), StandardCharsets.UTF_8), "what was in the pipe when the command ended is kept");
             assertTrue(silent.closed(), "the reader closed the pipe it read, so the process that holds it gets a broken pipe");
             assertEquals(0, silent.parkedReads(), "no read was made that waits for a process that writes nothing: such a read does not end and holds the thread and the pipe");
         } finally {
@@ -223,22 +268,24 @@ class ProcessOutputTest {
     }
 
     @Test
-    void aPipeThatIsNeverEmptyIsClosedWhenTheGraceIsOverAndWhatIsPastTheLimitIsDropped() {
+    void aPipeThatIsNeverEmptyIsClosedWhenTheGraceIsOverAndTheMemoryKeepsTheFirstAndTheLastBytesOnly() throws IOException {
         FullPipe full = new FullPipe();
-        ProcessOutput output = new ProcessOutput(full, new ByteArrayInputStream(new byte[0]), Duration.ofMillis(50));
+        ProcessOutput output = output(full, new ByteArrayInputStream(new byte[0]), Duration.ofMillis(200));
 
         output.finish();
 
         assertTrue(full.closed(), "released: the reader ended and closed the pipe although it was never empty");
-        assertEquals(ProcessOutput.LIMIT, output.stdout().text().length(), "the first mebibyte is kept");
-        assertTrue(output.stdout().truncated());
+        ProcessOutput.Kept kept = output.stdout();
+        assertEquals(StreamOutput.HEAD_BYTES, kept.head().length, "the first bytes are kept");
+        assertEquals(StreamOutput.TAIL_BYTES, kept.tail().length, "so are the last");
+        assertTrue(kept.total() > MEMORY && kept.omitted() == kept.total() - MEMORY, "the bytes between are counted, not kept");
     }
 
     @Test
-    void theReadersAreWaitedForOnlyOnceHoweverOftenTheRunFinishesTheOutput() {
+    void theReadersAreWaitedForOnlyOnceHoweverOftenTheRunFinishesTheOutput() throws IOException {
         SilentPipe silent = new SilentPipe("x");
         try {
-            ProcessOutput output = new ProcessOutput(silent, new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(1));
+            ProcessOutput output = output(silent, new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(1));
             output.finish();
             int afterTheFirst = output.waits();
             assertTrue(afterTheFirst > 0, "the first call waited for the readers");
@@ -252,22 +299,59 @@ class ProcessOutputTest {
     }
 
     @Test
-    void exactlyTheLimitIsKeptWholeAndOneByteMoreIsDroppedAndMarked() {
-        byte[] exact = new byte[ProcessOutput.LIMIT];
-        Arrays.fill(exact, (byte) 'x');
-        ProcessOutput whole = new ProcessOutput(new ByteArrayInputStream(exact), new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(30)).finish();
-        assertEquals(ProcessOutput.LIMIT, whole.stdout().text().length());
-        assertFalse(whole.stdout().truncated(), "exactly the limit is not past it");
-        assertFalse(whole.truncated());
+    void whatFitsInTheMemoryIsKeptWholeAndOneByteMoreLeavesOneByteOutOfTheMiddle() throws IOException {
+        byte[] exact = pattern(MEMORY);
+        ProcessOutput whole = output(new ByteArrayInputStream(exact), new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(30)).finish();
+        ProcessOutput.Kept all = whole.stdout();
+        assertEquals(0, all.omitted(), "exactly the memory is not past it");
+        assertArrayEquals(exact, joined(all), "head and tail together are all of it, in order");
+        assertEquals(MEMORY, all.total());
+        assertFalse(all.logTruncated());
 
-        byte[] over = Arrays.copyOf(exact, ProcessOutput.LIMIT + 1);
-        over[ProcessOutput.LIMIT] = (byte) 'y';
-        ProcessOutput cut = new ProcessOutput(new ByteArrayInputStream(new byte[0]), new ByteArrayInputStream(over), Duration.ofSeconds(30)).finish();
-        assertEquals(ProcessOutput.LIMIT, cut.stderr().text().length(), "the first bytes up to the limit are kept");
-        assertFalse(cut.stderr().text().contains("y"), "the byte past the limit is not kept");
-        assertTrue(cut.stderr().truncated());
-        assertFalse(cut.stdout().truncated(), "the other stream is not marked");
-        assertTrue(cut.truncated());
+        byte[] over = pattern(MEMORY + 1);
+        ProcessOutput.Kept cut = output(new ByteArrayInputStream(new byte[0]), new ByteArrayInputStream(over), Duration.ofSeconds(30)).finish().stderr();
+        assertEquals(1, cut.omitted());
+        assertArrayEquals(Arrays.copyOfRange(over, 0, StreamOutput.HEAD_BYTES), cut.head());
+        assertArrayEquals(Arrays.copyOfRange(over, over.length - StreamOutput.TAIL_BYTES, over.length), cut.tail());
+        assertEquals(0, whole.stderr().total(), "the other stream has nothing");
+    }
+
+    @Test
+    void theLastBytesAreRightAlthoughTheRingOfTheMemoryWrapsAroundManyTimesAtOtherPlacesThanTheReadsEnd() throws IOException {
+        byte[] data = pattern(1_000_003);
+        ProcessOutput.Kept kept = output(new ByteArrayInputStream(data), new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(30)).finish().stdout();
+
+        assertEquals(data.length, kept.total());
+        assertEquals(data.length - MEMORY, kept.omitted());
+        assertArrayEquals(Arrays.copyOfRange(data, 0, StreamOutput.HEAD_BYTES), kept.head());
+        assertArrayEquals(Arrays.copyOfRange(data, data.length - StreamOutput.TAIL_BYTES, data.length), kept.tail());
+    }
+
+    @Test
+    void theLogFileTakesEveryByteUpToItsLimitAndThenOnlyMarksWhileTheMemoryKeepsReading() throws IOException {
+        byte[] data = pattern(300_000);
+        Path file = logs.resolve("limited.log");
+        LogFile limited = LogFile.create(file, 1000);
+        ProcessOutput output = new ProcessOutput(new ByteArrayInputStream(data), new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(30), limited, log(BIG)).finish();
+
+        ProcessOutput.Kept kept = output.stdout();
+        assertTrue(kept.logTruncated());
+        assertFalse(output.stderr().logTruncated(), "the other stream's file is not marked");
+        assertArrayEquals(Arrays.copyOf(data, 1000), Files.readAllBytes(file), "the file stops at its limit");
+        assertEquals(data.length, kept.total(), "every byte was read although the file stopped");
+        assertArrayEquals(data, joined(kept), "and what is in memory is all of it (it fits)");
+    }
+
+    @Test
+    void aLogFileThatCannotBeWrittenMarksTheStreamAndTheReaderGoesOn() throws IOException {
+        byte[] data = pattern(50_000);
+        LogFile broken = LogFile.create(logs.resolve("broken.log"), BIG);
+        broken.close();
+        ProcessOutput output = new ProcessOutput(new ByteArrayInputStream(data), new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(30), broken, log(BIG)).finish();
+
+        ProcessOutput.Kept kept = output.stdout();
+        assertTrue(kept.logTruncated(), "bytes that could not be logged are marked");
+        assertArrayEquals(data, joined(kept), "the memory has them all");
     }
 
     @Test
@@ -276,7 +360,7 @@ class ProcessOutputTest {
         Process leader = startLeader(folder, "FloodingHolder");
         long holder = -1;
         try {
-            ProcessOutput output = new ProcessOutput(leader.getInputStream(), leader.getErrorStream(), Duration.ofMillis(300));
+            ProcessOutput output = new ProcessOutput(leader.getInputStream(), leader.getErrorStream(), Duration.ofMillis(300), log(BIG), log(BIG));
             leader.onExit().get(90, TimeUnit.SECONDS);
             holder = awaitPid(folder.resolve("holder.pid"));
             assertTrue(Files.exists(folder.resolve("wrote.txt")), "the holder wrote past the limit before the command ended");
@@ -285,10 +369,11 @@ class ProcessOutputTest {
             output.finish();
 
             ProcessOutput.Kept kept = output.stdout();
-            assertEquals(ProcessOutput.LIMIT, kept.text().length(), "the first mebibyte is kept");
-            assertTrue(kept.truncated());
-            assertFalse(kept.text().contains("the command's last line"), "what was written after the limit is not in the result");
-            assertEquals("", output.stderr().text());
+            assertTrue(kept.total() >= 2L * 1024 * 1024, "the holder wrote two mebibytes before the command ended: " + kept.total());
+            assertEquals(StreamOutput.HEAD_BYTES, kept.head().length, "the first bytes are kept");
+            assertEquals(StreamOutput.TAIL_BYTES, kept.tail().length, "and the last");
+            assertEquals(0, output.stderr().total());
+            assertEquals(kept.total(), totalLogBytes(), "the log files hold every byte that was read");
 
             // The read end is closed: the holder, which never stops writing by itself, gets a broken pipe and ends.
             ProcessHandle.of(holder).ifPresent(handle -> handle.onExit().orTimeout(90, TimeUnit.SECONDS).join());
@@ -303,19 +388,35 @@ class ProcessOutputTest {
     }
 
     @Test
+    void theWaitsOfFinishAreWithinWhatIsLeftOfTheDeadlineOfTheStopThoughTheGraceIsLonger() throws Exception {
+        FullPipe full = new FullPipe();
+        // a grace of half a minute for each of the two waits, and a pipe that is never empty: without the deadline the reader is waited for the whole grace, twice (the limit of the
+        // test, which is shorter than one grace, ends the test if the deadline is not kept)
+        ProcessOutput output = output(full, new ByteArrayInputStream(new byte[0]), Duration.ofSeconds(30));
+        StopDeadline stop = new StopDeadline(Duration.ofMillis(100));
+        stop.arm();
+
+        assertTimeoutPreemptively(Duration.ofSeconds(20), () -> output.finish(stop::limit));
+
+        assertEquals(2, output.waits(), "both waits were made, each for what was left of the deadline");
+        assertEquals(Duration.ZERO, stop.remaining(), "and the deadline was used up by them, not exceeded");
+        RunnerFixture.awaitCondition(full::closed, "the reader, released, to close the pipe");
+    }
+
+    @Test
     void theOutputOfTheCommandIsKeptWholeAlthoughADetachedProcessHoldsThePipe(@TempDir Path folder) throws Exception {
         Files.writeString(folder.resolve("QuietHolder.java"), QUIET_HOLDER);
         Process leader = startLeader(folder, "QuietHolder");
         long holder = -1;
         try {
-            ProcessOutput output = new ProcessOutput(leader.getInputStream(), leader.getErrorStream(), Duration.ofSeconds(2));
+            ProcessOutput output = new ProcessOutput(leader.getInputStream(), leader.getErrorStream(), Duration.ofSeconds(2), log(BIG), log(BIG));
             leader.onExit().get(90, TimeUnit.SECONDS);
             holder = awaitPid(folder.resolve("holder.pid"));
 
             output.finish();
 
-            assertEquals("the command's last line", output.stdout().text());
-            assertFalse(output.truncated());
+            assertEquals("the command's last line", new String(joined(output.stdout()), StandardCharsets.UTF_8));
+            assertEquals(0, output.stdout().omitted());
             assertTrue(ProcessHandle.of(holder).map(ProcessHandle::isAlive).orElse(false), "the holder is not touched by the output: it was not found by the runner here");
 
             // The holder writes nothing, so a reader that waited for the end of the pipe would still be parked in its read, with the stream's monitor, and the stream could be asked

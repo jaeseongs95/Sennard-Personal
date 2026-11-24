@@ -10,33 +10,13 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 
 import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts.TurnWork;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-/** The hand-written command and call tables of the turn-evidence rule (C1 to C3). */
 class AntigravityTurnEvidenceTest {
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
-
-    @ParameterizedTest
-    @CsvSource(delimiter = '|', quoteCharacter = '^', value = {"python app.py|python","pytest -q|pytest", "./run.sh|run.sh", "FOO=1 npm test|npm", "ls && pytest|pytest", "C:\\tools\\ctest.exe|ctest", "'python' x.py|python"})
-    void aCommandThatRunsSomethingNamesIt(String command, String program) {
-        assertEquals(program, AntigravityTurnEvidence.runProgram(command));
-    }
-
-    @ParameterizedTest
-    @CsvSource(delimiter = '|', quoteCharacter = '^', value = {"ls -la","cat a", "grep x a", "git status", "echo hi", "sed -i s/a/b/ f", "cat <<EOF", "get-content a", "cd x && ls"})
-    void aCommandThatOnlyLooksIsNoRun(String command) {
-        assertEquals("", AntigravityTurnEvidence.runProgram(command));
-    }
-
-    @Test
-    void aHeredocBodyIsNotReadForAProgram() {
-        assertEquals("", AntigravityTurnEvidence.runProgram("cat <<EOF\npytest\nEOF"));
-    }
 
     private static ObjectNode args() {
         return MAPPER.createObjectNode();

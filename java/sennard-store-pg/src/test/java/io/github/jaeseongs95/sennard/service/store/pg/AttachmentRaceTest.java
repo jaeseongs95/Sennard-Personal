@@ -19,11 +19,14 @@ import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileTime;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -37,15 +40,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.aopalliance.intercept.MethodInterceptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.aop.framework.Advised;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.github.jaeseongs95.sennard.app.attachment.AttachmentFileStore;
 import io.github.jaeseongs95.sennard.app.attachment.AttachmentMaintenance;
 import io.github.jaeseongs95.sennard.app.attachment.AttachmentService;
+import io.github.jaeseongs95.sennard.app.attachment.AttachmentStorageRepository;
 import io.github.jaeseongs95.sennard.app.attachment.UploadStaging;
 import io.github.jaeseongs95.sennard.domain.error.ConflictCode;
 import io.github.jaeseongs95.sennard.domain.error.ConflictException;
@@ -85,6 +91,7 @@ import io.github.jaeseongs95.sennard.domain.error.NotFoundException;
  *                                  first one's addCopy (holding) writes rev 1, the second one's insert of the same key triple waits and ends in the translated duplicate-key conflict
  *                                  (ConflictCode.DUPLICATE); rev 0 and the first one's rev 1 are the only rows of the file, the current copy is the first one's, file 0 is untouched, and a
  *                                  later addCopy is rev 2
+ * 11  r11 finish during folder comparison   the first copy lookup sees no row, then finish commits; the new current copy stays in place and reads back intact
  * </pre>
  *
  * In r8 the finish's own "now" must be one millisecond before the expiry (a finish at the expiry is expired by its own statement, which does not wait for anyone) and the cleaner's the expiry:
@@ -391,7 +398,7 @@ class AttachmentRaceTest {
 
         assertNull(outcome.failure());
         assertEquals(0, outcome.value().expiredUploads(), "its DELETE found a COMPLETED row and deleted nothing");
-        assertEquals(1, outcome.value().completedUploads(), "the same round then removed the finished upload's row, as it does for any");
+        assertEquals(UploadStaging.State.COMPLETED, world.staging(id).state(), "the same round preserves the completed replay row");
         assertEquals(AttachmentWorld.kept(attachmentId, List.of(new AttachmentWorld.Item("finish-wins.bin", content))), kept.get());
         assertEquals(1, countAttachments());
         assertTrue(Files.exists(world.pathOfAttachment(attachmentId)), "the attachment's file is there");
@@ -488,6 +495,45 @@ class AttachmentRaceTest {
         assertEquals(winnerKey, world.service().view(id, 1).orElseThrow().current().storageKey(), "the current copy is the highest rev: the first one's");
         assertEquals(AttachmentService.UseKind.UNREFERENCED, world.service().useOf(loserKey).kind(), "no row names the copy the second one would have added; its file, if it was written, is a file with no row");
         assertEquals(2, world.service().addCopy(id, 1, world.store().newStorageKey(), keyId), "a later copy is the one after the winner's");
+    }
+
+    @Test
+    void aFinishBetweenTheFirstCopyLookupAndTheStagingLookupKeepsTheCurrentFileInPlace() throws Exception {
+        world.close();
+        world = AttachmentWorld.open(scratch, Map.of("orphan-grace", "0s"));
+        byte[] content = world.bytes(50);
+        AttachmentWorld.Single begun = world.begin(ALICE, "finish-during-reconcile.bin", content);
+        world.chunk(begun.uploadId(), 0, content);
+        Path file = world.pathOfUpload(begun.uploadId());
+        String key = world.staging(begun.uploadId()).storageKey();
+        Advised repository = assertInstanceOf(Advised.class, world.bean(AttachmentStorageRepository.class));
+        AtomicBoolean finished = new AtomicBoolean();
+
+        try (ExecutorService finisher = Executors.newSingleThreadExecutor()) {
+            MethodInterceptor finishAfterFirstCopyLookup = invocation -> {
+                Object copy = invocation.proceed();
+                if ("byStorageKey".equals(invocation.getMethod().getName()) && key.equals(invocation.getArguments()[0]) && finished.compareAndSet(false, true)) {
+                    assertEquals(Optional.empty(), copy, "the first copy lookup precedes the finish");
+                    finisher.submit(() -> {
+                        world.uploads().finish(begun.attachmentId());
+                        Files.setLastModifiedTime(file, FileTime.from(Instant.EPOCH));
+                        return null;
+                    }).get(120, TimeUnit.SECONDS);
+                }
+                return copy;
+            };
+            repository.addAdvice(0, finishAfterFirstCopyLookup);
+            try {
+                assertEquals(new AttachmentMaintenance.Reconciled(0, 0), world.maintenance().reconcileFolder());
+                assertTrue(finished.get(), "the finish committed during reconciliation");
+            } finally {
+                repository.removeAdvice(finishAfterFirstCopyLookup);
+            }
+        }
+        assertEquals(AttachmentService.UseKind.IN_USE, world.service().useOf(key).kind());
+        assertTrue(Files.exists(file));
+        assertTrue(world.store().quarantinedKeys().isEmpty());
+        assertArrayEquals(content, world.readAll(begun.attachmentId(), 64));
     }
 
     private long countAttachments() {

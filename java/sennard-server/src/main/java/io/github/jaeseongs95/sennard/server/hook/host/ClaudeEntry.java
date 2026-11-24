@@ -18,8 +18,8 @@ import tools.jackson.databind.JsonNode;
  * {@link ClaudeTranscriptFile}); a field the host wrote as another type is the same as absent, as {@link HookJson} treats the lines of a transcript. What Claude Code writes
  * (code.claude.com/docs/en/hooks, "transcript_path"; the shape of the lines is not in its documentation, so only the fields below are relied on): {@code type}
  * ({@code user} or {@code assistant} for the conversation), {@code uuid}, {@code sessionId}, {@code timestamp} (ISO-8601), {@code isSidechain} (a subagent's line),
- * {@code isMeta} (a line the host injects, not the user's), and {@code message.content}, which is a string or a list of blocks ({@code text}, {@code tool_use},
- * {@code tool_result}, {@code thinking}, ...).
+ * {@code isMeta} (a line the host injects, not the user's), {@code agentId} (a subagent's line), {@code promptId}, {@code parentUuid} and {@code logicalParentUuid} (the boundary of
+ * a compaction), and {@code message.content}, which is a string or a list of blocks ({@code text}, {@code tool_use}, {@code tool_result}, {@code thinking}, ...).
  *
  * @param node the line
  * @param at the line's {@code timestamp} when it has one that reads as an instant, otherwise null
@@ -93,6 +93,72 @@ record ClaudeEntry(JsonNode node, Instant at) {
     /** The reasoning effort the line names, or null when it names none (it is read into the {@code effort} component of an execution, which is never an {@code Optional}). */
     String effort() {
         return HookJson.presentOrNull(HookJson.text(node, "effort"));
+    }
+
+    /** The {@code promptId} the host puts on its lines: the user input one turn answers; empty when the line has none. */
+    Optional<String> promptId() {
+        return HookJson.present(node, "promptId");
+    }
+
+    /**
+     * Whether this line is a boundary of a compaction: the host gives the line that opens the compacted conversation no {@code parentUuid} and names the line it continues in
+     * {@code logicalParentUuid}. What came before it is no longer what the model is sent.
+     */
+    boolean compactBoundary() {
+        return HookJson.present(node, "logicalParentUuid").isPresent();
+    }
+
+    /** Whether the user's line is the notice of a background task ({@code <task-notification>}): the host hands it to the model as a new turn. */
+    boolean announcesBackgroundTask() {
+        return kind() == Kind.PROMPT && promptTexts().stream().anyMatch(text -> text.stripLeading().startsWith("<task-notification>"));
+    }
+
+    /**
+     * Whether this line is the host's record of a model request ({@code type} {@code api-request}; a line of another type that begins the same, such as {@code api-request-resumed}, is
+     * not). The host queues it right after the response's headers arrive and a timer writes the queue out about every 100 ms, so it is in the file soon after the model starts to
+     * answer, but a hook is not given that wait. The assistant line of a message with several tool calls is not written until its tools have finished. The request line names the
+     * {@code params.model} and {@code params.output_config.effort} the request was sent with, the {@code querySource} of the thread that sent it ({@code repl_main_thread} for the main
+     * agent) and the {@code sessionId}.
+     */
+    boolean isApiRequest() {
+        return "api-request".equals(HookJson.text(node, "type"));
+    }
+
+    /** The {@code querySource} of a request record: which thread sent the request; empty when the line does not say. */
+    Optional<String> requestSource() {
+        return HookJson.present(node, "querySource");
+    }
+
+    /**
+     * Which kind of thread sends a request, told by its {@code querySource} the way the host classifies it (Claude Code 2.1.330, read from the program; not every value has been seen in a
+     * transcript): the main thread is {@code repl_main_thread}, with or without an output style after a colon ({@code repl_main_thread:outputStyle:Learning}), and {@code sdk}; a subagent is
+     * {@code agent:...} ({@code agent:builtin:<type>}, {@code agent:custom:<type>}, {@code agent:default}) and {@code hook_agent}; anything else ({@code compact}, {@code agent_summary},
+     * {@code generate_session_title}, {@code auto_mode}, ...) is the host's own side work, which no thread of the conversation has sent.
+     */
+    enum RequestThread {
+        MAIN,
+        SUBAGENT,
+        AUXILIARY;
+
+        static RequestThread of(String querySource) {
+            if ("repl_main_thread".equals(querySource) || querySource.startsWith("repl_main_thread:") || "sdk".equals(querySource)) {
+                return MAIN;
+            }
+            if (querySource.startsWith("agent:") || "hook_agent".equals(querySource)) {
+                return SUBAGENT;
+            }
+            return AUXILIARY;
+        }
+    }
+
+    /** The model a request record was sent with. */
+    Optional<String> requestModel() {
+        return HookJson.present(node.path("params"), "model");
+    }
+
+    /** The reasoning effort a request record was sent with, or null when it names none. */
+    String requestEffort() {
+        return HookJson.presentOrNull(HookJson.text(node.path("params").path("output_config"), "effort"));
     }
 
     /** Whether this assistant line holds the call of this identifier. */

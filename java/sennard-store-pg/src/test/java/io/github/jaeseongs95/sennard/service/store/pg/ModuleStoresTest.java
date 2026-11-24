@@ -178,7 +178,7 @@ class ModuleStoresTest {
     private static final Set<String> OTHER_TABLES = Set.of("active_generation", "call_admission", "managed_child_identity", "session_generation", "session_ref", "module_schema",
             "glossary_metadata", "glossary_entries", "glossary_forms", "recap_nudge", "transcript_anchor", "turn_recap", "user_prompt",
             "baseline_file", "change_event", "journal_workflow", "observed_file", "plan_file", "plan_revision", "scan_failure", "write_root",
-            "attachment", "attachment_file", "attachment_storage", "upload_staging", "operation_receipt");
+            "attachment", "attachment_file", "attachment_storage", "upload_staging", "operation_receipt", "execution");
     private static final Set<String> MODULE_TABLE_NAMES = TABLES.values().stream().flatMap(Set::stream).collect(java.util.stream.Collectors.toUnmodifiableSet());
     /** The tables of the eight modules ({@link #TABLES}) as the list of an SQL {@code IN}. */
     private static final String MODULE_TABLES = quoted(MODULE_TABLE_NAMES);
@@ -280,7 +280,7 @@ class ModuleStoresTest {
             }
         }
         assertEquals(new TreeMap<>(Map.ofEntries(Map.entry("board", 1L), Map.entry("usage", 1L), Map.entry("trust", 1L), Map.entry("context", 2L), Map.entry("continuity", 5L), Map.entry("workflow", 11L),
-                Map.entry("messaging", 5L), Map.entry("glossary", 1L), Map.entry("prompt", 1L), Map.entry("journal", 1L), Map.entry("attachment", 1L), Map.entry("operation", 1L))), versions);
+                Map.entry("messaging", 5L), Map.entry("glossary", 1L), Map.entry("prompt", 1L), Map.entry("journal", 1L), Map.entry("attachment", 1L), Map.entry("operation", 1L), Map.entry("execution", 1L))), versions);
         assertEquals(0, ownerLong(foreignKeysToTheSessionTable("t.relname NOT IN (" + MODULE_TABLES_OF_THE_MESSAGING
                 + ", 'active_generation', 'call_admission', 'managed_child_identity', 'session_generation', 'session_ref')")));
         assertEquals(1, ownerLong(foreignKeysToTheSessionTable("t.relname = 'managed_child_identity'")), "the managed child references its own session");
@@ -334,15 +334,30 @@ class ModuleStoresTest {
     @Test
     void noStoreStatementJudgesByANarrativeOrPathColumn() throws Exception {
         Path root = Path.of("src/main");
+        Path sources = root.resolve("java/io/github/jaeseongs95/sennard/service/store/modules");
+        Path scripts = root.resolve("resources/db/expand/modules");
         Pattern like = Pattern.compile("\\bI?LIKE\\b");
         String columns = "(cwd|summary|role|objective|body|change_text|workspace_locator|memory_json|root_json|lease_json|proposal_json|receipt_json|record_json|review_json|outcome_json|result_json|input_json|identity_json|client_data_json)";
         Pattern ordered = Pattern.compile("ORDER BY[^\"\n]*\\b" + columns + "\\b");
         Pattern unique = Pattern.compile("UNIQUE[^;\n]*\\([^)]*\\b" + columns + "\\b");
         List<Path> files;
-        try (Stream<Path> walk = Stream.concat(Files.walk(root.resolve("java/io/github/jaeseongs95/sennard/service/store/modules")), Files.walk(root.resolve("resources/db/expand/modules")))) {
-            files = walk.filter(Files::isRegularFile).toList();
+        try (Stream<Path> sourceWalk = Files.walk(sources); Stream<Path> scriptWalk = Files.walk(scripts)) {
+            files = Stream.concat(sourceWalk, scriptWalk).filter(Files::isRegularFile).toList();
         }
-        assertEquals(31, files.size(), "the scan sees the 14 store sources and the seventeen scripts (V3 to V10, V15, V18, V19, V21 to V25, V27)");
+        Stream<Path> expectedSources = Stream.of(
+                "ContextLayerStore.java", "ContinuityStore.java", "EncryptedRecords.java", "JevUsageService.java",
+                "JevUsageStore.java", "JsonRecords.java", "ModuleStore.java", "SkillUsageService.java",
+                "SkillUsageStore.java", "StoreValues.java", "TrustStore.java", "WorkflowStatsService.java",
+                "WorkflowStatsStore.java", "WorkflowStore.java").map(sources::resolve);
+        Stream<Path> expectedScripts = Stream.of(
+                "V3__board.sql", "V4__usage.sql", "V5__trust.sql", "V6__context.sql", "V7__continuity.sql",
+                "V8__workflow.sql", "V9__messaging.sql", "V10__background_job.sql", "V15__prompt_archive.sql",
+                "V18__continuity_task_references.sql", "V19__workflow_active_surface.sql", "V21__attachment.sql",
+                "V22__workflow_run_kind.sql", "V23__native_wake_reservations.sql", "V24__workflow_pause.sql",
+                "V25__message_actors.sql", "V27__workflow_stop_checks.sql", "V28__execution.sql",
+                "V31__board_user_title.sql").map(scripts::resolve);
+        assertEquals(Set.copyOf(Stream.concat(expectedSources, expectedScripts).toList()), Set.copyOf(files),
+                "the scan sees exactly the expected store sources and module scripts");
         List<String> violations = new ArrayList<>();
         for (Path file : files) {
             String text = Files.readString(file);
@@ -931,6 +946,79 @@ class ModuleStoresTest {
         assertNull(store.write(w, () -> w.insertConvergenceRoot(root("same-child", 1, RootState.OPEN, T1), "same-parent", active -> child)));
         assertEquals(0, ownerLong("SELECT count(*) FROM sennard.convergence_active_surfaces WHERE root_id = 'same-parent'"), "the parent gave the surface up");
         assertEquals(1, ownerLong("SELECT count(*) FROM sennard.convergence_active_surfaces WHERE root_id = 'same-child' AND active_surface = 'surface-same-parent'"), "the child holds it");
+    }
+
+    /**
+     * A root nobody runs gives its row of the surface up to the root that takes the files, on the condition that its revision is still the one the plan read: the give-up is a write of the
+     * root's revision, the write every start and claim of that root makes. When its owner started an attempt first, the revision moved, the give-up changes nothing and the insert of the
+     * other root ends in ROOT_CONFLICT with the surface still the owner's.
+     */
+    @Test
+    void anIdleRootGivesItsSurfaceUpOnlyAtTheRevisionThePlanReadAndOtherwiseTheInsertEndsInRootConflict() throws Exception {
+        WorkflowStore w = store.repository(WorkflowStore.class);
+        store.write(w, () -> w.insertConvergenceRoot(root("idle", 1, RootState.OPEN, T0), null, active -> freePlan("idle")));
+        WorkflowStore.RootInsertionPlan<String> taking = new WorkflowStore.RootInsertionPlan<>(null, List.of(), identity("taker"), "surface-idle", List.of(new WorkflowStore.Yield("idle", 1)));
+        assertNull(store.write(w, () -> w.insertConvergenceRoot(root("taker", 1, RootState.OPEN, T1), null, active -> taking)));
+        assertEquals(0, ownerLong("SELECT count(*) FROM sennard.convergence_active_surfaces WHERE root_id = 'idle'"), "the idle root gave its row up");
+        assertEquals(1, ownerLong("SELECT count(*) FROM sennard.convergence_active_surfaces WHERE root_id = 'taker' AND active_surface = 'surface-idle'"), "and the taker holds the surface");
+        assertEquals(2, ownerLong("SELECT revision FROM sennard.convergence_roots WHERE root_id = 'idle'"), "the give-up is a write of the root's revision");
+        assertTrue((boolean) store.write(w, () -> w.isConvergenceRootActive("idle")), "the idle root stays active; only its claim on the file ended");
+        assertFalse((boolean) store.write(w, () -> w.holdsSurface("idle")));
+        assertTrue((boolean) store.write(w, () -> w.holdsSurface("taker")));
+
+        store.write(w, () -> w.insertConvergenceRoot(root("started", 1, RootState.OPEN, T0), null, active -> freePlan("started")));
+        // The owner of "started" starts its attempt after a plan read the root at revision 1: the claim writes the root at revision 2.
+        assertTrue((boolean) store.write(w, () -> w.insertAttemptLease(root("started", 2, RootState.OPEN, T1), 1, lease("l-started", "started", 2, 1))));
+        WorkflowStore.RootInsertionPlan<String> late = new WorkflowStore.RootInsertionPlan<>(null, List.of(), identity("late"), "surface-started", List.of(new WorkflowStore.Yield("started", 1)));
+        assertEquals(StoreCode.ROOT_CONFLICT, assertThrows(StoreException.class, () -> store.write(w, () -> w.insertConvergenceRoot(root("late", 1, RootState.OPEN, T1), null, active -> late))).code());
+        assertEquals(1, ownerLong("SELECT count(*) FROM sennard.convergence_active_surfaces WHERE root_id = 'started' AND active_surface = 'surface-started'"), "the owner that started first keeps its surface");
+        assertEquals(2, ownerLong("SELECT revision FROM sennard.convergence_roots WHERE root_id = 'started'"));
+        assertNull(store.snapshot(() -> w.getConvergenceSnapshot("late")), "the root that lost the give-up was not written");
+        assertEquals(0, ownerLong("SELECT count(*) FROM sennard.convergence_active_surfaces WHERE root_id = 'late'"));
+    }
+
+    /**
+     * A root that gave its surface up takes it back before its next attempt: {@code holdSurface} returns the plan's conflict and changes nothing while another root holds the files, and
+     * takes the surface when they are free. A root that holds its surface asks for nothing.
+     */
+    @Test
+    void aRootThatGaveItsSurfaceUpTakesItBackOnlyWhenNoOtherRootHoldsIt() throws Exception {
+        WorkflowStore w = store.repository(WorkflowStore.class);
+        store.write(w, () -> w.insertConvergenceRoot(root("idle", 1, RootState.OPEN, T0), null, active -> freePlan("idle")));
+        WorkflowStore.RootInsertionPlan<String> taking = new WorkflowStore.RootInsertionPlan<>(null, List.of(), identity("taker"), "surface-idle", List.of(new WorkflowStore.Yield("idle", 1)));
+        store.write(w, () -> w.insertConvergenceRoot(root("taker", 1, RootState.OPEN, T1), null, active -> taking));
+        assertEquals(List.of("idle", "taker"), store.write(w, () -> w.readActiveRoots()).stream().map(WorkflowStore.ActiveRootRow::rootId).sorted().toList());
+
+        WorkflowStore.RootInsertionPlan<String> held = new WorkflowStore.RootInsertionPlan<>("ROOT_CONFLICT", List.of(), null, "surface-idle");
+        assertEquals("ROOT_CONFLICT", store.write(w, () -> w.holdSurface("idle", 2, active -> held, T1)).conflict());
+        assertFalse((boolean) store.write(w, () -> w.holdsSurface("idle")), "a refused take holds nothing");
+        assertEquals(1, ownerLong("SELECT count(*) FROM sennard.convergence_active_surfaces WHERE root_id = 'taker'"));
+
+        // The taker is gone: the files are free and the root takes its surface back.
+        assertTrue((boolean) store.write(w, () -> w.updateConvergenceRoot(root("taker", 2, RootState.COMPLETED, T1), 1, 1, null)));
+        WorkflowStore.RootInsertionPlan<String> free = new WorkflowStore.RootInsertionPlan<>(null, List.of(), null, "surface-idle");
+        WorkflowStore.SurfaceTake<String> taken = store.write(w, () -> w.holdSurface("idle", 2, active -> free, T1));
+        assertNull(taken.conflict());
+        assertTrue(taken.rootAtRevision());
+        assertTrue((boolean) store.write(w, () -> w.holdsSurface("idle")));
+        assertEquals(1, ownerLong("SELECT count(*) FROM sennard.convergence_active_surfaces WHERE root_id = 'idle' AND active_surface = 'surface-idle'"));
+    }
+
+    /** Whether a root has a run in progress is asked of the runs' states: a running or paused run is live, a run that is over is not. */
+    @Test
+    void aRootHasALiveRunWhileItsRunIsRunningOrPausedAndNotAfterItEnds() throws Exception {
+        WorkflowStore w = store.repository(WorkflowStore.class);
+        store.write(w, () -> w.insertConvergenceRoot(root("root-1", 1, RootState.OPEN, T0), null, active -> freePlan("root-1")));
+        assertFalse((boolean) store.write(w, () -> w.hasLiveRun("root-1")), "no run yet");
+        assertTrue((boolean) store.write(w, () -> w.insertAttemptLease(root("root-1", 2, RootState.OPEN, T1), 1, lease("l1", "root-1", 2, 1))));
+        assertFalse((boolean) store.write(w, () -> w.hasLiveRun("root-1")), "a lease is no run");
+        assertNotNull(store.write(w, () -> w.insertGuardedRun(run("r1", 1, RunState.RUNNING), "l1", 2, T1, "CHANGE", List.of())));
+        assertTrue((boolean) store.write(w, () -> w.hasLiveRun("root-1")));
+        assertTrue((boolean) store.write(w, () -> w.updateRun(run("r1", 2, RunState.PAUSED), 1, null, null, null, T1)));
+        assertTrue((boolean) store.write(w, () -> w.hasLiveRun("root-1")), "a paused run is the owner's work in progress");
+        assertTrue((boolean) store.write(w, () -> w.updateRun(run("r1", 3, RunState.BLOCKED), 2, null, null, null, T1)));
+        assertFalse((boolean) store.write(w, () -> w.hasLiveRun("root-1")), "a run that ended is not live");
+        assertFalse((boolean) store.write(w, () -> w.hasLiveRun("another-root")));
     }
 
     @Test

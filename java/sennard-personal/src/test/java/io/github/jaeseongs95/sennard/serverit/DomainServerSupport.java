@@ -204,6 +204,17 @@ final class DomainServerSupport {
     }
 
     private static void callAsAgy(RunningServer server, String conversation, String root, String parent, String tool, Map<String, Object> args) throws IOException {
+        JsonNode answer = agyCall(server, conversation, root, parent, tool, args);
+        if (!answer.path("ok").asBoolean()) {
+            throw new AssertionError(tool + " was refused: " + answer);
+        }
+    }
+
+    static JsonNode agyObservation(RunningServer server, String conversation, String root, String parent) throws IOException {
+        return agyCall(server, conversation, root, parent, "list_session_workflows", Map.of());
+    }
+
+    private static JsonNode agyCall(RunningServer server, String conversation, String root, String parent, String tool, Map<String, Object> args) throws IOException {
         RawHttp.Response admitted = hook(server.port, "windows", "agy", "PreToolUse", null, conversation, body -> {
             ObjectNode wrapped = body.putObject("toolCall").put("name", "call_mcp_tool").putObject("args");
             wrapped.put("ServerName", "sennard").put("ToolName", tool).set("Arguments", MAPPER.valueToTree(args));
@@ -219,10 +230,7 @@ final class DomainServerSupport {
             meta.put("antigravity.google/parent_conversation_id", parent);
         }
         try (McpSyncClient client = client(server.port, "agy")) {
-            JsonNode answer = callAsSent(client, tool, args, meta);
-            if (!answer.path("ok").asBoolean()) {
-                throw new AssertionError(tool + " was refused: " + answer);
-            }
+            return callAsSent(client, tool, args, meta);
         }
     }
 

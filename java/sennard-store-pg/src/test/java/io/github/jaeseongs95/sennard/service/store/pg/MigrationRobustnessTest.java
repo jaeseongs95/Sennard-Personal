@@ -17,8 +17,12 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -29,6 +33,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import io.github.jaeseongs95.sennard.domain.Digests;
+import io.github.jaeseongs95.sennard.service.migration.HistoryMigrator;
 import io.github.jaeseongs95.sennard.service.migration.MigrationScript;
 import io.github.jaeseongs95.sennard.service.store.StoreCode;
 import io.github.jaeseongs95.sennard.service.store.StoreException;
@@ -48,6 +53,8 @@ class MigrationRobustnessTest {
     private static final int EXPAND_SCRIPTS = expandScripts();
     /** The schema the runner's cases make their tables in: the business schema itself, which the runner made for the history and the reset drops. */
     private static final String SANDBOX = "sennard";
+    private static final String V27_DIGEST = "5b75669d3a4d9ff82ba8be6c81d008f763c3450fdf036f9f56fc7ba637c05493";
+    private static final Instant V27_TIME = Instant.parse("2004-05-06T07:08:09.123456Z");
 
     @BeforeEach
     void empty() throws SQLException {
@@ -175,6 +182,133 @@ class MigrationRobustnessTest {
                 ResultSet found = s.executeQuery("SELECT count(*) FROM information_schema.tables WHERE table_schema = '" + SANDBOX + "' AND table_name = '" + name + "'")) {
             found.next();
             return found.getLong(1) == 1;
+        }
+    }
+
+    @Test
+    void pendingV27BindsItsAttemptTimeOnAFreshDatabaseInAnotherSessionZone() throws Exception {
+        SennardDatabaseConfig config = BusinessDb.config();
+        TimeZone previous = TimeZone.getDefault();
+        try {
+            // pgJDBC initializes each new session with the JVM zone.
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Seoul"));
+            try (Connection connection = BusinessDb.dataSources().direct(config).getConnection();
+                    Statement statement = connection.createStatement();
+                    ResultSet rows = statement.executeQuery("SHOW TimeZone")) {
+                assertTrue(rows.next());
+                assertEquals("Asia/Seoul", rows.getString(1));
+            }
+            assertEquals(EXPAND_SCRIPTS, new Migrations(Clock.fixed(V27_TIME, ZoneOffset.ofHours(9)), BusinessDb.dataSources()).expand(config));
+            LocalDateTime utc = LocalDateTime.parse("2004-05-06T07:08:09.123");
+            assertEquals(new V27Row(V27_DIGEST, utc, "1", utc), v27Row());
+        } finally {
+            TimeZone.setDefault(previous);
+        }
+    }
+
+    @Test
+    void successfulV27FromTheReleasedSqlKeepsItsHistoryAndLockRow() throws Exception {
+        List<MigrationScript> scripts = MigrationScript.load(MigrationRunner.Phase.EXPAND.location());
+        SennardDatabaseConfig config = BusinessDb.config();
+        try (Connection connection = BusinessDb.dataSources().direct(config).getConnection()) {
+            // The released path executes the original SQL without a timestamp binding.
+            assertEquals(27, new HistoryMigrator(Clock.fixed(V27_TIME, ZoneOffset.UTC))
+                    .run(connection, MigrationRunner.Phase.EXPAND.target(), scripts.subList(0, 27)));
+        }
+        V27Row original = v27Row();
+        assertEquals(V27_DIGEST, original.digest());
+        assertEquals("1", original.lockValue());
+        assertFalse(original.appliedAt().equals(original.updatedAt()), "the released insert used the database clock");
+        List<String> originalAttempts = attempts();
+        Migrations candidate = new Migrations(Clock.fixed(V27_TIME.plusSeconds(60), ZoneOffset.UTC), BusinessDb.dataSources());
+        assertEquals(EXPAND_SCRIPTS - 27, candidate.expand(config));
+        assertEquals(0, candidate.expand(config));
+        assertEquals(original, v27Row());
+        assertEquals(originalAttempts, attempts().subList(0, 27));
+    }
+
+    @Test
+    void pendingV27RollsBackABoundInsertFailureAndUsesTheNextAttemptTimeOnRetry() throws Exception {
+        SennardDatabaseConfig config = BusinessDb.config();
+        List<MigrationScript> scripts = MigrationScript.load(MigrationRunner.Phase.EXPAND.location());
+        MigrationRunner first = new MigrationRunner(Clock.fixed(V27_TIME, ZoneOffset.UTC), BusinessDb.dataSources());
+        assertEquals(26, first.run(config, MigrationRunner.Phase.EXPAND, scripts.subList(0, 26)));
+        try (Connection connection = BusinessDb.connect(); Statement statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO sennard.workflow_metadata (meta_key, value, updated_at) "
+                    + "VALUES ('blocked-plan-write-lock', 'fixture', TIMESTAMP '2000-01-01 00:00:00')");
+        }
+        StoreException stopped = assertThrows(StoreException.class, () -> first.run(config, MigrationRunner.Phase.EXPAND));
+        assertEquals(StoreCode.MIGRATION_FAILED, stopped.code());
+        assertFalse(tableExists("workflow_blocked_plans"), "PostgreSQL rolled back V27's DDL");
+        assertEquals("27/1 FAILED " + V27_DIGEST, attempts().get(26));
+        try (Connection connection = BusinessDb.connect(); Statement statement = connection.createStatement()) {
+            assertEquals(1, statement.executeUpdate("DELETE FROM sennard.workflow_metadata WHERE meta_key = 'blocked-plan-write-lock' AND value = 'fixture'"));
+        }
+        MigrationRunner retry = new MigrationRunner(Clock.fixed(V27_TIME.plusSeconds(60), ZoneOffset.UTC), BusinessDb.dataSources());
+        assertEquals(EXPAND_SCRIPTS - 26, retry.run(config, MigrationRunner.Phase.EXPAND));
+        assertEquals(List.of("27/1 FAILED " + V27_DIGEST, "27/2 SUCCEEDED " + V27_DIGEST), attempts().subList(26, 28));
+        LocalDateTime retriedAt = LocalDateTime.parse("2004-05-06T07:09:09.123");
+        assertEquals(new V27Row(V27_DIGEST, retriedAt, "1", retriedAt), v27Row());
+    }
+
+    @Test
+    void pendingV27RejectsChangedBytesAndAnUnrecognizedResourceBeforeAnAttempt() throws Exception {
+        SennardDatabaseConfig config = BusinessDb.config();
+        List<MigrationScript> scripts = MigrationScript.load(MigrationRunner.Phase.EXPAND.location());
+        List<MigrationScript> beforeV27 = scripts.subList(0, 26);
+        assertEquals(26, run(config, beforeV27));
+        MigrationScript v27 = scripts.get(26);
+        assertEquals(V27_DIGEST, v27.digest());
+        List<MigrationScript> candidate = new ArrayList<>(beforeV27);
+        candidate.add(new MigrationScript(v27.version(), v27.file(), v27.bytes(), v27.digest()));
+        assertEquals(StoreCode.MIGRATION_CHANGED, assertThrows(StoreException.class, () -> run(config, candidate)).code());
+        byte[] changed = v27.bytes().clone();
+        changed[0] = ' ';
+        candidate.set(26, new MigrationScript(v27.version(), v27.file(), changed, v27.digest(), v27.source()));
+        assertEquals(StoreCode.MIGRATION_CHANGED, assertThrows(StoreException.class, () -> run(config, candidate)).code());
+        assertEquals(26, attempts().size());
+        assertFalse(tableExists("workflow_blocked_plans"));
+    }
+
+    @Test
+    void pendingV27RejectsOneMatchingIdentifierWithoutRecordingAnAttempt() throws Exception {
+        SennardDatabaseConfig config = BusinessDb.config();
+        List<MigrationScript> scripts = MigrationScript.load(MigrationRunner.Phase.EXPAND.location());
+        List<MigrationScript> beforeV27 = scripts.subList(0, 26);
+        assertEquals(26, run(config, beforeV27));
+        List<String> attemptsBeforeV27 = attempts();
+        MigrationScript v27 = scripts.get(26);
+        List<MigrationScript> candidate = new ArrayList<>(beforeV27);
+        candidate.add(new MigrationScript(v27.version(), "v27__workflow_stop_checks.sql", v27.bytes(), v27.digest(), v27.source()));
+        assertEquals(StoreCode.MIGRATION_CHANGED, assertThrows(StoreException.class, () -> run(config, candidate)).code());
+        assertEquals(attemptsBeforeV27, attempts());
+        assertFalse(tableExists("workflow_blocked_plans"));
+
+        candidate.set(26, v27);
+        assertEquals(1, run(config, candidate));
+        List<String> attemptsThroughV27 = attempts();
+        V27Row original = v27Row();
+        candidate.add(new MigrationScript(v27.version() + 1, v27.file(), v27.bytes(), v27.digest(), v27.source()));
+        assertEquals(StoreCode.MIGRATION_CHANGED, assertThrows(StoreException.class, () -> run(config, candidate)).code());
+        assertEquals(attemptsThroughV27, attempts());
+        assertEquals(original, v27Row());
+    }
+
+    private record V27Row(String digest, LocalDateTime appliedAt, String lockValue, LocalDateTime updatedAt) {}
+
+    private static V27Row v27Row() throws SQLException {
+        try (Connection connection = BusinessDb.connect(); Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery("""
+                        SELECT history.digest, history.applied_at, lock_row.value, lock_row.updated_at
+                        FROM sennard.expand_history history
+                        CROSS JOIN sennard.workflow_metadata lock_row
+                        WHERE history.version = 27 AND history.outcome = 'SUCCEEDED'
+                        AND lock_row.meta_key = 'blocked-plan-write-lock'
+                        """)) {
+            assertTrue(rows.next());
+            V27Row row = new V27Row(rows.getString(1).strip(), rows.getObject(2, LocalDateTime.class), rows.getString(3), rows.getObject(4, LocalDateTime.class));
+            assertFalse(rows.next());
+            return row;
         }
     }
 

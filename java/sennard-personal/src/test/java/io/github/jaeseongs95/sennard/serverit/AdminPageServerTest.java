@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -26,9 +27,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import io.github.jaeseongs95.sennard.app.board.BoardService;
 import io.github.jaeseongs95.sennard.server.approval.RootApprovalService;
 import io.github.jaeseongs95.sennard.server.contract.CanonicalJson;
 import io.github.jaeseongs95.sennard.server.web.AdminPageAddress;
+import io.github.jaeseongs95.sennard.service.identity.SessionRegistry;
 import io.github.jaeseongs95.sennard.service.store.modules.SkillUsageService;
 import io.github.jaeseongs95.sennard.service.store.modules.SkillUsageStore;
 import io.github.jaeseongs95.sennard.service.store.modules.StoreValues;
@@ -503,21 +506,63 @@ class AdminPageServerTest {
     // --------------------------------------------------------------------------------------------------------- what it shows
 
     @Test
-    void theStateListsSessionsWithTheirSignedBindingAndABoundSessionNoLongerPresentAsEnded() throws Exception {
+    void theStateReturnsTheLiteralUserTitleAlongsideTheExistingCardFields() throws Exception {
+        String titled = sennard.session();
+        String untitled = sennard.session();
+        sennard.call("update_session_status", new java.util.HashMap<>(Map.of("schemaVersion", "1.0.0", "summary", "Current work", "role", "developer")), titled);
+        sennard.call("update_session_status", new java.util.HashMap<>(Map.of("schemaVersion", "1.0.0", "summary", "Other work")), untitled);
+        JsonNode before = codexSession(sennard.state(), titled);
+
+        String title = "<b>R&D \"review\"</b>";
+        sennard.bean(BoardService.class).observeTitle("codex", titled, title, Instant.now());
+
+        JsonNode state = sennard.state();
+        assertTrue(state.path("sessionsError").isNull(), state.toString());
+        JsonNode card = codexSession(state, titled);
+        assertTrue(card.path("userTitle").isString(), card.toString());
+        assertEquals(title, card.path("userTitle").asString());
+        assertEquals("Current work", card.path("summary").asString());
+        assertEquals("developer", card.path("selfRole").asString());
+        assertEquals(before.path("lastSeenAt"), card.path("lastSeenAt"));
+        assertEquals(before.path("binding"), card.path("binding"));
+        JsonNode other = codexSession(state, untitled);
+        assertTrue(other.path("userTitle").isNull() || other.path("userTitle").isMissingNode(), other.toString());
+        assertEquals("Other work", other.path("summary").asString());
+    }
+
+    private static JsonNode codexSession(JsonNode state, String sessionId) {
+        for (JsonNode session : state.path("sessions")) {
+            if ("codex".equals(session.path("host").asString()) && sessionId.equals(session.path("sessionId").asString())) {
+                return session;
+            }
+        }
+        throw new AssertionError("missing Codex session " + sessionId + ": " + state.path("sessions"));
+    }
+
+    @Test
+    void theStateListsObservedMainsAndRetainsTheirEndedBindings() throws Exception {
         String live = sennard.session();
         sennard.call("update_session_status", new java.util.HashMap<>(Map.of("schemaVersion", "1.0.0", "summary", "일하는 중", "role", "자칭")), live);
-        String gone = "gone-" + UUID.randomUUID();
+        String gone = sennard.session();
+        assertEquals(200, DomainServerSupport.hook(sennard.server.port, "windows", "codex", "SessionEnd", null, gone, body -> { }).status());
+        String child = SessionServerSupport.uniqueSession();
+        String unknown = SessionServerSupport.uniqueSession();
+        assertTrue(sennard.bean(SessionRegistry.class).bindObservedChild("codex", live, child));
         String roleId = "role-" + UUID.randomUUID();
         sennard.sign(owner, ToolServerSupport.roleAdd(roleId, "검수-" + roleId));
-        sennard.sign(owner, ToolServerSupport.MAPPER.createObjectNode().put("op", "BINDING_SET").put("host", "codex").put("sessionId", gone).put("roleId", roleId));
+        for (String session : List.of(gone, child, unknown)) {
+            sennard.sign(owner, ToolServerSupport.MAPPER.createObjectNode().put("op", "BINDING_SET").put("host", "codex").put("sessionId", session).put("roleId", roleId));
+        }
         JsonNode state = sennard.state();
         assertTrue(state.path("sessionsError").isNull(), state.path("sessionsError").toString());
         JsonNode liveRow = null;
         JsonNode goneRow = null;
         for (JsonNode session : state.path("sessions")) {
-            if (session.path("sessionId").asString().equals(live)) {
+            String id = session.path("sessionId").asString();
+            assertFalse(id.equals(child) || id.equals(unknown), session.toString());
+            if (id.equals(live)) {
                 liveRow = session;
-            } else if (session.path("sessionId").asString().equals(gone)) {
+            } else if (id.equals(gone)) {
                 goneRow = session;
             }
         }
@@ -531,6 +576,24 @@ class AdminPageServerTest {
         assertNotNull(goneRow);
         assertEquals("ended", goneRow.path("state").asString());
         assertEquals(roleId, goneRow.path("binding").path("roleId").asString());
+    }
+
+    @Test
+    void anAntigravityStartAppearsOnlyAfterItsActorIsObserved() throws Exception {
+        String session = SessionServerSupport.uniqueSession();
+        assertEquals(200, DomainServerSupport.hook(sennard.server.port, "windows", "agy", "SessionStart", null, session, body -> { }).status());
+        assertFalse(hasBindingSession(session));
+        DomainServerSupport.observeAgyRoot(sennard.server, session);
+        assertTrue(hasBindingSession(session));
+    }
+
+    private static boolean hasBindingSession(String session) throws Exception {
+        for (JsonNode row : sennard.state().path("sessions")) {
+            if (session.equals(row.path("sessionId").asString())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Test

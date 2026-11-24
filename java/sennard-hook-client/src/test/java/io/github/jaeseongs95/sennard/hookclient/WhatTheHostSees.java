@@ -98,14 +98,6 @@ final class WhatTheHostSees {
                 assertIsOneJsonObject(result.out(), "decision\nreason", where);
                 yield true;
             }
-            case DENY_RESULT -> {
-                assertEquals(0, result.exit(), where);
-                assertEquals("", result.err(), where);
-                assertEquals("{\"decision\":\"deny\",\"reason\":\"[Sennard] The result was withheld because the hook could not process it ("
-                        + reason + "). Use Sennard peer messaging for subagent results.\"}", result.out(), where);
-                assertIsOneJsonObject(result.out(), "decision\nreason", where);
-                yield true;
-            }
             case GUIDANCE_SYSTEM_MESSAGE -> {
                 assertEquals(0, result.exit(), where);
                 assertEquals("", result.err(), where);

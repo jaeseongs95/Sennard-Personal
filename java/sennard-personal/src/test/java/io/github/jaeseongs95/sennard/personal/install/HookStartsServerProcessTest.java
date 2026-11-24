@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -76,16 +78,20 @@ import tools.jackson.databind.json.JsonMapper;
  * folder ({@link ServerAddress}). The installation, its state folder and its address file are this test's; every child JVM gets {@code SENNARD_INSTALL_ROOT} and
  * {@code SENNARD_STATE_DIR} (and the one the test starts itself {@code -Duser.home}), so no run reaches an installation of the PC.
  *
- * <p>The processes a hook made are told by their place below it: a hook's children are what it started itself (the command that starts the server), and that command's children are
- * the server (the product starts it as its own child; it outlives its parent). Only {@code java} processes are counted: Windows may give a console program a console host of its own.
+ * <p>The processes a hook made are told by their place below it: a hook's children are what it started itself (the command that starts the server, and, for a session start the server
+ * accepted a wake registration for, the native wake worker, {@code java -jar <jar> native-wake-worker <host> <event>}, which the hook leaves running as its own child), and the children of
+ * the command that starts the server are the server (the product starts it as its own child; it outlives its parent). So the servers a hook started are the processes two levels below it;
+ * a process one level below it is not told to be a server or a worker (the JDK gives no command line of another process on every OS, and whether the sampler sees a worker depends on
+ * timing). Only {@code java} processes are counted: Windows may give a console program a console host of its own.
  *
  * <p>Case table (installation, server, hook; expected):
  * <pre>
  * installed, no server      claude SessionStart   -> exit 0, the server's answer on stdout, the event recorded by the server (list_session_status),
  *                                                    the server alive after the hook ended, the hook's pipes at EOF (the client, the command it ran and the server
  *                                                    hold none of them)
- * installed, server running claude SessionStart   -> the same answer; the hook made no process, the server is the one that ran (its address file is unchanged), the
- *                                                    start's lock file is never made
+ * installed, server running claude SessionStart   -> the same answer; the hook started no server (no process two levels below it; the native wake worker the server's
+ *                                                    wake registration makes the hook leave running is its direct child, seen or not), the server is the one that ran (its
+ *                                                    address file is unchanged), the start's lock file is never made
  * installed, no server      two SessionStart at once -> both answered; the server processes seen are as many as one start makes (sampled every 20 ms)
  * application jar damaged   claude SessionStart   -> exit 2, the guidance on stderr, nothing on stdout, no server process, the lock is free (the command that starts the server fails:
  *                                                    SERVER_NOT_STARTED, answered with the definition's failure answer)
@@ -282,6 +288,31 @@ class HookStartsServerProcessTest {
     private record Made(Set<Long> below, Set<Long> servers) {
     }
 
+    private record HookOutcome(Finished finished, String awaitFailure) {
+        String describe(Running running) {
+            if (finished != null) {
+                return "pid=" + running.process.pid() + ", exit=" + finished.exit() + ", elapsed=" + finished.elapsed();
+            }
+            Long endedAt = running.ended.exceptionally(failure -> null).getNow(null);
+            String elapsed = endedAt == null ? "unobserved" : Duration.ofNanos(endedAt - running.started).toString();
+            String exit = running.process.isAlive() ? "unobserved" : Integer.toString(running.process.exitValue());
+            return "pid=" + running.process.pid() + ", exit=" + exit + ", elapsed=" + elapsed + ", awaitFailure=" + awaitFailure;
+        }
+    }
+
+    /** A failed wait must still leave the other hook's outcome available for the race assertion. */
+    private static HookOutcome awaitConcurrentHook(Running running) throws InterruptedException {
+        try {
+            return new HookOutcome(running.await(), "none");
+        } catch (InterruptedException interrupted) {
+            throw interrupted;
+        } catch (AssertionError failed) {
+            return new HookOutcome(null, failed.getCause() instanceof TimeoutException ? "pipes-did-not-close" : "process-did-not-end");
+        } catch (Exception failed) {
+            return new HookOutcome(null, failed.getClass().getSimpleName());
+        }
+    }
+
     /** Runs a hook as {@link #run} does and says what processes it made. */
     private Made runMaking(List<String> argv, byte[] stdin, Consumer<Finished> check) throws Exception {
         Running running = new Running(argv, stdin);
@@ -317,6 +348,10 @@ class HookStartsServerProcessTest {
         /** The program is a {@code java} ({@code java} or {@code java.exe}: the file name tells, no OS is asked). */
         private static boolean isJava(ProcessHandle handle) {
             return handle.info().command().map(command -> Path.of(command).getFileName().toString().toLowerCase(Locale.ROOT).startsWith("java")).orElse(false);
+        }
+
+        Made snapshot() {
+            return new Made(Set.copyOf(below), Set.copyOf(servers));
         }
 
         @Override
@@ -411,7 +446,7 @@ class HookStartsServerProcessTest {
 
         Made made = runMaking(claudeSessionStart(), claudeSessionStartInput(UUID.randomUUID().toString()), finished -> assertEquals(0, finished.exit(), finished.toString()));
 
-        assertEquals(Set.of(), made.below(), "the hook made no process: the server was found through the file");
+        assertEquals(Set.of(), made.servers(), "the hook started no server: the server was found through the file (java processes below the hook: " + made.below() + ")");
         assertEquals(before, address().orElseThrow(), "the server that ran is the one that runs: nothing was started");
         assertFalse(Files.exists(state.resolve(LOCK_FILE)), "the start was not entered: its lock file was never made");
     }
@@ -420,6 +455,29 @@ class HookStartsServerProcessTest {
         ServerControl server = new ServerControl(addressFile, Map.of());
         ServerControl.await(() -> server.storeStatus().map(status -> status.phase() == io.github.jaeseongs95.sennard.service.store.pg.StorePhase.READY).orElse(false),
                 Duration.ofMinutes(3), UnavailableCode.STORE_PREPARATION_TIMEOUT, Map.of());
+    }
+
+    /** The announcement and probes are read once after both waits, when an assertion fails. */
+    private String concurrentStartSnapshot() {
+        Instant observedAt = Instant.now();
+        String announced = switch (ServerAddress.inspect(addressFile)) {
+            case ServerAddress.Reading.Found found -> {
+                ServerAddress address = found.address();
+                yield "pid=" + address.pid() + ", port=" + address.port() + ", processStart=" + address.processStart();
+            }
+            case ServerAddress.Reading.Absent absent -> "absent";
+            case ServerAddress.Reading.Unusable unusable -> "unusable";
+        };
+        ServerControl control = new ServerControl(addressFile, Map.of(), Duration.ofSeconds(1));
+        boolean listening = control.listening();
+        String health = listening ? (control.healthy() ? "2xx" : "no-2xx-observed") : "not-probed";
+        String storePhase = listening ? control.storeStatus().map(StoreStatus::phase).map(Enum::name).orElse("unobserved") : "not-probed";
+        return "post-await probes started at " + observedAt + ": announcement=[" + announced + "], listening (live announcement)=" + listening
+                + ", health=" + health + ", storePhase=" + storePhase;
+    }
+
+    private static String describePids(Set<Long> pids) {
+        return pids.stream().sorted().limit(12).toList() + " (" + pids.size() + " seen)";
     }
 
     @Test
@@ -436,22 +494,36 @@ class HookStartsServerProcessTest {
         String b = UUID.randomUUID().toString();
         Running one = new Running(claudeSessionStart(), claudeSessionStartInput(a));
         Running two = new Running(claudeSessionStart(), claudeSessionStartInput(b));
-        Set<Long> both = new HashSet<>();
+        HookOutcome outcomeOne;
+        HookOutcome outcomeTwo;
+        Made sampledOne;
+        Made sampledTwo;
         try (Sampler samplerOne = new Sampler(one.process); Sampler samplerTwo = new Sampler(two.process)) {
-            Finished finishedOne = one.await();
-            Finished finishedTwo = two.await();
-            assertEquals(0, finishedOne.exit(), finishedOne.toString());
-            assertEquals(0, finishedTwo.exit(), finishedTwo.toString());
-            assertTrue(finishedOne.out().startsWith("{") && finishedTwo.out().startsWith("{"), "both were answered by the server: " + finishedOne + " " + finishedTwo);
-            both.addAll(samplerOne.servers);
-            both.addAll(samplerTwo.servers);
+            outcomeOne = awaitConcurrentHook(one);
+            outcomeTwo = awaitConcurrentHook(two);
+            sampledOne = samplerOne.snapshot();
+            sampledTwo = samplerTwo.snapshot();
         }
-        ServerAddress second = address().orElseThrow();
-        assertTrue(both.contains(second.pid()), "the server that answered is among those seen: " + both + " " + second);
-        assertEquals(single.servers().size(), both.size(), "the server processes seen for two starts at once are as many as one start makes: " + both + " against " + single.servers());
+        Supplier<String> diagnostics = () -> "hook one [" + outcomeOne.describe(one) + "], hook two [" + outcomeTwo.describe(two)
+                + "]; elapsed runs from launch to observed exit. Java PIDs sampled every 20 ms during the waits (an empty sample leaves the process unobserved): "
+                + "one descendants=" + describePids(sampledOne.below()) + ", servers=" + describePids(sampledOne.servers())
+                + "; two descendants=" + describePids(sampledTwo.below()) + ", servers=" + describePids(sampledTwo.servers())
+                + "; single-start servers=" + describePids(single.servers()) + "; " + concurrentStartSnapshot();
+        Finished finishedOne = outcomeOne.finished();
+        Finished finishedTwo = outcomeTwo.finished();
+        assertNotNull(finishedOne, () -> "the first hook wait failed: " + diagnostics.get());
+        assertNotNull(finishedTwo, () -> "the second hook wait failed: " + diagnostics.get());
+        assertEquals(0, finishedOne.exit(), () -> "the first hook failed: " + diagnostics.get());
+        assertEquals(0, finishedTwo.exit(), () -> "the second hook failed: " + diagnostics.get());
+        assertTrue(finishedOne.out().startsWith("{") && finishedTwo.out().startsWith("{"), () -> "both hooks must return JSON: " + diagnostics.get());
+        Set<Long> both = new HashSet<>(sampledOne.servers());
+        both.addAll(sampledTwo.servers());
+        ServerAddress second = address().orElseThrow(() -> new AssertionError("the server did not announce a live address: " + diagnostics.get()));
+        assertTrue(both.contains(second.pid()), () -> "the server that answered must be among those seen: " + diagnostics.get());
+        assertEquals(single.servers().size(), both.size(), () -> "two concurrent starts must make as many server processes as one start: " + diagnostics.get());
         Set<String> listed = listedSessions();
-        assertTrue(listed.contains(a) && listed.contains(b), "both events are recorded: " + listed);
-        assertTrue(lockIsFree());
+        assertTrue(listed.contains(a) && listed.contains(b), () -> "both events must be recorded: " + diagnostics.get());
+        assertTrue(lockIsFree(), () -> "the startup lock must be free: " + diagnostics.get());
     }
 
     @Test

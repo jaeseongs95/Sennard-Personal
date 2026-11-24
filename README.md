@@ -36,7 +36,7 @@ You need the host's plugin feature, a [new, empty business database](docs/user/s
 The release is one jar that every operating system runs; there are no per-OS archives and no bundled runtime. The supported environment is any computer on which JDK 25 runs. See the release notes for the host environments covered by verification.
 
 <!-- release-version:start -->
-The current public release is `v1.4.0`, and the examples below install it. Read the [1.4.0 release notes](https://github.com/jaeseongs95/Sennard-Personal/blob/v1.4.0/docs/release-notes/release-notes-v1.4.0.md) before installing or upgrading. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
+The current public release is `v1.5.0`, and the examples below install it. Read the [1.5.0 release notes](https://github.com/jaeseongs95/Sennard-Personal/blob/v1.5.0/docs/release-notes/release-notes-v1.5.0.md#sennard-150-release-notes) before installing or upgrading. JEV is configured only on the admin page. Changes for each personal release are in [GitHub Releases](https://github.com/jaeseongs95/Sennard-Personal/releases) and `docs/release-notes/release-notes-v<version>.md`, in English and Korean.
 <!-- release-version:end -->
 
 ### Server
@@ -50,13 +50,15 @@ java -jar sennard-<version>.jar install
 
 On Windows, compare the value in the checksum file with the output of `Get-FileHash -Algorithm SHA256 sennard-<version>.jar` instead.
 
-For a new desktop installation, you can also open Setup with `java -jar sennard-<version>.jar setup`. It shows the installed version, package version, and destination folder. Install the server, then follow the host plugin instructions below.
+On a desktop, put `setup.cmd` (Windows) or `setup.sh` (macOS and Linux) alongside the verified JAR from the same release. Run `setup.cmd` or `sh setup.sh` to open the setup window. The launcher checks `JAVA_HOME`, `PATH`, and the saved path for Java 25 or later. If none is valid, enter the JDK directory or the Java executable path. The launcher saves a valid path you enter to `setup-java-path` in the Sennard state folder for future runs. The launcher locates the state folder from `SENNARD_STATE_DIR`, or the default `~/.sennard` when it is not set; it does not read `--state-dir` or `sennard.yaml`. A relative `SENNARD_STATE_DIR` or `SENNARD_INSTALL_ROOT` is taken from the folder the launcher was started in, by the launcher and by the program it starts alike. On Windows, the console window stays open alongside the setup window, and closing the console also ends setup; if setup fails when started by double-click, the window closes when a key is pressed or after 300 seconds, whichever comes first, so that the message can be read. When the locale is ASCII, `setup.sh` selects a UTF-8 locale for the Java it starts, so that folders with non-ASCII names can be opened. You can also open the window directly with `java -jar sennard-<version>.jar setup`.
+
+The window shows the installed version, package version, and destination folder. Install the server, then follow the host plugin instructions below.
 
 #### Update an existing installation
 
-1. Close affected host sessions. Back up the Sennard state folder and any configured business database.
+1. Close affected host sessions. Run `sennard stop`, then back up the Sennard state folder and any configured business database.
 2. Follow the host-specific instructions below to update every installed Sennard host plugin to the exact version of the target JAR. Close any host sessions opened to update the plugins.
-3. Use the verified target JAR with JDK 25. On a desktop, run `java -jar sennard-<version>.jar setup`, check the box confirming that you closed the sessions and backed up your data, and choose **Update and restart**. In a terminal, run `java -jar sennard-<version>.jar upgrade`. For a 1.3 to 1.4 upgrade in Windows Command Prompt (CMD), enter `yes` to continue after reading the Codex wake notice, even if the old environment variable is absent. `no`, other input, or unavailable confirmation cancels the upgrade before it changes the installation. The Setup window asks when it detects an existing Codex opt-out during this upgrade. If Sennard asks to replace an existing Claude Code Stop setting, review the proposed change and confirm it to continue.
+3. Use the verified target JAR with JDK 25. On a desktop, run `java -jar sennard-<version>.jar setup`, check the box confirming that you closed the sessions and backed up your data, and choose **Update and restart**. In a terminal, run `java -jar sennard-<version>.jar upgrade`. For a 1.3 to 1.4 upgrade, Windows Command Prompt (CMD) and the Setup window ask for confirmation only if the upgrade turns Codex queue wake on where it was off. If prompted in CMD, read the notice and enter `yes` in the interactive console to continue. `no`, other input, or unavailable confirmation cancels the upgrade before it changes the installation. If wake is already on, the upgrade proceeds without this confirmation. If Sennard asks to replace an existing Claude Code Stop setting, review the proposed change and confirm it to continue.
 4. When the new server starts, check the server and database status. If you install or update a matching plugin after the server update, choose **Register hooks** in Setup or run `sennard hooks` using the new installation. Then start new host sessions. In Codex, review and trust the hooks in `/hooks` again.
 
 See the [update procedure](docs/user/update.md#update-procedure) for recovery and retry instructions.
@@ -104,7 +106,7 @@ Run in a terminal:
 
 <!-- release-install:start -->
 ```bash
-codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.4.0
+codex plugin marketplace add jaeseongs95/Sennard-Personal --ref v1.5.0
 codex plugin add sennard@sennard
 ```
 <!-- release-install:end -->
@@ -121,8 +123,8 @@ Once the plugin and server are on the same version, run `sennard hooks` if you i
 
 <!-- release-agy:start -->
 ```bash
-curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.4.0/sennard-antigravity-v1.4.0.zip
-unzip sennard-antigravity-v1.4.0.zip
+curl -LO https://github.com/jaeseongs95/Sennard-Personal/releases/download/v1.5.0/sennard-antigravity-v1.5.0.zip
+unzip sennard-antigravity-v1.5.0.zip
 agy plugin install ./sennard
 agy plugin list
 ```

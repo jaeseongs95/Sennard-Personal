@@ -6,6 +6,7 @@ package io.github.jaeseongs95.sennard.serverit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -29,6 +30,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import io.github.jaeseongs95.sennard.domain.error.BindingCode;
+import io.github.jaeseongs95.sennard.domain.error.BindingException;
 import io.github.jaeseongs95.sennard.server.messaging.SessionMessageService;
 import io.github.jaeseongs95.sennard.server.messaging.WakeWaiters;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -269,17 +272,15 @@ class DomainHookFixtureServerTest {
 
     // ------------------------------------------------------------------------------------------------------------ messages
 
-    private static void send(String body, String targetHost, String targetSession) {
-        String sender = SessionServerSupport.uniqueSession();
-        try {
-            ok(hook("windows", "codex", "SessionStart", sender));
-        } catch (IOException failed) {
-            throw new AssertionError(failed);
-        }
+    private static void send(String body, String targetHost, String targetSession) throws IOException {
+        String senderRef = refOf("codex", newSession("codex"));
         SessionMessageService messages = server.bean(SessionMessageService.class);
-        String senderRef = refOf("codex", sender);
-        var prepared = messages.prepare(senderRef, stored(targetHost), targetSession, body, null, OperationKeys.operation("prepare_session_message", senderRef));
+        var prepared = prepare(messages, senderRef, targetHost, targetSession, body);
         messages.send(senderRef, "codex", prepared.messageId(), OperationKeys.operation("send_session_message", senderRef));
+    }
+
+    private static SessionMessageService.PreparedView prepare(SessionMessageService messages, String senderRef, String targetHost, String targetSession, String body) {
+        return messages.prepare(senderRef, stored(targetHost), targetSession, body, null, OperationKeys.operation("prepare_session_message", senderRef));
     }
 
     private static String refOf(String host, String session) {
@@ -291,11 +292,14 @@ class DomainHookFixtureServerTest {
     void aWaitingMessageIsGivenAtTheHostsBoundaryWithItsReceipt(String os, String host, String event) throws IOException {
         String session = newSession(host);
         String body = "hello-" + UUID.randomUUID();
-        send(body, host, session);
         if (host.equals("agy")) {
-            assertFalse(contextOf(host, ok(hook(os, host, event, session))).contains(BEGIN), "unconfirmed hook cannot claim a peer message");
+            String senderRef = refOf("codex", newSession("codex"));
+            SessionMessageService messages = server.bean(SessionMessageService.class);
+            BindingException refused = assertThrows(BindingException.class, () -> prepare(messages, senderRef, host, session, body));
+            assertEquals(BindingCode.PEER_MAIN_SESSION_REQUIRED, refused.code());
             DomainServerSupport.observeAgyRoot(server, session);
         }
+        send(body, host, session);
         JsonNode output = ok(hook(os, host, event, session));
         String context = contextOf(host, output);
         assertTrue(context.contains(BEGIN), output.toString());
@@ -358,9 +362,15 @@ class DomainHookFixtureServerTest {
     @Test
     void aCanceledStopOfAgyIsNeverContinued() throws IOException {
         String session = newSession("agy");
-        send("canceled", "agy", session);
-        JsonNode output = ok(hook("windows", "agy", "Stop", null, session, body -> body.put("terminationReason", "USER_CANCELED")));
+        DomainServerSupport.observeAgyRoot(server, session);
+        String body = "canceled-" + UUID.randomUUID();
+        send(body, "agy", session);
+        JsonNode output = ok(hook("windows", "agy", "Stop", null, session, payload -> payload.put("terminationReason", "USER_CANCELED")));
         assertFalse(output.toString().contains(BEGIN), output.toString());
+        assertFalse("continue".equals(output.path("decision").asString()), output.toString());
+        JsonNode next = ok(hook("windows", "agy", "PostInvocation", session));
+        String context = contextOf("agy", next);
+        assertTrue(context.contains(BEGIN) && context.contains(body), next.toString());
     }
 
     @Test

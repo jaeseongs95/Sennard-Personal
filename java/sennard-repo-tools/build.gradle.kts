@@ -80,8 +80,8 @@ repoTool("checkCsEngineeringLock", "Fails when a digest of the cs-engineering kn
 repoTool("antigravityPackage", "Builds the Antigravity install copy from a ref: -Ptool=\"--ref <ref> --out <file.zip>\".", "antigravity-package")
 // What the CI workflows do besides building and testing (the run steps of a job without write permission call only ./gradlew, so these are Gradle tasks and not shell steps).
 repoTool("checkWhitespace", "Fails on whitespace problems in the lines HEAD adds (git diff --check): -Ptool=\"--base <sha>\" checks base...HEAD, no base checks HEAD against its parent.", "check-whitespace")
-repoTool("checkReleaseArchive", "Checks the name of the release jar against the tag and the version and writes its checksum: -Ptool=\"--tag <tag> --dir <folder>\".", "release-archive")
-repoTool("checkReleaseChecksums", "Checks the release jar and its checksum file in one folder against each other: -Ptool=\"--dir <folder>\".", "release-checksums")
+repoTool("checkReleaseArchive", "Checks the name of the release jar against the tag and the version and writes its checksum and the setup launchers (setup.cmd, setup.sh) beside it: -Ptool=\"--tag <tag> --dir <folder>\".", "release-archive")
+repoTool("checkReleaseChecksums", "Checks the release jar, its checksum file and the setup launchers in one folder against each other and the launcher templates: -Ptool=\"--dir <folder>\".", "release-checksums")
 repoTool("pruneMessages", "Removes catalog keys under the given prefixes that no product source refers to, from every locale and lock: -Ptool=\"<prefix> <prefix> ...\".", "i18n-prune")
 repoTool("acceptTranslation", "Records the current source digests for a locale's reviewed translations: -Ptool=\"<locale>\".", "i18n-accept")
 // The export tool is withheld from the public snapshot (by the export list of the source repository), so the task exists only where its source does.

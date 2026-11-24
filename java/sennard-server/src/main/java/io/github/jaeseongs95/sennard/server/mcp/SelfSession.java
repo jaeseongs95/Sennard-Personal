@@ -33,9 +33,26 @@ public record SelfSession(String sessionRef, long generation, String host, Strin
         /**
          * @param effort the reasoning effort when the host reports it, otherwise null
          * @param turnId the host's turn identifier when it reports it, otherwise null
-         * @param source where the observation came from
+         * @param evidence what the observation rests on
          */
-        record Observed(String model, String effort, String turnId, String source) implements Execution {
+        record Observed(String model, String effort, String turnId, Evidence evidence) implements Execution {
+            /**
+             * What an observed model rests on, in terms no one host owns: the host reported it with the call itself, or an adapter read it from the host's own record of the call, or from
+             * its record of the request that produced the call. It is not stored: the context keeps only the policy note {@code MODEL_FROM_REQUEST_RECORD} that follows from it.
+             */
+            public enum Evidence {
+                /** The host reported the model with the call itself (a hook, or the call's metadata). */
+                HOST_REPORT,
+                /** The host's record of the call names the model. */
+                CALL_RECORD,
+                /** The host's record of the request that produced the call names the model; the call itself is not in that record. */
+                REQUEST_RECORD
+            }
+
+            /** Whether the model was taken from the host's record of the request that produced the call, not from the call. */
+            public boolean fromRequestRecord() {
+                return evidence == Evidence.REQUEST_RECORD;
+            }
         }
 
         /**

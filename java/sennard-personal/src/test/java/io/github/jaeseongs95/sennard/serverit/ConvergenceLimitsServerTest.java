@@ -103,10 +103,10 @@ class ConvergenceLimitsServerTest {
         String session = sennard.session();
         RawHttp.Response prompt = DomainServerSupport.hook(sennard.server.port, "windows", "codex", "UserPromptSubmit", null, session, body -> {});
         assertEquals(200, prompt.status(), prompt.text());
+        // The host's already-continued Stop is skipped. Only eligible Stops spend this request's recheck budget.
         for (int attempt = 0; attempt <= expectedHolds; attempt++) {
-            boolean alreadyContinued = attempt > 0;
             RawHttp.Response stop = DomainServerSupport.hook(sennard.server.port, "windows", "codex", "Stop", null, session,
-                    body -> body.put("stop_hook_active", alreadyContinued));
+                    body -> body.put("stop_hook_active", false));
             assertEquals(200, stop.status(), stop.text());
             JsonNode output = SessionServerSupport.json(stop);
             assertEquals(attempt < expectedHolds, output.path("reason").asString("").contains("[Sennard workflow gate]"), stop.text());
@@ -149,6 +149,7 @@ class ConvergenceLimitsServerTest {
         assertLimits(status.path("root").path("frame").path("operationalSettings"), attempts, epochs);
     }
 
+    /** The attempt ends by an abort: it counts toward the root's attempt limit, and the root is left to the limit's rule (open for a retry, in review at the limit), never closed. */
     private static void abort(Started started) {
         ok(sennard.call("abort_workflow", arguments("runId", started.runId(), "expectedRevision", started.revision()), started.session()));
     }

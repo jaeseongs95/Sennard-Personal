@@ -43,7 +43,7 @@ mcp_tool 훅이 호출하는 `sennard` MCP 서버는 설치가 Codex의 플러�
 | AfterAgent | Sennard 클라이언트 | TurnEnded. 턴 이어가기는 `decision: "deny"`와 `reason` |
 | BeforeModel | Sennard 클라이언트 | ModelCallStarting |
 | BeforeTool | Sennard 클라이언트 | ToolRequested. 차단은 `decision: "deny"` |
-| AfterTool | Sennard 클라이언트 | ToolFinished. 텍스트는 `hookSpecificOutput.additionalContext` |
+| AfterTool | Sennard 클라이언트 | ToolFinished. 텍스트는 `hookSpecificOutput.additionalContext`. 결과는 거절하지 않는다. 서브에이전트의 결과(`invoke_agent`)도 같다. Gemini CLI는 거절한 결과 자리에 "Tool result blocked"를 넣으므로 부모가 서브에이전트가 돌려준 것을 잃는다(`packages/core/src/core/coreToolHookTriggers.ts`) |
 | PreCompress | Sennard 클라이언트 | CompactionStarting |
 | AfterModel | 받지 않음 | 공식: 응답 조각마다 불리는 이벤트라서 「모델 호출이 끝남」이 아니다 |
 | BeforeToolSelection·Notification | 받지 않음 | 대응하는 Sennard 수집 사건이 없다 |
@@ -118,7 +118,7 @@ OS 서비스 등록(schtasks·systemctl·launchctl)이 없으므로 재부팅 �
 
 **도구 실행 관문은 서버의 판정을 받을 수 없으면 도구를 차단한다.** 연결 실패, 클라이언트 시간 초과, HTTP 거절이 여기에 해당한다. SessionStart, UserPromptSubmit, PostToolUse, Stop은 각각의 실패 응답을 사용한다.
 
-게이트는 `HostEvent.ToolRequested`에서 도구 호출을 차단할 수 있다. Codex의 `continuity`는 호스트가 보내는 모든 `PreToolUse` 이벤트에 실행된다. Claude Code에서는 `governance`가 Sennard 도구를 처리하고 `continuity`가 나머지 `PreToolUse` 호출을 검사한다. Gemini CLI는 `BeforeTool`을, Antigravity는 `PreToolUse`를 쓴다. Codex, Claude Code와 Antigravity는 에이전트 간 직접 발신 도구에 별도 `native-peer` 게이트를 등록한다. Antigravity에서는 `default_api:` 접두어 유무와 관계없이 `send_message`에 해당한다. Claude Code는 stderr에 사유를 쓰고 종료 코드 2를 반환한다. Windows PowerShell은 프로세스의 종료 코드 2를 1로 바꿀 수 있으므로 Codex는 stdout에 `hookSpecificOutput.permissionDecision: "deny"`와 사유를 쓰고 종료 코드 0을 반환한다. Antigravity와 Gemini CLI는 stdout에 사유와 `decision: "deny"`를 반환한다. Codex의 `peer-wait`는 대기 시간을 제한하는 안내를 제공한다.
+게이트는 `HostEvent.ToolRequested`에서 도구 호출을 차단할 수 있다. Codex의 `continuity`는 호스트가 보내는 모든 `PreToolUse` 이벤트에 실행된다. Claude Code에서는 `governance`가 Sennard 도구를 처리하고 `continuity`가 나머지 `PreToolUse` 호출을 검사한다. Gemini CLI는 `BeforeTool`을, Antigravity는 `PreToolUse`를 쓴다. Codex, Claude Code와 Antigravity는 호스트의 발신 도구에 별도 `native-peer` 게이트를 등록한다(`session-messaging.ko.md`의 「호스트의 발신 도구」). Antigravity에서는 `default_api:` 접두어 유무와 관계없이 `send_message`에 해당한다. Claude Code는 stderr에 사유를 쓰고 종료 코드 2를 반환한다. Windows PowerShell은 프로세스의 종료 코드 2를 1로 바꿀 수 있으므로 Codex는 stdout에 `hookSpecificOutput.permissionDecision: "deny"`와 사유를 쓰고 종료 코드 0을 반환한다. Antigravity와 Gemini CLI는 stdout에 사유와 `decision: "deny"`를 반환한다. Codex의 `peer-wait`는 대기 시간을 제한하는 안내를 제공한다.
 
 | 상황 | 게이트 | 그 밖의 훅 |
 |---|---|---|

@@ -55,7 +55,7 @@ class ExecutionAssuranceTest {
     }
 
     private static ExecutionContext observed(String model, String effort) {
-        SelfSession.Execution execution = new SelfSession.Execution.Observed(model, effort, "turn-1", "test:host");
+        SelfSession.Execution execution = new SelfSession.Execution.Observed(model, effort, "turn-1", SelfSession.Execution.Observed.Evidence.HOST_REPORT);
         ExecutionContext context = assurance.observe(call(execution, "call-0000000000000001"), ExecutionAssurance.Binding.bootstrap("task-1"));
         assertNotNull(context);
         return context;
@@ -110,6 +110,24 @@ class ExecutionAssuranceTest {
     }
 
     @Test
+    void aModelTakenFromARequestRecordSaysSoInThePolicyNotes() {
+        SelfSession.Execution execution = new SelfSession.Execution.Observed("a-request-model", "high", null, SelfSession.Execution.Observed.Evidence.REQUEST_RECORD);
+        ExecutionContext context = assurance.observe(call(execution, "call-0000000000000002"), ExecutionAssurance.Binding.bootstrap("task-1"));
+        assertNotNull(context);
+        assertEquals(List.of("MODEL_NOT_IN_CATALOG", "MODEL_FROM_REQUEST_RECORD"), context.policyNotes());
+        assertDoesNotThrow(() -> validator.assertValid("execution-context.v1.schema.json", context));
+    }
+
+    @Test
+    void aModelFromTheLineOfTheCallOrTheHostsOwnReportHasNoRequestRecordNote() {
+        for (SelfSession.Execution.Observed.Evidence source : new SelfSession.Execution.Observed.Evidence[] {SelfSession.Execution.Observed.Evidence.CALL_RECORD, SelfSession.Execution.Observed.Evidence.HOST_REPORT, null}) {
+            SelfSession.Execution execution = new SelfSession.Execution.Observed("a-model", "high", null, source);
+            ExecutionContext context = assurance.observe(call(execution, "call-0000000000000003"), ExecutionAssurance.Binding.bootstrap("task-1"));
+            assertEquals(List.of("MODEL_NOT_IN_CATALOG"), context.policyNotes(), String.valueOf(source));
+        }
+    }
+
+    @Test
     void anUnseenModelIsRecordedWithItsClassUnknown() {
         ExecutionContext context = observed("a-model-that-did-not-exist-yesterday", "high");
         assertEquals("a-model-that-did-not-exist-yesterday", context.model());
@@ -139,7 +157,7 @@ class ExecutionAssuranceTest {
                         ExecutionAssurance.BOOTSTRAP));
         assertEquals("workflow.service.requiresTrustedAttestation", bootstrapRefused.ref().key());
 
-        SelfSession.Execution seen = new SelfSession.Execution.Observed("a-model", "high", "turn-1", "transcript-tool-use");
+        SelfSession.Execution seen = new SelfSession.Execution.Observed("a-model", "high", "turn-1", SelfSession.Execution.Observed.Evidence.CALL_RECORD);
         assertNotNull(assurance.observeTrusted(new WorkflowCall("claude-code", "session-1", "claude-code:actor-2", child, seen, "toolu_0000000000000004", "en"), stage, ExecutionAssurance.stageSubject("stage-01")),
                 "the next call of the same subagent is observed anew");
     }
@@ -201,7 +219,7 @@ class ExecutionAssuranceTest {
     @Test
     void anObservationIsBoundToTheTaskTheRunTheStageAndTheRevisionItWasMadeFor() {
         ExecutionAssurance.Binding stage = new ExecutionAssurance.Binding("stage", "task-1", "run-1", "stage-01", 4L);
-        SelfSession.Execution execution = new SelfSession.Execution.Observed("m", "high", "turn-1", "test:host");
+        SelfSession.Execution execution = new SelfSession.Execution.Observed("m", "high", "turn-1", SelfSession.Execution.Observed.Evidence.HOST_REPORT);
         ExecutionContext context = assurance.observe(call(execution, "call-0000000000000001"), stage);
         assertEquals("run-1", context.runId());
         assertEquals(4L, context.revision());

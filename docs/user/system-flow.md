@@ -2,15 +2,17 @@
 
 # Sennard System Flow
 
-These diagrams show how Sennard 1.3.0 handles requests, observes host sessions, tracks workflows, and delivers messages between sessions. Host hooks report events to the local Sennard server. The agent uses the server's MCP tools to choose a gate and record work.
+These diagrams describe how the Sennard 1.5.0 design handles requests, observes host sessions, tracks workflows, and delivers messages between sessions. Host hooks report events to the local Sennard server. The agent uses the server's MCP tools to choose a gate and record work.
 
 ## Handling a User Request
 
 ```mermaid
 flowchart TD
-    request["User submits a request"] --> select["Agent must choose a gate as its first step"]
+    request["User message or host-supplied input"] --> record["Identify the request and start its recheck count at zero"]
+    record --> select["Choose or continue the procedure that serves the request"]
     select -->|Existing workflow fits| reuse["Continue the existing workflow"]
     select -->|New answer or investigation| inquiry["Choose INQUIRY"]
+    select -->|User message in an open INQUIRY's turn| inherit["Inherit the INQUIRY's read permissions"] --> work
     select -->|Other work| entry["Enter the selected gate"]
     inquiry --> entry
     entry --> guidance["Receive the skill target list and intake guidance"]
@@ -22,16 +24,22 @@ flowchart TD
     check -->|Yes| tool["Run the tool"] --> work
     check -->|No| refused["Refuse the call and show what is required"] --> work
     work -->|New input arrives| request
-    work -->|Agent attempts to stop| stopKind{"Which kind of work is stopping?"}
-    stopKind -->|INQUIRY| stop["Stop processing"]
+    work -->|SubagentStop| childStop["Check parent workflow permissions without a separate recheck"]
+    work -->|Agent attempts to stop| continued{"Has the host already continued this Stop?"}
+    select -.->|Stop before entering a procedure| continued
+    continued -->|Yes| skip["Skip this Stop"]
+    continued -->|No| stopKind{"What does the request's handling record show?"}
+    stopKind -->|INQUIRY| stop["End the turn and close any INQUIRY opened in it"]
+    stopKind -->|Procedure required| inputStop
     stopKind -->|Workflow subject to checks| workflowCheck{"Do the workflow checks pass?"}
+    stopKind -->|Other completed handling| stop
     workflowCheck -->|Yes| stop
     workflowCheck -->|No| workflowStop{"Can the host continue this Stop?"}
     workflowStop -->|No, recheck limit is 0| blocked
     workflowStop -->|Yes| workflowLimit{"Does the workflow have rechecks left?"}
     workflowLimit -->|Yes| correct["Ask the agent to address the failing check"] --> work
     workflowLimit -->|No| blocked["Mark the run BLOCKED and record the plan hash"]
-    select -.->|Agent tries to stop without selecting a gate| inputStop{"Can the host continue this Stop?"}
+    inputStop{"Can the host continue this Stop?"}
     inputStop -->|No, recheck limit is 0| inputExhausted
     inputStop -->|Yes| inputLimit{"Does this input have rechecks left?"}
     inputLimit -->|Yes| rethink["Ask the agent to reconsider and select a gate"]
@@ -41,21 +49,26 @@ flowchart TD
     blocked --> exhausted
     exhausted -->|Claude Code or Codex| forced["Stop processing immediately and show the reason"]
     exhausted -->|Antigravity| delayed["Allow the agent to stop, record the violation, and notify on the next input"]
-    forced --> available["Keep any answer already sent and leave the session available"]
-    delayed --> available
+    forced --> stop
+    delayed --> stop
+    stop --> available["Keep any answer already sent and leave the session available"]
 ```
 
 Choose INQUIRY for an answer or an investigation, including a request that only needs an answer. Gates for changes, execution, and lifecycle transitions serve their respective kinds of work. Product-file edits require a CHANGE workflow with those files in its change plan. The server stores EXECUTION as `OPERATION`. See [Usage](usage.md#workflow-kinds-and-the-workflow-gate) for the entry point of each procedure.
 
 The gate-entry response provides the skill target list and intake guidance. JEV adds optional advice when enabled. The agent makes the final skill selection.
 
-The workflow is Sennard's unit of work. When new input arrives, the agent decides whether to continue an existing workflow or open a new one. A host's Stop hook or equivalent triggers the checks when the agent attempts to stop.
+Each `UserPromptSubmit` identifies a request. The input is the event carrying it, and a turn is the span of the host's response. A new input can identify another request within the same turn. A host-supplied input, such as a subagent completion notification, also identifies a request. Resuming the workflow that the notification concerns handles that request. A user message that arrives during an INQUIRY turn inherits that INQUIRY's read permissions. Product-file edits require a separate CHANGE workflow.
+
+Sennard binds each workflow start, resume, committed transition, and completion to the request it serves. Stop evaluates the handling record for the request associated with that input. A request whose workflow already handled it can end without a new procedure selection. If the host has already continued the Stop, the hook skips it. When a recheck applies and a suitable workflow is open, the hook points to `resume_workflow` and identifies the existing run.
+
+The server permits a single open INQUIRY in the session tree. If an agent tries to open another one, the server refuses the start and identifies the run to resume. The server closes the INQUIRY as `PASSED` at the end of the turn in which the opening request was handled. It uses the parent session's workflow permissions to evaluate subagent tool calls and `SubagentStop`, with no separate recheck for `SubagentStop`.
 
 A failing workflow uses a recheck only at a Stop the host can continue. At a continuable Stop, the current attempts-per-epoch setting on the admin page sets the recheck limit. If the host cannot continue the Stop, the limit is zero. When a check fails with no rechecks left, the server records the plan's SHA-256 hash and marks the run `BLOCKED`. The run is available for inspection only. Attempts to resume it, record a stage result, finalize it, or edit its plan are refused. If the agent calls `abort_workflow` before the limit is exhausted, the server records the hash only if the workflow has already failed a check. INQUIRY is outside the workflow check count and does not exhaust a workflow limit, become unavailable through a check, or have a plan hash recorded.
 
 When the working folder, workflow kind, and SHA-256 hash match a blocked plan, the server refuses registration or plan submission across sessions and hosts. The response gives the reason and identifies the workflow that originally became unavailable. Refusal leaves other workflows in their current states. A changed plan with a different hash can be submitted. The user can lift a hash block on the admin page. The agent cannot lift it, and the block does not expire automatically.
 
-If the agent tries to stop without selecting a gate, the input's recheck count increases only at a Stop the host can continue and while a recheck remains. The hook then asks the agent to reconsider and select a gate. If the host cannot continue the Stop, the server applies a recheck limit of zero. The server records `STOP_EXHAUSTED` for the input when the limit is reached, and the turn ends. The workflow's own recheck limit determines when these checks mark it `BLOCKED`.
+If the agent tries to stop without selecting a gate, the input's recheck count increases only at a Stop the host can continue and while a recheck remains. The hook then asks the agent to reconsider and select a gate. Every request begins with zero rechecks used. If the host cannot continue the Stop, the recheck limit is zero. A zero limit omits the “final recheck” notice. The server records `STOP_EXHAUSTED` for the input when the limit is reached, and the turn ends. The workflow's own recheck limit determines when these checks mark it `BLOCKED`.
 
 At either limit, Claude Code and Codex stop processing immediately and show the reason. Antigravity allows the agent to stop without showing the violation at that point. The server records the violation and, for a workflow limit, the `BLOCKED` run. It shows the notice when the next input arrives. Any answer already sent remains visible, and the session can accept another request.
 

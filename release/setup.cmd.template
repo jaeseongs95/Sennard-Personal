@@ -1,0 +1,121 @@
+@echo off
+setlocal DisableDelayedExpansion
+set "SENNARD_SETUP_SCRIPT=%~f0"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -Command "$source = [IO.File]::ReadAllText($env:SENNARD_SETUP_SCRIPT); & ([scriptblock]::Create(($source -split '(?m)^# Sennard setup PowerShell\r?$', 2)[1]))"
+exit /b %ERRORLEVEL%
+
+# Sennard setup PowerShell
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Ends the script. A failure shown in a window that is only this script's (double-clicked: the console holds just cmd.exe and this PowerShell, started by `cmd /c`) waits
+# for a key, or the message disappears with the window. It waits only when all of these hold: the session is interactive, the input is not redirected, the console holds exactly
+# cmd.exe and this PowerShell, and the shell that started this PowerShell was run with `/c`. None of that tells a hidden window of a signed-in user (nobody can press a key there)
+# from a visible one, so the wait has an end: a key, or the number of seconds the release renders into this file (measured with a stopwatch, so a change of the system clock does not move it), whichever comes first. The exit code is the same either way.
+function Exit-Setup([int] $Code) {
+    if ($Code -ne 0 -and (Test-OwnWindow)) {
+        $seconds = @SENNARD_FAILURE_WAIT_SECONDS@
+        [Console]::Error.WriteLine("Press any key to close this window. It closes by itself in $seconds seconds.")
+        try {
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            while ($timer.Elapsed.TotalSeconds -lt $seconds -and ![Console]::KeyAvailable) { Start-Sleep -Milliseconds 100 }
+            if ([Console]::KeyAvailable) { $null = [Console]::ReadKey($true) }
+        } catch { }
+    }
+    exit $Code
+}
+
+function Test-OwnWindow {
+    try {
+        if (![Environment]::UserInteractive -or [Console]::IsInputRedirected) { return $false }
+        $native = Add-Type -Namespace Sennard -Name Native -PassThru -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint GetConsoleProcessList(uint[] list, uint count);'
+        if ($native::GetConsoleProcessList((New-Object uint32[] 8), 8) -ne 2) { return $false }
+        $self = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
+        $shell = Get-CimInstance Win32_Process -Filter "ProcessId=$($self.ParentProcessId)"
+        return [bool]($shell -and $shell.CommandLine -match '\s/c\s')
+    } catch {
+        return $false
+    }
+}
+
+function Find-Java([string] $Path) {
+    if (!$Path) { return }
+    $item = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($item -is [IO.DirectoryInfo]) {
+        $item = Get-Item -LiteralPath (Join-Path $item.FullName 'bin/java.exe') -ErrorAction SilentlyContinue
+    }
+    if ($item -isnot [IO.FileInfo] -or $item.Extension -ne '.exe') { return }
+
+    $output = & $item.FullName '-XshowSettings:properties' '-version' 2>&1
+    if ($LASTEXITCODE -ne 0) { return }
+    $version = [regex]::Match(($output -join [Environment]::NewLine), '(?m)^\s*java\.specification\.version\s*=\s*(\d+)\s*$')
+    if ($version.Success -and [int] $version.Groups[1].Value -ge 25) { return $item.FullName }
+}
+
+$jarName = '@SENNARD_RELEASE_JAR@'
+$folder = Split-Path -LiteralPath $env:SENNARD_SETUP_SCRIPT
+if (!(Test-Path -LiteralPath (Join-Path $folder $jarName) -PathType Leaf)) {
+    [Console]::Error.WriteLine('Put @SENNARD_RELEASE_JAR@ next to setup.cmd.')
+    Exit-Setup 1
+}
+
+# The child runs in the folder of the jar, so a relative path in these variables would be another folder to it than to this script and to setup.sh (which stays in the folder it was
+# started in). Both are made absolute here, from the folder this script was started in, for the child as well; a variable that is not set stays not set. A text that is no path is
+# left as it is, and the command refuses it with its own message.
+foreach ($name in 'SENNARD_STATE_DIR', 'SENNARD_INSTALL_ROOT') {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ($value) {
+        try { [Environment]::SetEnvironmentVariable($name, [IO.Path]::GetFullPath($value)) } catch { }
+    }
+}
+
+$stateDirectory = $env:SENNARD_STATE_DIR
+if (!$stateDirectory) { $stateDirectory = Join-Path $HOME '.sennard' }
+$preference = Join-Path $stateDirectory 'setup-java-path'
+$java = Find-Java $env:JAVA_HOME
+if (!$java) {
+    foreach ($onPath in (Get-Command java.exe -CommandType Application -All -ErrorAction SilentlyContinue)) {
+        $java = Find-Java $onPath.Source
+        if ($java) { break }
+    }
+}
+if (!$java -and (Test-Path -LiteralPath $preference -PathType Leaf)) {
+    $saved = Get-Content -LiteralPath $preference -Encoding UTF8 -TotalCount 1 -ErrorAction SilentlyContinue
+    $java = Find-Java $saved
+}
+
+if (!$java) {
+    do {
+        $entered = Read-Host 'Enter the Java 25+ home directory or java.exe (Enter to cancel)'
+        if (!$entered) { exit 1 }
+        $java = Find-Java $entered.Trim().Trim('"')
+        if (!$java) { [Console]::Error.WriteLine('That path does not provide Java 25 or later.') }
+    } while (!$java)
+
+    try {
+        $null = [IO.Directory]::CreateDirectory($stateDirectory)
+        [IO.File]::WriteAllText($preference, $java + [Environment]::NewLine)
+    } catch {
+        [Console]::Error.WriteLine("Could not save the Java path in $stateDirectory. $($_.Exception.Message)")
+        Exit-Setup 1
+    }
+}
+
+# The Windows java launcher reads its command line in the system's ANSI code page, so a folder name with a letter outside it cannot be passed as an argument. The jar is opened by
+# its file name (ASCII) from its own folder instead: the child is started with that folder as its working folder. It is started as a process and not with the call operator (&):
+# in a folder whose name has two backticks in a row or a backtick before [ (observed in Windows PowerShell 5.1), a call made from there started nothing, printed no error, and
+# left the exit code of an earlier command in place. Its standard streams are the script's own, and a child that could not be started is a failure with a message.
+$start = New-Object Diagnostics.ProcessStartInfo
+$start.FileName = $java
+$start.Arguments = '-jar "' + $jarName + '" setup'
+$start.WorkingDirectory = $folder
+$start.UseShellExecute = $false
+try {
+    $child = [Diagnostics.Process]::Start($start)
+    if (!$child) { throw 'No process was started.' }
+    $child.WaitForExit()
+    $code = $child.ExitCode
+} catch {
+    [Console]::Error.WriteLine("Could not start $java. $($_.Exception.Message)")
+    $code = 1
+}
+Exit-Setup $code

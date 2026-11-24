@@ -4,6 +4,7 @@
 
 package io.github.jaeseongs95.sennard.server.hook;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
 
 import io.github.jaeseongs95.sennard.domain.error.SennardException;
 import io.github.jaeseongs95.sennard.server.diagnostics.SafeFailure;
+import io.github.jaeseongs95.sennard.server.hook.HookVerdict.ContextBlock;
 import io.github.jaeseongs95.sennard.server.message.MessageRef;
 import io.github.jaeseongs95.sennard.server.message.Messages;
 import io.github.jaeseongs95.sennard.service.identity.SessionRegistry;
@@ -38,22 +40,25 @@ public class HookPipeline {
     private final Messages messages;
     private final List<HookBoundary> boundaries;
     private final SessionRegistry sessions;
+    private final HookStopNotice stopNotices;
 
     public HookPipeline(List<? extends ServerHookAdapter> adapters, ObjectProvider<HostEventHandler> handler, Messages messages) {
         this(adapters, handler, messages, List.of());
     }
 
     public HookPipeline(List<? extends ServerHookAdapter> adapters, ObjectProvider<HostEventHandler> handler, Messages messages, List<HookBoundary> boundaries) {
-        this(List.copyOf(adapters), handler, messages, boundaries, null);
+        this(adapters, handler, messages, boundaries, null, null);
     }
 
     @Autowired
-    public HookPipeline(List<ServerHookAdapter> adapters, ObjectProvider<HostEventHandler> handler, Messages messages, List<HookBoundary> boundaries, SessionRegistry sessions) {
+    public HookPipeline(List<? extends ServerHookAdapter> adapters, ObjectProvider<HostEventHandler> handler, Messages messages, List<HookBoundary> boundaries,
+            SessionRegistry sessions, HookStopNotice stopNotices) {
         this.adapters = adapters.stream().collect(Collectors.toUnmodifiableMap(adapter -> adapter.host().label(), Function.identity()));
         this.handler = handler;
         this.messages = messages;
         this.boundaries = List.copyOf(boundaries);
         this.sessions = sessions;
+        this.stopNotices = stopNotices;
     }
 
     /**
@@ -76,11 +81,6 @@ public class HookPipeline {
             throw new HookRejected(HookRejection.HOOK_HOST_UNKNOWN);
         }
         HostEvent read = adapter.read(event, body);
-        if (read instanceof HostEvent.NativePeerResult) {
-            // A replacement result cannot deliver context. Do not let consumers claim a waiting peer message here.
-            String reason = messages.render(MessageRef.of("peer.result.useSennard"));
-            return new Answer(adapter.respond(event, read, new HookVerdict.Refuse(reason)), false);
-        }
         if (!(read instanceof HostEvent.ToolRequested) || !HookModule.gates(module)) {
             return answered(adapter, event, module, read, hostCandidates, wakeKey);
         }
@@ -133,7 +133,7 @@ public class HookPipeline {
             throw new HookRejected(HookRejection.HOOK_VERDICT_NOT_APPLICABLE);
         }
         boundaries.forEach(boundary -> boundary.after(routed, verdict));
-        HookOutput output = adapter.respond(event, routed, verdict);
+        HookOutput output = adapter.respond(event, routed, withStopNotice(adapter, routed, verdict));
         try {
             boundaries.forEach(boundary -> boundary.afterResponse(routed, verdict, output));
         } catch (StoreException failure) {
@@ -144,6 +144,31 @@ public class HookPipeline {
             registered |= boundary.bootstrap(routed, verdict, wakeKey);
         }
         return new Answer(output, registered);
+    }
+
+    /** Only the ordinary input path may deliver a notice. An intercepted wake leaves it for the next input. */
+    private HookVerdict withStopNotice(ServerHookAdapter adapter, HostEvent event, HookVerdict verdict) {
+        if (stopNotices == null || !adapter.defersStopReason()) {
+            return verdict;
+        }
+        String session = event.context().sessionId();
+        if (verdict instanceof HookVerdict.TerminateTurn stopped) {
+            stopNotices.rememberStop(adapter.host(), session, stopped.reason());
+            return verdict;
+        }
+        if (event.turnInputText() == null || !(verdict instanceof HookVerdict.Proceed || verdict instanceof HookVerdict.AddContext)) {
+            return verdict;
+        }
+        String reason = stopNotices.takeStopNotice(adapter.host(), session);
+        if (reason == null) {
+            return verdict;
+        }
+        List<ContextBlock> blocks = new ArrayList<>();
+        blocks.add(new ContextBlock(messages.render(MessageRef.of("hooks.workflowGate.deferredStop", "reason", reason)), true));
+        if (verdict instanceof HookVerdict.AddContext context) {
+            blocks.addAll(context.blocks());
+        }
+        return new HookVerdict.AddContext(blocks);
     }
 
     private HostEvent prepareEvent(HostEvent read) {
@@ -172,6 +197,13 @@ public class HookPipeline {
         }
         var binding = sessions.managedRootOf(host, conversationId);
         if (binding.isEmpty()) {
+            if (sessions.isChild(host, conversationId)) {
+                var stored = sessions.treeMembership(host, conversationId);
+                boolean actorMatches = reportedAgent == null || reportedAgent.equals(conversationId);
+                HostContext.SessionActor actor = stored.isPresent() && actorMatches ? HostContext.SessionActor.child(conversationId, "SESSION_TREE_CHILD")
+                        : HostContext.SessionActor.indeterminate("SESSION_TREE_UNAVAILABLE");
+                return withActor(read, actor);
+            }
             return read;
         }
         // A separate native process can report the shape of a root before its first MCP call classifies it.
@@ -183,7 +215,12 @@ public class HookPipeline {
                 || sessions.liveManagedRootSession(host, binding.orElseThrow()).isEmpty()) {
             throw new HookRejected(HookRejection.HOOK_MANAGED_IDENTITY_INVALID);
         }
-        return read.withContext(new HostContext(context.hostLabel(), conversationId, HostContext.SessionActor.managedChild(conversationId),
+        return withActor(read, HostContext.SessionActor.managedChild(conversationId));
+    }
+
+    private static HostEvent withActor(HostEvent read, HostContext.SessionActor actor) {
+        HostContext context = read.context();
+        return read.withContext(new HostContext(context.hostLabel(), context.sessionId(), actor,
                 context.workspace(), context.transcriptPath(), context.model(), context.effort(), context.turnId()));
     }
 }

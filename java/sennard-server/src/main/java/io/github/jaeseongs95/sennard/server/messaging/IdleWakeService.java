@@ -420,7 +420,7 @@ public class IdleWakeService {
         FutureTask<Void> task;
         synchronized (binding) {
             var connection = binding.connection;
-            if (closing || binding.closed || binding.active || bindings.get(key) != binding || !binding.actorCurrent.getAsBoolean()
+            if (closing || binding.managed != null || binding.closed || binding.active || bindings.get(key) != binding || !binding.actorCurrent.getAsBoolean()
                     || connection == null || !connectionReady(binding, connection)) {
                 return;
             }
@@ -491,7 +491,7 @@ public class IdleWakeService {
         }
         Input target = current.orElseThrow();
         if (!connectionReady(binding, connection)
-                || messages.countClaimable(target.address().sessionRef(), target.address().actorId(), clock.instant()) == 0) {
+                || messages.countClaimable(target.address().sessionRef(), clock.instant()) == 0) {
             return;
         }
         // Lazy until the prepared business store is actually used; a web-only application startup must not query an unprepared store.

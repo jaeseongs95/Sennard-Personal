@@ -414,6 +414,32 @@ class SharedContextHookServerTest {
         String roleId = role();
         String answer = sessionStart(CLAUDE, boundSession(CLAUDE, roleId));
         assertTrue(answer.contains("[Sennard assigned role role=" + roleName(roleId)), answer);
+        assertTrue(answer.contains("shared role context has no body yet"), answer);
+    }
+
+    @ParameterizedTest
+    @MethodSource("hosts")
+    void aNewBindingWithASavedRoleNeverSaysItsBodyIsEmpty(Host host) throws Exception {
+        String roleId = role();
+        String roleBody = "Saved role rules " + UUID.randomUUID();
+        setRoleBody(roleId, roleBody, null);
+        String session = SessionServerSupport.uniqueSession();
+        sessionStart(host, session);
+
+        bind(host, session, roleId);
+        String answer = step(host, session);
+
+        assertAll("the first hook after approval distinguishes a saved body from an empty role",
+                () -> assertEquals(roleBody, sennard.bean(ContextLayerStore.class).readRole(roleId).body()),
+                () -> assertTrue(answer.contains(roleName(roleId)), answer),
+                () -> assertFalse(answer.contains("shared role context has no body yet"), answer),
+                () -> assertTrue(answer.contains("read it with load_shared_context"), answer),
+                () -> assertFalse(answer.contains(roleBody), answer));
+        if (host == CODEX) {
+            var loaded = sennard.call("load_shared_context", DomainServerSupport.arguments(), session);
+            assertTrue(loaded.path("ok").asBoolean(), loaded::toString);
+            assertEquals(roleBody, loaded.path("data").path("role").path("body").asString());
+        }
     }
 
     @Test
@@ -595,6 +621,8 @@ class SharedContextHookServerTest {
         String roleBody = "루트 역할 기준 " + UUID.randomUUID();
         setRoleBody(roleId, roleBody, null);
         String root = boundSession(AGY, roleId);
+        turnStart(AGY, root);
+        DomainServerSupport.observeAgyRoot(sennard.server, root);
         String child = SessionServerSupport.uniqueSession();
         String first = step(AGY, child);
         assertFalse(first.contains(ROLE_HEADER + roleName(roleId)), "before the child's first tool call its root is not known");

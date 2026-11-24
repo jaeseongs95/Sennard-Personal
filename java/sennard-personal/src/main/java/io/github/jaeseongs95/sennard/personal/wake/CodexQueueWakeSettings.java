@@ -18,12 +18,11 @@ import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
+import io.github.jaeseongs95.sennard.server.hook.host.CodexHost;
 import io.github.jaeseongs95.sennard.server.hook.host.HostInput;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
-import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.DeserializationContext;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectReader;
 import tools.jackson.databind.annotation.JsonDeserialize;
 import tools.jackson.databind.deser.std.StdDeserializer;
@@ -39,8 +38,7 @@ public final class CodexQueueWakeSettings {
 
     public CodexQueueWakeSettings(JsonMapper mapper) {
         this.mapper = mapper;
-        reader = mapper.readerFor(QueueConfiguration.class).with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+        reader = WakeJson.strictReader(mapper, QueueConfiguration.class);
     }
 
     boolean enabled(Map<String, String> environment) throws IOException {
@@ -99,7 +97,7 @@ public final class CodexQueueWakeSettings {
         original.position(encoding.bomLength());
         String text = encoding.charset().newDecoder().decode(original.slice()).toString();
         try (JsonParser parser = mapper.createParser(text)) {
-            if (parser.nextToken() != JsonToken.START_OBJECT || findField(parser, "codex") != JsonToken.START_OBJECT
+            if (parser.nextToken() != JsonToken.START_OBJECT || findField(parser, CodexHost.ID.label()) != JsonToken.START_OBJECT
                     || findField(parser, "queueWake") != JsonToken.VALUE_FALSE) {
                 throw new IOException("Expected an existing Codex queueWake set to false.");
             }

@@ -4,19 +4,14 @@
 
 package io.github.jaeseongs95.sennard.personal.wake;
 
-import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
@@ -44,6 +39,10 @@ public final class AntigravityWakeTransport implements NativeWakeAdapter {
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(AntigravityWakeTransport.class);
+    private static final NativeWakeSend.Diagnostics SEND_DIAGNOSTICS = new NativeWakeSend.Diagnostics(
+            "AGY_SEND_NONZERO", "AGY_SEND_TIMED_OUT", "AGY_SEND_OUTPUT_LIMIT", "AGY_SEND_IO_AFTER_START",
+            "AGY_SEND_START_FAILED", "AGY_SEND_PREPARATION_FAILED", "AGY_SEND_CANCELLED",
+            "AGY_SEND_FAILED", "AGY_SEND_PREPARATION_FAILED");
     private static final Set<String> CHILD_FIELDS = Set.of("ANTIGRAVITY_LS_ADDRESS", "ANTIGRAVITY_CSRF_TOKEN", "ANTIGRAVITY_PROJECT_ID",
             "ANTIGRAVITY_CONVERSATION_ID", "PATH", "Path", "HOME", "USERPROFILE", "SystemRoot", "TEMP", "TMP", "LANG");
     private static final Set<String> ACP_FIELDS = Set.of("PATH", "Path", "HOME", "USERPROFILE", "SystemRoot", "TEMP", "TMP", "LANG",
@@ -87,11 +86,10 @@ public final class AntigravityWakeTransport implements NativeWakeAdapter {
             if (executable.isEmpty()) {
                 return new Availability.Missing("AGY_NATIVE_EXECUTABLE_MISSING");
             }
-            Map<String, String> child = exposed.entrySet().stream().filter(entry -> CHILD_FIELDS.contains(entry.getKey()))
-                    .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
+            Map<String, String> child = NativeWakeSend.selectEnvironment(exposed, CHILD_FIELDS);
             // This immutable environment/project belongs to the SessionStarted target, not a later caller or server environment.
-            return new Availability.Ready((session, marker) -> target.hostSessionId().equals(session)
-                    ? send(executable.orElseThrow(), child, session, marker) : new Outcome.NotSent("AGY_CONVERSATION_MISMATCH"));
+            return NativeWakeSend.boundTo(target.hostSessionId(), "AGY_CONVERSATION_MISMATCH",
+                    (session, marker) -> send(executable.orElseThrow(), child, session, marker));
         } catch (InvalidPathException invalid) {
             LOG.warn("AGY_NATIVE_EXECUTABLE_INVALID", SafeFailure.capture(invalid));
             return new Availability.Missing("AGY_NATIVE_EXECUTABLE_INVALID");
@@ -105,12 +103,12 @@ public final class AntigravityWakeTransport implements NativeWakeAdapter {
             return Optional.empty();
         }
         try {
-            Path workspace = Path.of(target.workspace());
-            if (!workspace.isAbsolute() || !Files.isDirectory(workspace)) {
+            var directory = ManagedWakeWorkspace.existingDirectory(target.workspace());
+            if (directory.isEmpty()) {
                 return Optional.empty();
             }
-            Map<String, String> child = exposed.entrySet().stream().filter(entry -> ACP_FIELDS.contains(entry.getKey()))
-                    .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
+            Path workspace = directory.orElseThrow();
+            Map<String, String> child = NativeWakeSend.selectEnvironment(exposed, ACP_FIELDS);
             return executable(exposed).map(binary -> launch -> AntigravityManagedConversation.open(binary, workspace, child, mapper, launch));
         } catch (InvalidPathException invalid) {
             LOG.warn("AGY_MANAGED_EXECUTABLE_INVALID", SafeFailure.capture(invalid));
@@ -122,65 +120,24 @@ public final class AntigravityWakeTransport implements NativeWakeAdapter {
         if (Thread.currentThread().isInterrupted()) {
             return new Outcome.NotSent("AGY_SEND_CANCELLED_BEFORE_START");
         }
-        try {
-            return switch (process.run(request(executable, environment, List.of("send-message", session, marker), 10))) {
-                case ToolProcess.Finished finished when finished.exitCode() == 0 -> new Outcome.Submitted();
-                case ToolProcess.Finished ignored -> new Outcome.Unknown("AGY_SEND_NONZERO");
-                case ToolProcess.TimedOut ignored -> new Outcome.Unknown("AGY_SEND_TIMED_OUT");
-                case ToolProcess.Overflowed ignored -> new Outcome.Unknown("AGY_SEND_OUTPUT_LIMIT");
-            };
-        } catch (WakeProcess.Failure failed) {
-            LOG.warn("AGY_SEND_FAILED", SafeFailure.capture(failed));
-            return failed.phase() == WakeProcess.Phase.STARTED ? new Outcome.Unknown("AGY_SEND_IO_AFTER_START") : new Outcome.NotSent("AGY_SEND_START_FAILED");
-        } catch (IOException beforeStart) {
-            LOG.warn("AGY_SEND_PREPARATION_FAILED", SafeFailure.capture(beforeStart));
-            return new Outcome.NotSent("AGY_SEND_PREPARATION_FAILED");
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            return new Outcome.Unknown("AGY_SEND_CANCELLED");
-        }
-    }
-
-    private static ToolProcess.Request request(Path executable, Map<String, String> environment, List<String> arguments, int seconds) {
-        var command = new java.util.ArrayList<>(List.of(executable.toString(), "agentapi"));
-        command.addAll(arguments);
-        // Native send output is bounded and never exported to server logs.
-        return ToolProcess.Request.of(command, ToolProcess.Stderr.DISCARD, Duration.ofSeconds(seconds)).limitedTo(65536)
-                .withoutInheritedEnvironment().withEnvironment(environment);
+        ToolProcess.Request request = NativeWakeSend.request(
+                List.of(executable.toString(), "agentapi", "send-message", session, marker),
+                ToolProcess.Stderr.DISCARD, environment);
+        return NativeWakeSend.run(process, request, LOG, SEND_DIAGNOSTICS);
     }
 
     private static Optional<Path> executable(Map<String, String> exposed) {
         String configured = exposed.get("ANTIGRAVITY_AGENTAPI_EXE");
         if (configured != null) {
             Path candidate = Path.of(configured);
-            return candidate.isAbsolute() && nativeFile(candidate) ? Optional.of(candidate) : Optional.empty();
+            return nativeFile(candidate) ? Optional.of(candidate) : Optional.empty();
         }
-        for (String entry : exposed.getOrDefault("PATH", exposed.getOrDefault("Path", "")).split(Pattern.quote(File.pathSeparator))) {
-            if (entry.isBlank()) continue;
-            Path directory = Path.of(entry);
-            if (!directory.isAbsolute()) continue;
-            for (String name : List.of(AntigravityHost.ID.label(), AntigravityHost.ID.label() + ".exe")) {
-                Path candidate = directory.resolve(name);
-                if (nativeFile(candidate)) return Optional.of(candidate);
-            }
-        }
-        return Optional.empty();
+        return NativeLauncher.onPath(exposed, AntigravityHost.ID.label(), AntigravityWakeTransport::nativeFile);
     }
 
     private static boolean nativeFile(Path path) {
-        if (!Files.isRegularFile(path) || !Files.isExecutable(path)) return false;
-        String name = path.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
-        if (name.endsWith(".cmd") || name.endsWith(".bat") || name.endsWith(".ps1")) return false;
-        try (InputStream input = Files.newInputStream(path)) {
-            byte[] header = input.readNBytes(4);
-            if (header.length != 4) return false;
-            int magic = java.nio.ByteBuffer.wrap(header).getInt();
-            return header[0] == 'M' && header[1] == 'Z' || magic == 0x7f454c46 || magic == 0xfeedface || magic == 0xcefaedfe
-                    || magic == 0xfeedfacf || magic == 0xcffaedfe || magic == 0xcafebabe || magic == 0xbebafeca;
-        } catch (IOException unreadable) {
-            LOG.warn("AGY_NATIVE_EXECUTABLE_UNREADABLE", SafeFailure.capture(unreadable));
-            return false;
-        }
+        return NativeLauncher.eligible(path, NativeLauncher.ScriptPolicy.NATIVE_ONLY,
+                unreadable -> LOG.warn("AGY_NATIVE_EXECUTABLE_UNREADABLE", SafeFailure.capture(unreadable)));
     }
 
     private static boolean loopback(String address) {

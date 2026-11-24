@@ -29,6 +29,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import io.github.jaeseongs95.sennard.domain.Timestamps;
+import io.github.jaeseongs95.sennard.service.identity.SessionRegistry;
 import io.modelcontextprotocol.client.McpSyncClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
@@ -208,6 +209,21 @@ class TurnSaveCheckServerTest {
 
     private static void assertOk(JsonNode answer) {
         assertTrue(answer.path("ok").asBoolean(), answer.toString());
+    }
+
+    @ParameterizedTest
+    @MethodSource("hosts")
+    void aNamedSessionMustAgreeWithTheObservedCaller(Host host) throws IOException {
+        String observed = started(host);
+        String different = started(host);
+        assertOk(call(host, "inspect_context", arguments(), observed, false));
+        assertOk(call(host, "inspect_context", arguments(), different, false));
+        SessionRegistry registry = sennard.bean(SessionRegistry.class);
+        String observedRef = registry.findRef(host.sessionHost(), observed).orElseThrow();
+        String differentRef = registry.findRef(host.sessionHost(), different).orElseThrow();
+        assertOk(call(host, "inspect_context", arguments("sessionRef", observedRef), observed, false));
+        JsonNode refused = call(host, "inspect_context", arguments("sessionRef", differentRef), observed, false);
+        assertEquals("BINDING_INVALID", refused.path("error").path("code").asString(), refused.toString());
     }
 
     /** A save the server accepts: the first call learns the state token the server holds, the second is the save. */

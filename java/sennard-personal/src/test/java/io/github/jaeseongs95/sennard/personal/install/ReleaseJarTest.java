@@ -37,7 +37,7 @@ import io.github.jaeseongs95.sennard.personal.Sentences;
  * {@code ReleaseJarFixture.extracted()}'s and the install flow's.
  *
  * <pre>
- * r1  command   {@code <java> -Djarmode=tools -jar <jar> extract --destination <folder>}, run with the environment it is given
+ * r1  command   {@code <java> -Djarmode=tools -jar <jar's file name> extract --destination <folder>} in the jar's folder, with the environment it is given
  * r2  failed    a command that ends with a code other than 0 is INSTALL_FAILED (extractFailed) with the command's own output as the cause; nothing is copied
  * r3  name      the application jar is named sennard-&lt;version&gt; whatever it was called when it was downloaded; one that has the name is not moved
  * r4  content   every folder of sennard-content/ is copied to the version's folder under its own name, files and subfolders with their bytes; a file beside them is not copied
@@ -92,23 +92,35 @@ class ReleaseJarTest {
         Path folder = temporary.resolve("extracted");
         Path java = temporary.resolve("a jdk").resolve("bin").resolve("java");
         List<List<String>> ran = new ArrayList<>();
+        List<Path> directories = new ArrayList<>();
         List<Map<String, String>> environments = new ArrayList<>();
         List<Duration> deadlines = new ArrayList<>();
-        Commands commands = (argv, environment, timeout) -> {
-            ran.add(argv);
-            environments.add(environment);
-            deadlines.add(timeout);
-            try {
-                extracted(destinationOf(argv), "sennard-6.0.0.jar");
-            } catch (IOException cause) {
-                throw new IllegalStateException(cause);
+        Commands commands = new Commands() {
+            @Override
+            public Result run(List<String> argv, Map<String, String> environment, Duration timeout) {
+                throw new AssertionError("the extraction runs in the jar's folder");
             }
-            return new Commands.Result(0, "");
+
+            @Override
+            public Result run(List<String> argv, Path directory, Map<String, String> environment, Duration timeout) {
+                ran.add(argv);
+                directories.add(directory);
+                environments.add(environment);
+                deadlines.add(timeout);
+                try {
+                    extracted(destinationOf(argv), "sennard-6.0.0.jar");
+                } catch (IOException cause) {
+                    throw new IllegalStateException(cause);
+                }
+                return new Commands.Result(0, "");
+            }
         };
 
         ReleaseJar.of(jar).orElseThrow().extractInto(folder, "6.0.0", java, commands, Map.of("SENNARD_STATE_DIR", "x"));
 
-        assertEquals(List.of(List.of(java.toString(), "-Djarmode=tools", "-jar", jar.toAbsolutePath().normalize().toString(), "extract", "--destination", folder.toString())), ran);
+        assertEquals(List.of(List.of(java.toString(), "-Djarmode=tools", "-jar", "sennard-6.0.0.jar", "extract", "--destination", folder.toString())), ran,
+                "the jar is named by its file name: a path in the command line is read in the code page of the system");
+        assertEquals(List.of(jar.toAbsolutePath().normalize().getParent()), directories, "the command runs in the folder of the jar");
         assertEquals(List.of(Map.of("SENNARD_STATE_DIR", "x")), environments, "the command runs in the environment of the install");
         assertEquals(1, deadlines.size());
         assertTrue(Files.isRegularFile(folder.resolve("sennard-6.0.0.jar")) && Files.isRegularFile(folder.resolve("lib").resolve("sennard-hook-client-6.0.0.jar")));

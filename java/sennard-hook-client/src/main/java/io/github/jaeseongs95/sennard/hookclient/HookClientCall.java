@@ -94,8 +94,6 @@ public record HookClientCall(String label, String event, String module, FailureA
         ALLOW_DECISION("allow-decision"),
         /** {@code {"decision":"deny","reason":"..."}}, exit 0. */
         DENY_DECISION("deny-decision"),
-        /** A JSON denial that replaces a finished tool's result while preserving the hook failure reason. */
-        DENY_RESULT("deny-result"),
         /** Gemini CLI's {@code systemMessage} with the guidance, exit 0. */
         GUIDANCE_SYSTEM_MESSAGE("guidance-system-message");
 

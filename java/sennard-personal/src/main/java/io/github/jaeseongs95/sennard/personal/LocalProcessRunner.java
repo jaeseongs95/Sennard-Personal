@@ -5,18 +5,27 @@
 package io.github.jaeseongs95.sennard.personal;
 
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
-import java.lang.management.OperatingSystemMXBean;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 
 import org.slf4j.Logger;
@@ -25,97 +34,126 @@ import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 
 import io.github.jaeseongs95.sennard.server.config.SennardProperties;
-import io.github.jaeseongs95.sennard.server.skills.SkillProcessRunner;
+import io.github.jaeseongs95.sennard.server.execution.EnvironmentSpec;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionIds;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionHandle;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionRequest;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionSnapshot;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionTracker;
+import io.github.jaeseongs95.sennard.server.execution.ProcessIdentity;
+import io.github.jaeseongs95.sennard.server.execution.ProcessRunner;
+import io.github.jaeseongs95.sennard.server.execution.Refused;
+import io.github.jaeseongs95.sennard.server.execution.StopDeadline;
 
 /**
- * The child of a test-engineering run: the caller's own command, started from its argv with no shell, its output read from its pipes by {@link ProcessOutput} (one virtual thread
- * per stream; nothing of it is written to disk). Whoever can connect to the server's loopback port can ask for a run: the guard filter checks the headers
- * and the body size of a request and does not ask who connected (it is not a peer check), so a run has the authority of the server's user: on the personal edition that is this
- * PC's user, and the loopback-only listening address is what keeps others out. What the runner itself bounds is what a run can take from the computer:
+ * The programs of executions, started from their argv with no shell, on this computer ({@link ProcessRunner}). Whoever can connect to the server's loopback port can ask for one
+ * through the tools that use this runner: the guard filter checks the headers and the body size of a request and does not ask who connected (it is not a peer check), so a program
+ * has the authority of the server's user: on the personal edition that is this PC's user, and the loopback-only listening address is what keeps others out. What the runner itself
+ * bounds is what a program can take from the computer:
  * <ul>
- * <li>how many run at once ({@code sennard.run.max-concurrent}); one asked for beyond that is refused at once;</li>
- * <li>how much of each of stdout and stderr is kept: the first {@value ProcessOutput#LIMIT} bytes, the rest is dropped as it is read. A command that is still running when
- * the runner looks and finds more than that was written is killed with what it started, not left to the time limit; one that has ended is only marked as truncated;</li>
- * <li>the environment: nothing of the server's except {@link RunEnvironment#INHERITED_NAMES}, then the caller's variables;</li>
- * <li>what is left behind: every running command is tracked, so the server's stop ({@link SmartLifecycle}) kills them with what they started, and a command that ends on its own
- * has the processes it started that are still alive killed.</li>
+ * <li>how many run at once ({@code sennard.run.max-concurrent}); one asked for beyond that is refused at once, not queued;</li>
+ * <li>how much of the output is kept: the memory keeps the first and the last bytes of each stream and the whole output goes to a log file per stream in the state folder
+ * ({@code executions/<id>/}), up to the limit of the request; a program that writes more is not stopped for it ({@link ProcessOutput});</li>
+ * <li>the environment: none of the server's own but the variables the request names ({@link EnvironmentSpec}); there is no default;</li>
+ * <li>what is left behind: every running program is tracked, so the server's stop ({@link SmartLifecycle}) kills them with what they started, a program that ends on its own has the
+ * processes it started that are still alive killed, and one that is still running at its time limit is killed with what it started.</li>
  * </ul>
  *
  * <p>A process the command started and detached from it can still hold the pipes of the output open after the command ended. When the command has ended the runner kills the
  * processes it knows, then {@link ProcessOutput#finish()} takes what is in the pipes, waits at most a short grace for a process that keeps writing, and closes its end of them
- * and ends its readers: a process that still writes gets a broken pipe, so the run does not wait for it, nothing it writes is kept past the limit or reaches the disk, and no
- * reader thread or pipe end of the run is left when the run answers. The output is finished once for every run, whichever way the run ends.
+ * and ends its readers: a process that still writes gets a broken pipe, so the execution does not wait for it, and no reader thread, pipe end or file of the execution is left when it
+ * has ended. The output is finished once for every execution, whichever way it ends.
  *
- * <p>A process is found through {@link ProcessHandle#descendants()}, a snapshot of the processes whose parent it is now. The runner takes that snapshot as soon as the child
- * is started and then every {@value #SAMPLE_MILLIS} ms while it runs, of the child and of every process already found that is still alive, and keeps the handles: a process
- * the child started and left running is found after the child ended (on most systems a process that lost its parent is not found through it), and so is what a process that
- * lost its parent started after that. A process that lost its parent before a snapshot saw it (the shell of {@code sh -c 'sleep 300 &'} ends at once and the process it started
- * has no parent of the child's by the first snapshot; on Windows the middle process of a doubled {@code start /b} ends first) is not found and is not killed: it goes on
- * running after the run, cut off from the output only. The runner has no handle on such a process short of a process group or a job object, which Java does not give a command
- * it starts through {@link ProcessBuilder}. The output is looked at every {@code sennard.run.output-check-interval} (25 ms by default) for the limit, so a command that writes faster
- * than it is read goes on for at most that long. A command that ends before the first look is not killed for its output: it ended by itself, and its exit code is kept.
+ * <p>The processes beneath the child are found and ended by {@link ProcessTree}: it takes a snapshot of them as soon as the child is started and then every few hundred milliseconds
+ * while it runs, keeps the handles (a process the child started and left running is found after the child ended, and so is what a process that lost its parent started after
+ * that), and kills the tree in rounds until no process of it is alive. A process that lost its parent before a snapshot saw it (the shell of {@code sh -c 'sleep 300 &'} ends at once
+ * and the process it started has no parent of the child's by the first snapshot; on Windows the middle process of a doubled {@code start /b} ends first) is not found and is not
+ * killed: it goes on running after the execution, cut off from the output only. The runner has no handle on such a process short of a process group or a job object, which Java does
+ * not give a command it starts through {@link ProcessBuilder}.
+ *
+ * <p>The runner keeps every running execution and the last {@code sennard.run.retained-finished} finished ones, so a caller can ask about an execution by its id after the call that
+ * started it has answered.
  */
 @Component
-public class LocalProcessRunner implements SkillProcessRunner, SmartLifecycle {
+public class LocalProcessRunner implements ProcessRunner, SmartLifecycle {
     private static final Logger LOG = LoggerFactory.getLogger(LocalProcessRunner.class);
-    /**
-     * How often the processes the child started are listed while it runs. The listing is a snapshot of the process table; what it finds is killed at the end of the run. A process it
-     * misses cannot write to the output after the run (the pipe is closed), so a shorter interval would only kill more of what is left, not protect the output.
-     */
-    private static final long SAMPLE_MILLIS = 200;
-    /** How long a killed process is given to be gone before this run answers (the kill is a request; the process ends asynchronously). */
-    private static final Duration KILL_GRACE = Duration.ofSeconds(10);
     /** How long the end of the output streams is waited for after the command ended and what was found beneath it was killed, before the runner closes its end of them. */
     private static final Duration DRAIN_GRACE = Duration.ofSeconds(2);
+    /** The folder of the state folder that holds a folder of log files for each execution. */
+    static final String LOG_FOLDER = "executions";
 
     private final int maxConcurrent;
-    /** How often the output is looked at for the limit ({@code sennard.run.output-check-interval}; the settings accept at least a millisecond). */
-    private final long outputCheckNanos;
-    private final RunEnvironment environments;
+    private final int retainedFinished;
+    private final Path logs;
     private final BatchFileArguments batchFiles;
     private final ProgramLocator locator;
+    private final Clock clock;
+    /** The deadline of the stop of the server, shared with the tracker of the records: the stop waits for the end of the programs within what is left of it. */
+    private final StopDeadline stopDeadline;
     private final Semaphore permits;
-    private final Set<Child> running = ConcurrentHashMap.newKeySet();
+    /** Every running execution and the most recent finished ones, by id. */
+    private final Map<String, LocalExecution> executions = new ConcurrentHashMap<>();
+    /** The ids of the finished executions, oldest first; guarded by itself. */
+    private final Deque<String> finishedOrder = new ArrayDeque<>();
+    /** The ids of the executions being started: an id is here before the folder of its log files is made, and until the execution is in {@link #executions}. */
+    private final Set<String> starting = ConcurrentHashMap.newKeySet();
     private volatile boolean active;
     private volatile boolean stopped;
 
-    public LocalProcessRunner(SennardProperties settings, RunEnvironment environments, BatchFileArguments batchFiles, ProgramLocator locator) {
+    public LocalProcessRunner(SennardProperties settings, PersonalProperties personal, BatchFileArguments batchFiles, ProgramLocator locator, Clock clock, StopDeadline stopDeadline) {
         this.maxConcurrent = settings.run().maxConcurrent();
-        this.outputCheckNanos = settings.run().outputCheckInterval().toNanos();
-        this.environments = environments;
+        this.retainedFinished = settings.run().retainedFinished();
+        this.logs = personal.stateDir().resolve(LOG_FOLDER);
         this.batchFiles = batchFiles;
         this.locator = locator;
+        this.clock = clock;
+        this.stopDeadline = stopDeadline;
         this.permits = new Semaphore(maxConcurrent);
-    }
-
-    @Override
-    public String platform() {
-        OperatingSystemMXBean system = ManagementFactory.getOperatingSystemMXBean();
-        return system.getName() + " " + system.getVersion() + " " + system.getArch();
-    }
-
-    @Override
-    public String describeEnvironment(Set<String> callerVariableNames) {
-        return environments.describe(callerVariableNames);
     }
 
     // ---- the server's life
 
     @Override
     public void start() {
+        stopDeadline.reset();
         active = true;
     }
 
-    /** Refuses new runs and kills every running command with what it started. */
+    /**
+     * Refuses new executions and kills every running program with what it started: all of them are asked to end first, and the end of all of them is waited for once, so the time the
+     * stop takes does not add up over the executions. The wait, and the waits of the executions themselves (the kill of the tree, the output that is left), are for what is left of
+     * the deadline of the stop ({@link StopDeadline}); what has not ended by then is logged and the stop goes on.
+     */
     @Override
     public void stop() {
+        // armed before the runner refuses: a start that sees it refuse and ends its execution then finds the deadline
+        stopDeadline.arm();
         stopped = true;
         active = false;
-        List<Child> live = List.copyOf(running);
-        if (!live.isEmpty()) {
-            LOG.info("The server is stopping: killing {} running command(s) of test runs and what they started.", live.size());
+        List<LocalExecution> live = executions.values().stream().filter(execution -> !execution.finished()).toList();
+        if (live.isEmpty()) {
+            return;
         }
-        live.forEach(Child::kill);
+        LOG.info("The server is stopping: killing {} running program(s) of executions and what they started.", live.size());
+        live.forEach(LocalExecution::requestCancel);
+        CompletableFuture<?>[] ends = live.stream().map(LocalExecution::ended).toArray(CompletableFuture<?>[]::new);
+        try {
+            CompletableFuture.allOf(ends).get(stopDeadline.remaining().toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException late) {
+            LOG.warn("Not every execution ended within the deadline of the stop of the server.", late);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            LOG.warn("The wait for the executions to end was interrupted; the stop of the server goes on.", interrupted);
+        } catch (ExecutionException impossible) {
+            // the end of an execution is only ever completed normally; this is a defect and is not made into an answer
+            throw new IllegalStateException("The end of an execution failed", impossible);
+        }
+    }
+
+    /** Above the phase of {@link ExecutionTracker}, so that the server's stop asks this first: the records of the programs it ended are closed after it has returned. */
+    @Override
+    public int getPhase() {
+        return ExecutionTracker.PHASE + 1;
     }
 
     @Override
@@ -123,129 +161,176 @@ public class LocalProcessRunner implements SkillProcessRunner, SmartLifecycle {
         return active;
     }
 
-    // ---- a run
+    // ---- an execution
 
     @Override
-    public Completed run(Path workingDirectory, List<String> argv, Map<String, String> environment, Duration timeout) {
+    public ExecutionHandle start(String id, ExecutionRequest request) {
+        if (!ExecutionIds.isExecutionId(id)) {
+            throw new IllegalArgumentException("Not written as the id of an execution: " + id);
+        }
         if (stopped) {
             throw Refused.stopping();
         }
-        batchFiles.requireSafe(argv);
+        batchFiles.requireSafe(request.argv());
         if (!permits.tryAcquire()) {
             throw Refused.tooManyRuns(maxConcurrent);
         }
-        try {
-            return runWithPermit(workingDirectory, argv, environment, timeout);
-        } finally {
+        // the id is held before the folder of the log files is made, so that whoever lists the folders and then asks which executions run does not take this one for a stray; one that is
+        // held already (being started, running, or kept after it ended) is not taken again
+        if (!starting.add(id)) {
             permits.release();
+            throw heldAlready(id);
+        }
+        try {
+            if (executions.containsKey(id)) {
+                permits.release();
+                throw heldAlready(id);
+            }
+            return startHeld(id, request);
+        } finally {
+            starting.remove(id);
         }
     }
 
-    private Completed runWithPermit(Path workingDirectory, List<String> argv, Map<String, String> environment, Duration timeout) {
-        List<String> command = new ArrayList<>(argv);
-        command.set(0, locator.locate(argv.getFirst(), workingDirectory));
-        ProcessBuilder builder = new ProcessBuilder(command).directory(workingDirectory.toFile());
-        Map<String, String> childEnvironment = environments.build(builder.environment(), environment);
-        builder.environment().clear();
-        builder.environment().putAll(childEnvironment);
+    private static IllegalArgumentException heldAlready(String id) {
+        return new IllegalArgumentException("An execution with this id is held by the runner: " + id);
+    }
+
+    private ExecutionHandle startHeld(String id, ExecutionRequest request) {
+        LocalExecution execution;
+        try {
+            execution = launch(id, request);
+        } catch (RuntimeException unexpected) {
+            permits.release();
+            throw unexpected;
+        }
+        if (execution.finished()) {
+            // not started: nothing will end it later
+            permits.release();
+            remember(execution);
+            return execution;
+        }
+        executions.put(execution.id(), execution);
+        Thread.ofVirtual().name("run-watch").start(execution::watch);
+        if (stopped) {
+            // stop() looked at the running executions before this one was in the map
+            execution.cancel();
+        }
+        return execution;
+    }
+
+    @Override
+    public Optional<ExecutionHandle> find(String executionId) {
+        return Optional.ofNullable(executions.get(executionId));
+    }
+
+    @Override
+    public Set<String> runningIds() {
+        Set<String> running = new HashSet<>(starting);
+        executions.forEach((id, execution) -> {
+            if (!execution.finished()) {
+                running.add(id);
+            }
+        });
+        return Set.copyOf(running);
+    }
+
+    /** Makes the execution of {@code request}: the program started, or an execution that says why it was not. */
+    private LocalExecution launch(String id, ExecutionRequest request) {
+        Instant requestedAt = clock.instant();
+        Path directory = request.workingDirectory();
+        if (!Files.isDirectory(directory)) {
+            return notStarted(id, requestedAt, "The working directory is not a folder: " + directory);
+        }
+        Path logLocation = logs.resolve(id);
+        LogFile stdoutLog = null;
+        LogFile stderrLog = null;
+        try {
+            Files.createDirectories(logs);
+        } catch (IOException notMade) {
+            // the log folder itself cannot be had (a file or a link that points nowhere is in its place, or it cannot be written): the program is not started, as the execution says
+            LOG.warn("The log folder {} could not be made for execution {}.", logs, id, notMade);
+            return notStarted(id, requestedAt, "The log files of the execution could not be made in " + logs + ": " + notMade);
+        }
+        try {
+            // a folder that is there is another execution's (this id was used before, and the runner has let go of it): it is not taken, and not removed with a failed start
+            Files.createDirectory(logLocation);
+        } catch (FileAlreadyExistsException used) {
+            throw new IllegalArgumentException("The log folder of an execution with this id is there already: " + logLocation, used);
+        } catch (IOException notMade) {
+            LOG.warn("The log folder of execution {} could not be made in {}.", id, logLocation, notMade);
+            return notStarted(id, requestedAt, "The log files of the execution could not be made in " + logLocation + ": " + notMade);
+        }
+        try {
+            stdoutLog = LogFile.create(logLocation.resolve(ExecutionSnapshot.STDOUT_LOG), request.logLimitBytes());
+            stderrLog = LogFile.create(logLocation.resolve(ExecutionSnapshot.STDERR_LOG), request.logLimitBytes());
+        } catch (IOException notMade) {
+            LOG.warn("The log files of execution {} could not be made in {}.", id, logLocation, notMade);
+            discard(logLocation, stdoutLog, stderrLog);
+            return notStarted(id, requestedAt, "The log files of the execution could not be made in " + logLocation + ": " + notMade);
+        }
         Process process;
         try {
-            process = builder.start();
-        } catch (IOException notStarted) {
-            LOG.info("The command of a test run could not be started: {}", argv.getFirst(), notStarted);
-            return new Failed("", "");
+            process = spawn(request);
+        } catch (IOException | IllegalArgumentException | UnsupportedOperationException notStarted) {
+            LOG.info("The program of execution {} could not be started: {}", id, request.argv().getFirst(), notStarted);
+            discard(logLocation, stdoutLog, stderrLog);
+            return notStarted(id, requestedAt, "The program could not be started: " + notStarted);
+        } catch (RuntimeException unexpected) {
+            discard(logLocation, stdoutLog, stderrLog);
+            throw unexpected;
         }
-        Child child = new Child(process);
-        ProcessOutput output = new ProcessOutput(process, DRAIN_GRACE);
-        running.add(child);
-        Ending ending;
         try {
-            // What the child started in its first moments is listed now, not after the first interval.
-            child.sample();
             closeInput(process);
-            if (stopped) {
-                // stop() looked at the running commands before this one was in the set
-                child.kill();
-                ending = Ending.FAILED;
-            } else {
-                ending = await(child, output, timeout);
-            }
-        } finally {
-            running.remove(child);
-            // The one place the output is finished, for every way out of the run, an unexpected exception included: the wait for the readers is paid once. An interrupt that
-            // await() set again does not cut it short (the wait is not interruptible), so nothing is lost from the output when the run was interrupted.
-            output.finish();
+            ProcessTree tree = ProcessTree.of(process);
+            Optional<Instant> processStart = tree.startedAt();
+            ProcessIdentity identity = processStart.isPresent() ? new ProcessIdentity(process.pid(), processStart.get()) : ProcessIdentity.withoutStartTime(process.pid());
+            return new LocalExecution(id, requestedAt, clock, request.timeout(), process, tree, new ProcessOutput(process, DRAIN_GRACE, stdoutLog, stderrLog), identity, logLocation,
+                    this::ended, stopDeadline);
+        } catch (RuntimeException unexpected) {
+            // a program that started must not be left running when what watches it could not be made
+            process.destroyForcibly();
+            discard(logLocation, stdoutLog, stderrLog);
+            throw unexpected;
         }
-        return complete(ending, child.process(), output);
     }
 
-    /** How a run ended, before its output is finished and read. */
-    private enum Ending {
-        /** The child ended by itself (or at the limit, between two looks); the exit code is read from the process. */
-        EXITED,
-        /** The child was still running at the limit and was killed. */
-        TIMED_OUT,
-        /** The run did not run to an end: it was killed for its output or for the server's stop, or the wait for it was interrupted. */
-        FAILED
+    private Process spawn(ExecutionRequest request) throws IOException {
+        List<String> command = new ArrayList<>(request.argv());
+        command.set(0, locator.locate(command.getFirst(), request.workingDirectory()));
+        ProcessBuilder builder = new ProcessBuilder(command).directory(request.workingDirectory().toFile());
+        EnvironmentSpec environment = request.environment();
+        // read through the map of the builder, which matches names the way the operating system does
+        Map<String, String> kept = new LinkedHashMap<>();
+        for (String name : environment.inheritedNames()) {
+            String value = builder.environment().get(name);
+            if (value != null) {
+                kept.put(name, value);
+            }
+        }
+        builder.environment().clear();
+        builder.environment().putAll(kept);
+        builder.environment().putAll(environment.variables());
+        return builder.start();
     }
 
-    private Completed complete(Ending ending, Process process, ProcessOutput output) {
-        ProcessOutput.Kept out = output.stdout();
-        ProcessOutput.Kept err = output.stderr();
-        return switch (ending) {
-            case TIMED_OUT -> new TimedOut(out.text(), err.text());
-            case FAILED -> new Failed(out.text(), err.text());
-            case EXITED -> stopped ? new Failed(out.text(), err.text()) : new Exited(process.exitValue(), out.text(), err.text(), out.truncated() || err.truncated());
-        };
+    private LocalExecution notStarted(String id, Instant requestedAt, String failure) {
+        return new LocalExecution(id, requestedAt, clock, failure);
     }
 
-    /** Waits for the child and watches its output; every way out has killed what it had to kill, and none has finished the output (the caller does). */
-    private Ending await(Child child, ProcessOutput output, Duration timeout) {
-        Process process = child.process();
-        long deadline = System.nanoTime() + timeout.toNanos();
-        long nextSample = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(SAMPLE_MILLIS);
-        long nextLook = System.nanoTime() + outputCheckNanos;
-        long stepMillis = Math.min(SAMPLE_MILLIS, TimeUnit.NANOSECONDS.toMillis(outputCheckNanos));
+    /** Closes what was made for an execution that did not start, and removes it: no folder of logs stays for a program that never ran. */
+    private static void discard(Path logLocation, LogFile stdoutLog, LogFile stderrLog) {
+        Stream.of(stdoutLog, stderrLog).filter(file -> file != null).forEach(LogFile::close);
         try {
-            while (true) {
-                long left = deadline - System.nanoTime();
-                if (left <= 0) {
-                    if (process.isAlive()) {
-                        child.kill();
-                        return Ending.TIMED_OUT;
-                    }
-                    break;
-                }
-                if (process.waitFor(Math.min(stepMillis, Math.max(1, TimeUnit.NANOSECONDS.toMillis(left))), TimeUnit.MILLISECONDS)) {
-                    break;
-                }
-                if (stopped) {
-                    child.kill();
-                    return Ending.FAILED;
-                }
-                if (System.nanoTime() - nextLook >= 0) {
-                    nextLook = System.nanoTime() + outputCheckNanos;
-                    if (output.truncated()) {
-                        LOG.info("A command of a test run wrote more than {} bytes to stdout or stderr while it ran and was killed.", ProcessOutput.LIMIT);
-                        child.kill();
-                        return Ending.FAILED;
-                    }
-                }
-                if (System.nanoTime() - nextSample >= 0) {
-                    child.sample();
-                    nextSample = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(SAMPLE_MILLIS);
-                }
-            }
-        } catch (InterruptedException interrupted) {
-            child.kill();
-            Thread.currentThread().interrupt();
-            return Ending.FAILED;
+            Files.deleteIfExists(logLocation.resolve(ExecutionSnapshot.STDOUT_LOG));
+            Files.deleteIfExists(logLocation.resolve(ExecutionSnapshot.STDERR_LOG));
+            Files.deleteIfExists(logLocation);
+        } catch (IOException notRemoved) {
+            LOG.warn("The log folder {} of an execution that did not start could not be removed.", logLocation, notRemoved);
         }
-        child.killLeftovers();
-        return Ending.EXITED;
     }
 
-    /** The child reads end of input at once: a program that waits for input would otherwise wait for the limit. */
+    /** The child reads end of input at once: a program that waits for input would otherwise wait for its limit. */
     private static void closeInput(Process process) {
         try {
             process.getOutputStream().close();
@@ -254,55 +339,20 @@ public class LocalProcessRunner implements SkillProcessRunner, SmartLifecycle {
         }
     }
 
-    /** One running command: the child and every process found beneath it. */
-    static final class Child {
-        private final Process process;
-        /** The processes found beneath the child so far, by process id; a handle stays valid for the process it was taken for (a reused id is another process). */
-        private final Map<Long, ProcessHandle> seen = new ConcurrentHashMap<>();
+    /** Told by an execution when it has ended: frees its place, and lets go of the oldest finished executions beyond the number kept. */
+    private void ended(LocalExecution execution) {
+        permits.release();
+        remember(execution);
+    }
 
-        Child(Process process) {
-            this.process = process;
-        }
-
-        Process process() {
-            return process;
-        }
-
-        /**
-         * Lists the processes beneath the child now and keeps them. The listing starts at the child and at every process found before that is still alive: once the child has
-         * ended, a process it started has lost its parent on most systems, and what that process starts later is found only through the process itself.
-         */
-        void sample() {
-            List<ProcessHandle> roots = Stream.concat(Stream.of(process.toHandle()), seen.values().stream().filter(ProcessHandle::isAlive)).toList();
-            roots.forEach(root -> root.descendants().forEach(handle -> seen.putIfAbsent(handle.pid(), handle)));
-        }
-
-        /** Whether the process with this id has been found beneath the child. */
-        boolean found(long pid) {
-            return seen.containsKey(pid);
-        }
-
-        /**
-         * Kills the child and every process found beneath it, and waits (bounded) until they are gone. The processes are listed first: once the child is killed its own
-         * children are no longer found through it. The child is killed before them so that it starts no new one meanwhile.
-         */
-        void kill() {
-            sample();
-            process.destroyForcibly();
-            destroyAndAwait(Stream.concat(Stream.of(process.toHandle()), seen.values().stream()).toList());
-        }
-
-        /** After the child ended by itself: kills the processes found beneath it that are still alive. */
-        void killLeftovers() {
-            sample();
-            destroyAndAwait(seen.values().stream().filter(ProcessHandle::isAlive).toList());
-        }
-
-        private static void destroyAndAwait(List<ProcessHandle> doomed) {
-            doomed.forEach(ProcessHandle::destroyForcibly);
-            CompletableFuture<?>[] exits = doomed.stream().map(ProcessHandle::onExit).toArray(CompletableFuture<?>[]::new);
-            CompletableFuture.allOf(exits).completeOnTimeout(null, KILL_GRACE.toMillis(), TimeUnit.MILLISECONDS).join();
-            doomed.stream().filter(ProcessHandle::isAlive).forEach(alive -> LOG.warn("The process {} of a command run was still alive {} after it was killed.", alive.pid(), KILL_GRACE));
+    private void remember(LocalExecution execution) {
+        executions.put(execution.id(), execution);
+        synchronized (finishedOrder) {
+            finishedOrder.addLast(execution.id());
+            while (finishedOrder.size() > retainedFinished) {
+                executions.remove(finishedOrder.removeFirst());
+            }
         }
     }
+
 }

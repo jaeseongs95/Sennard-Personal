@@ -18,6 +18,7 @@ public final class NativeWakeProtocol {
     public static final String POLL = "/hooks/v1/native-wake/poll";
     public static final String COMPLETE = "/hooks/v1/native-wake/complete";
     public static final String LAUNCH_COMPLETE = "/hooks/v1/native-wake/launch-complete";
+    public static final String SESSION_TITLE = "/hooks/v1/native-wake/session-title";
     public static final int INPUT_LIMIT = 1024 * 1024;
     public static final int LAUNCH_LIMIT = 4096;
     private static final Pattern CAPABILITY = Pattern.compile("[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}");
@@ -72,6 +73,14 @@ public final class NativeWakeProtocol {
 
         private static boolean validSelection(String value) {
             return value != null && !value.isBlank() && value.length() <= 200 && value.chars().noneMatch(Character::isISOControl);
+        }
+    }
+
+    public record SessionTitle(String title, long observedAtMillis) {
+        public SessionTitle {
+            if (title == null || title.isBlank() || observedAtMillis <= 0) {
+                throw new IllegalArgumentException("Invalid session title observation.");
+            }
         }
     }
 

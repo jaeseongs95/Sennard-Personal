@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
  * {@code backgroundCommands()}. The source is read because the sites are few and named: a new one fails here until its class is declared.
  */
 class SkillBackgroundCommandsTest {
-    private static final Pattern WALK_OR_PROCESS = Pattern.compile("\\b(?:facts|files)\\.list\\(|\\b(?:journal|scanner)\\.rescan\\(|\\bSkillProcessRunner runner\\b");
+    private static final Pattern WALK_OR_PROCESS = Pattern.compile("\\b(?:facts|files)\\.list\\(|\\b(?:journal|scanner)\\.rescan\\(|\\bProcessRunner runner\\b");
 
     @Test
     void everyCheckThatWalksOrStartsAProcessIsDeclared() throws IOException {

@@ -19,7 +19,7 @@ Before upgrading to a later release, read its “Before Upgrading” section for
 
 To upgrade a Personal installation, follow these steps.
 
-1. Close affected host sessions. Back up the Sennard state folder and any configured business database.
+1. Close affected host sessions. Run `sennard stop`, then back up the Sennard state folder and any configured business database.
 2. On each host that already has Sennard, update the plugin to the exact target version using the host-specific instructions in the [README](../../README.md#installation). Close the Antigravity app before replacing its plugin files. Step 4 covers any remaining hook registration and starting new sessions.
 
    The Sennard Personal 1.3.0 GitHub release has no separate Gemini CLI installation package among its attached assets. The public source includes `gemini-extension/`. If an older Sennard extension remains at `~/.gemini/extensions/sennard`, the upgrade stops with `HOST_PACKAGE_VERSION_MISMATCH`. Run `gemini extensions uninstall sennard` in a terminal to remove the old extension, then retry the upgrade. See the [Gemini CLI uninstall instructions](https://geminicli.com/docs/extensions/reference/#uninstall-an-extension).

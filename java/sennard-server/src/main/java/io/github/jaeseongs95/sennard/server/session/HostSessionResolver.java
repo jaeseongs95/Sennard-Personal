@@ -78,10 +78,10 @@ public class HostSessionResolver implements McpSessionResolver {
         if (adapter != null) {
             switch (adapter.read(values)) {
                 case CallerFacts.Observed observed -> {
-                    return bindObserved(adapter, observed, tool, arguments, context);
+                    return agreeWithObserved(bindObserved(adapter, observed, tool, arguments, context), sessionRef);
                 }
                 case CallerFacts.ClaimByCall claim -> {
-                    return bindClaimed(adapter, claim, tool);
+                    return agreeWithObserved(bindClaimed(adapter, claim, tool), sessionRef);
                 }
                 case CallerFacts.Unavailable unavailable -> reason = unavailable.reason();
             }
@@ -90,6 +90,13 @@ public class HostSessionResolver implements McpSessionResolver {
             return new SessionBinding.Unbound(reason);
         }
         return bindNamed(sessionRef);
+    }
+
+    private static SessionBinding agreeWithObserved(SessionBinding binding, String namedRef) {
+        if (namedRef != null && binding instanceof SessionBinding.Bound bound && !namedRef.equals(bound.session().sessionRef())) {
+            throw new BindingException(BindingCode.BINDING_INVALID, Map.of(), SennardException.args("reasonCode", "SESSION_REF_MISMATCH"));
+        }
+        return binding;
     }
 
     private SessionBinding bindObserved(HostCallerAdapter adapter, CallerFacts.Observed observed, String tool, Map<String, Object> arguments, McpTransportContext context) {
@@ -116,6 +123,9 @@ public class HostSessionResolver implements McpSessionResolver {
             if (managed.isPresent()) {
                 return bindManaged(host, observed.hookSessionId(), managed.orElseThrow(), observed.callId(), observed.execution(), null);
             }
+            if (registry.isChild(host, observed.hookSessionId())) {
+                return new SessionBinding.Unbound("HOST_SESSION_ACTOR_MISMATCH");
+            }
             Judgment judged = registry.judge(host, observed.hostSessionId(), Source.TOOL, null, null, JudgeMode.NOTIFY);
             return new SessionBinding.Bound(new SelfSession(judged.sessionRef(), judged.generation(), host, observed.hostSessionId(), Provenance.HOST_OBSERVED,
                     observed.actor(), observed.parentAgentKey(), observed.callId(), observed.execution(), null));
@@ -127,21 +137,30 @@ public class HostSessionResolver implements McpSessionResolver {
         }
         var row = claimedCall.orElseThrow();
 
-        if (!adapter.matchedHook(observed)) {
-            return new SessionBinding.Unbound("HOOK_OBSERVATION_UNMATCHED");
-        }
         if (managed.isPresent()) {
             return bindManaged(host, observed.hookSessionId(), managed.orElseThrow(), row.callId(), execution(row), row.transcriptPath());
         }
-        if (observed.actor().role() == Role.CHILD && !observed.hookSessionId().equals(observed.hostSessionId())) {
-            if (!childRoots.link(host, observed.hookSessionId(), observed.hostSessionId())) {
+        if (!observed.hookSessionId().equals(observed.hostSessionId())) {
+            if (observed.actor().role() != Role.CHILD
+                    || !childRoots.link(host, observed.hookSessionId(), observed.parentAgentKey(), observed.hostSessionId())
+                    || !adapter.matchedHook(observed)) {
                 return new SessionBinding.Unbound("HOOK_OBSERVATION_UNMATCHED");
             }
-            // The child's own hooks carry its conversation id, which differs from the root's, so they may have registered it as a session of its own
-            // (a host that cannot tell in the hook): now that a call has said it is a child, the list leaves it out.
-            registry.markKind(host, observed.hookSessionId(), SessionKind.CHILD);
+            return registry.treeMembership(host, observed.hookSessionId())
+                    .flatMap(root -> registry.liveMainGeneration(root.rootRef()).<SessionBinding>map(generation -> {
+                        events.publishEvent(new HookActorObserved(adapter.host(), observed.hookSessionId()));
+                        return new SessionBinding.Bound(new SelfSession(root.rootRef(), generation, host, root.rootSessionId(), Provenance.HOST_OBSERVED,
+                                observed.actor(), observed.parentAgentKey(), row.callId(), execution(row), row.transcriptPath()));
+                    })).orElseGet(() -> new SessionBinding.Unbound("SESSION_TREE_ROOT_NOT_LIVE"));
+        }
+        if (!adapter.matchedHook(observed)) {
+            return new SessionBinding.Unbound("HOOK_OBSERVATION_UNMATCHED");
         }
         Judgment judged = registry.judge(host, observed.hostSessionId(), Source.TOOL, null, null, JudgeMode.NOTIFY);
+        registry.markKind(host, observed.hostSessionId(), SessionKind.MAIN);
+        if (!registry.isRegisteredMain(judged.sessionRef())) {
+            return new SessionBinding.Unbound("HOST_SESSION_ACTOR_MISMATCH");
+        }
         events.publishEvent(new HookActorObserved(adapter.host(), observed.hookSessionId()));
         return new SessionBinding.Bound(new SelfSession(judged.sessionRef(), judged.generation(), host, observed.hostSessionId(), Provenance.HOST_OBSERVED, observed.actor(),
                 observed.parentAgentKey(), row.callId(), execution(row), row.transcriptPath()));
@@ -176,6 +195,9 @@ public class HostSessionResolver implements McpSessionResolver {
                 }
                 return bindManaged(host, row.hostSessionId(), managed.orElseThrow(), row.callId(), execution(row), row.transcriptPath());
             }
+            if (registry.isChild(host, row.hostSessionId())) {
+                return new SessionBinding.Unbound("HOST_SESSION_ACTOR_MISMATCH");
+            }
             Judgment judged = registry.judge(host, row.hostSessionId(), Source.TOOL, null, null, JudgeMode.NOTIFY);
             return new SessionBinding.Bound(new SelfSession(judged.sessionRef(), judged.generation(), host, row.hostSessionId(), Provenance.HOST_OBSERVED,
                     actor, null, claim.callId(), execution(row), row.transcriptPath()));
@@ -195,7 +217,7 @@ public class HostSessionResolver implements McpSessionResolver {
 
     private static Execution execution(CallAdmissions.Admission row) {
         return row.model() != null
-                ? new Execution.Observed(row.model(), row.effort(), row.turnId(), "hook")
+                ? new Execution.Observed(row.model(), row.effort(), row.turnId(), Execution.Observed.Evidence.HOST_REPORT)
                 : new Execution.Unobserved("HOOK_MODEL_NOT_REPORTED", Map.of(), row.effort());
     }
 }

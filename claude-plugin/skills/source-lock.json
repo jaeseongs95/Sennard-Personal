@@ -117,7 +117,7 @@
       "skillId": "test-engineering",
       "path": "skills/test-engineering",
       "version": "0.1.0",
-      "integratedChecksum": "sha256:b55a913cb36c8ed78cd639337e779ef0472355701fbf2d450ce159a8b9b67440",
+      "integratedChecksum": "sha256:54191473268c1738c8d5d80eff1d491d338ef2e3e9ff40dcae6ba4ceb3af8872",
       "checksumScope": "relative paths and normalized text bytes under skills/test-engineering"
     },
     {

@@ -9,7 +9,7 @@ import java.util.Locale;
 
 import org.springframework.stereotype.Component;
 
-import io.github.jaeseongs95.sennard.server.skills.SkillProcessRunner.Refused;
+import io.github.jaeseongs95.sennard.server.execution.Refused;
 
 /**
  * Whether a command's argument list can be handed to a Windows batch file ({@code .bat}, {@code .cmd}) as given. The JDK starts such a file through the command interpreter

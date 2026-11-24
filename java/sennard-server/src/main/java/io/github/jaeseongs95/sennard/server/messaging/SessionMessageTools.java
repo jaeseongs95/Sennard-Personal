@@ -82,12 +82,8 @@ public class SessionMessageTools {
         if (actor.rootEstablished()) {
             return PeerAddress.session(session.sessionRef());
         }
-        if (actor.role() == Role.CHILD && actor.basis() == Basis.OBSERVED && actor.agentKey() != null && !actor.agentKey().isBlank()) {
-            try {
-                return new PeerAddress(session.sessionRef(), actor.agentKey());
-            } catch (IllegalArgumentException invalid) {
-                throw new BindingException(BindingCode.BINDING_INVALID);
-            }
+        if (actor.role() == Role.CHILD && actor.basis() == Basis.OBSERVED) {
+            throw new BindingException(BindingCode.PEER_MAIN_SESSION_REQUIRED);
         }
         throw new BindingException(BindingCode.BINDING_REQUIRED);
     }

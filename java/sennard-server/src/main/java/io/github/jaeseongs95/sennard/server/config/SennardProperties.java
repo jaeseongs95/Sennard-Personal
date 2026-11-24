@@ -7,6 +7,7 @@ package io.github.jaeseongs95.sennard.server.config;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import org.hibernate.validator.constraints.time.DurationMax;
 import org.hibernate.validator.constraints.time.DurationMin;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
@@ -14,6 +15,7 @@ import org.springframework.util.unit.DataSize;
 import org.springframework.validation.annotation.Validated;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -110,14 +112,62 @@ public record SennardProperties(@DefaultValue @Valid Guard guard, Path skillsDir
     }
 
     /**
-     * @param maxConcurrent how many commands of test runs may be running at once ({@code sennard.run.max-concurrent}); a run asked for beyond it is refused at once, not queued.
-     *     Every running command is a process tree of the caller's choosing on this computer, so the default is small
-     * @param outputCheckInterval how often a running command is looked at for output past the bound ({@code sennard.run.output-check-interval}); the bytes past the bound are dropped
-     *     as they are read, and a command that has written past it is killed when a look finds it, so this is how long a fast writer can go on after the bound. A plain number is
-     *     milliseconds, and at least one millisecond is required. A command that ends before the first look is not killed for its output (its exit code is kept, the output is
-     *     marked as truncated)
+     * @param maxConcurrent how many programs of executions may be running at once ({@code sennard.run.max-concurrent}); an execution asked for beyond it is refused at once, not
+     *     queued. Every running program is a process tree of the caller's choosing on this computer; the default 8 leaves room for programs that do not end by themselves (a
+     *     development server) next to the short ones
+     * @param retainedFinished how many finished executions the runner keeps in memory to answer a question about them ({@code sennard.run.retained-finished}); the running ones are all
+     *     kept. Each keeps up to {@code StreamOutput.HEAD_BYTES + TAIL_BYTES} bytes of each of its two streams; the record in the database and the log files stay when one is let go
+     * @param logRetention how long after it ended the log files of an execution are kept ({@code sennard.run.log-retention}, default 7 days); older ones are deleted, never those of
+     *     a running execution
+     * @param logCapacity how many bytes the log files of all the executions of this server may take together ({@code sennard.run.log-capacity}, default 1 GiB; a unit such as
+     *     {@code 512MB} may be written): beyond it the ones that ended longest ago are deleted first, never those of a running execution (which count in the total)
+     * @param stopDeadline how long the stop of the server may take for its executions in all ({@code sennard.run.stop-deadline}, default 15 seconds, at most 20 seconds): the deadline is
+     *     fixed when the stop begins and the end of the programs, the output they left and the closing of their records all wait for what is left of it, not each for a time of its own.
+     *     What is not closed by then stays RUNNING and is accounted for at the next start. {@code sennard stop} gives up on the server after 30 seconds ({@code ServerControl}), and
+     *     the rest of the server's stop takes its part of those: up to 2 seconds for the web server's graceful end ({@code spring.lifecycle.timeout-per-shutdown-phase}) and the closing
+     *     of the beans and the stores after it. A deadline that took up the whole of the 30 seconds would make every stop of a server with a program that does not end a failed
+     *     {@code sennard stop}; 20 seconds leaves 10 for those, and a value above it is refused at the start
+     * @param observationMaxEntries how many entries (folders, files, links) one look at a working folder takes in ({@code sennard.run.observation-max-entries}, default 50000). A look
+     *     is taken before and after each observed program; the look before is kept in memory (measured: 126 to 154 bytes an entry for paths of 10 to 43 characters, about one byte
+     *     more for each character of the path when its characters are all Latin-1, two bytes for each when one is not (Korean, Chinese, Cyrillic, an emoji: the JVM keeps such a text as
+     *     UTF-16), and the same on every system, because only the path relative to the folder is kept as a text and the size and time as two numbers); a folder with more is not looked
+     *     at beyond it and the result says so. It is at most {@code observationMaxTotalEntries}, which holds the looks of all the observations together
+     * @param observationMaxTime how long one look at a working folder may take ({@code sennard.run.observation-max-time}, default 5 seconds): the look before delays the start of the
+     *     program and the look after the answer about its end by at most this
+     * @param observationMaxTotalEntries how many entries all the observations of the server may hold in memory together ({@code sennard.run.observation-max-total-entries}, default
+     *     100000, at least {@code observationMaxEntries}: a setting below it is refused at the start, because one look of a folder as large as a look may take could never be kept whole).
+     *     The look before is kept until its program ends (a development server may not end for days), and up to {@code max-concurrent} programs are observed at once, so the bound of
+     *     one look does not bound the memory: 8 observations in large folders could hold 8 times 50000 entries and more. The look before takes one entry of this for every entry it keeps,
+     *     the look after takes one only for each change it keeps (a new path, a modified file, a path it could not read: what is as it was is compared with the look before as it is
+     *     met and is only marked there), so an observation leases the entries of its folder and one more for each change, up to twice the bound of a look when all of it changed (what
+     *     the look before leased for an entry the look after met stays leased until the observation ends: the lease is an upper bound of the entries kept). A total equal to
+     *     {@code observationMaxEntries} is allowed, and then in a folder of as many entries as a look may take in, the look before leases all of the total and the look after stops at its
+     *     first change with {@code TOTAL_ENTRY_LIMIT} (the result is incomplete: only what both looks saw is compared); a total of twice the bound lets every change of such a
+     *     folder be kept. An observation gives
+     *     back what it took when it ends (finish or close, whichever way), and a look that finds none left stops where it is and says so ({@code TOTAL_ENTRY_LIMIT}, as
+     *     {@code ENTRY_LIMIT} and {@code TIME_LIMIT} say it): the execution is not refused and does not wait. The result that an observation hands over is not counted in it; it holds
+     *     the paths that differ, at most those of the two looks, so it is bounded by {@code observationMaxEntries} and not by the total. The default keeps the observations to a part of
+     *     the smallest heap preset ({@code -Xmx224m}, for a computer of up to 4 GB), so that the server with its hooks and MCP is not at risk of running out of memory: at 256 bytes an
+     *     entry (the measurement above, for paths of about 130 characters of Latin-1, with room for the table of a walk while it grows) 100000 entries are 25.6 MB, 11 percent of 224 MiB
+     *     (at the measured 154 bytes, 7 percent); at 384 bytes (the same paths when their characters are not Latin-1: about 116 bytes that do not depend on the path, and 2 for each of 130
+     *     characters, with the same room) they are 38.4 MB, 16 percent. The default is twice the bound of one look, so that the look before of a folder as large as a look may take, and
+     *     as much more as it changes, fit. It is not set from the heap the server finds itself with: a bigger heap is a bigger value in the settings file
      */
-    public record Run(@DefaultValue("2") @Min(1) @Max(64) int maxConcurrent, @DefaultValue("25ms") @NotNull @DurationMin(millis = 1) Duration outputCheckInterval) {
+    public record Run(@DefaultValue("8") @Min(1) @Max(64) int maxConcurrent, @DefaultValue("32") @Min(1) @Max(1024) int retainedFinished,
+            @DefaultValue("7d") @NotNull @DurationMin(millis = 1) Duration logRetention, @DefaultValue("1GB") @NotNull DataSize logCapacity,
+            @DefaultValue("15s") @NotNull @DurationMin(millis = 1) @DurationMax(seconds = 20) Duration stopDeadline, @DefaultValue("50000") @Min(1) long observationMaxEntries,
+            @DefaultValue("5s") @NotNull @DurationMin(millis = 1) Duration observationMaxTime, @DefaultValue("100000") @Min(1) long observationMaxTotalEntries) {
+        public Run {
+            if (logCapacity != null && logCapacity.toBytes() < 1) {
+                throw new IllegalArgumentException("sennard.run.log-capacity is at least one byte: " + logCapacity);
+            }
+        }
+
+        /** The total of the observations holds at least one look as large as one may be: a smaller total refuses every folder of the size the bound of a look allows. */
+        @AssertTrue(message = "sennard.run.observation-max-total-entries is at least sennard.run.observation-max-entries")
+        public boolean isObservationMaxTotalEntriesAtLeastObservationMaxEntries() {
+            return observationMaxTotalEntries >= observationMaxEntries;
+        }
     }
 
     /** The folder the skills and contract files of the workflow are read from. */

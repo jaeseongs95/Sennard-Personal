@@ -41,7 +41,7 @@ public final class CodexCallerAdapter implements HostCallerAdapter {
         }
         String model = textOrNull(turn.get("model"));
         Execution execution = model == null ? new Execution.Unobserved("CODEX_EXECUTION_META_MISSING")
-                : new Execution.Observed(model, textOrNull(turn.get("reasoning_effort")), textOrNull(turn.get("turn_id")), "codex:mcp-meta");
+                : new Execution.Observed(model, textOrNull(turn.get("reasoning_effort")), textOrNull(turn.get("turn_id")), Execution.Observed.Evidence.HOST_REPORT);
         Object parent = turn.get("parent_thread_id");
         if (parent == null) {
             if (turn.get("subagent_kind") != null) {

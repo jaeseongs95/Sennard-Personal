@@ -1166,6 +1166,64 @@ class SessionIdentityTest {
         assertEquals("PRESET_AGENT", text("SELECT kind FROM sennard.session_ref WHERE local_session_id = '" + unregistered + "'"));
     }
 
+    @Test
+    void aManagedChildStoresItsDirectParentAlongsideItsOriginalGeneration() throws Exception {
+        String root = sessionId();
+        String child = sessionId();
+        Registration owner = register(root, "managed-root-process");
+        assertTrue(registry.bindManagedChild(HOST, root, owner.sessionRef(), owner.generation(), child));
+        String childRef = registry.findRef(HOST, child).orElseThrow();
+        assertEquals(owner.sessionRef(), text("SELECT parent_ref FROM sennard.session_ref WHERE session_ref = '" + childRef + "'"));
+        assertEquals(owner.generation(), registry.managedRootOf(HOST, child).orElseThrow().rootGeneration());
+        assertEquals(0, number("SELECT count(*) FROM sennard.session_ref WHERE session_ref = '" + owner.sessionRef() + "' AND parent_ref IS NOT NULL"));
+    }
+
+    @Test
+    void aManagedGenerationAlsoFencesItsDescendants() {
+        String root = sessionId();
+        String child = sessionId();
+        String grandchild = sessionId();
+        Registration owner = register(root, "managed-root-process");
+        assertTrue(registry.bindManagedChild(HOST, root, owner.sessionRef(), owner.generation(), child));
+        assertTrue(registry.bindObservedChild(HOST, child, grandchild));
+        assertEquals(2, registry.treeMembership(HOST, grandchild).orElseThrow().depth());
+
+        assertTrue(registry.endByClient(owner.sessionRef(), owner.generation(), owner.relayId(), "test", null).accepted());
+        assertTrue(registry.treeMembership(HOST, child).isEmpty());
+        assertTrue(registry.treeMembership(HOST, grandchild).isEmpty());
+        assertFalse(registry.bindObservedChild(HOST, child, sessionId()));
+    }
+
+    @Test
+    void anObservedGrandchildKeepsItsDirectParentAndSharesTheRoot() {
+        String root = sessionId();
+        String other = sessionId();
+        String child = sessionId();
+        String grandchild = sessionId();
+        Registration owner = register(root, "observed-root-process");
+        Registration separate = register(other, "observed-root-process");
+
+        assertFalse(registry.bindObservedChild(HOST, child, grandchild));
+        assertTrue(registry.bindObservedChild(HOST, root, child));
+        assertTrue(registry.bindObservedChild(HOST, child, grandchild));
+        assertTrue(registry.bindObservedChild(HOST, child, grandchild));
+
+        var childMembership = registry.treeMembership(HOST, child).orElseThrow();
+        var grandchildMembership = registry.treeMembership(HOST, grandchild).orElseThrow();
+        assertEquals(1, childMembership.depth());
+        assertEquals(2, grandchildMembership.depth());
+        assertEquals(childMembership.sessionRef(), grandchildMembership.parentRef());
+        assertEquals(owner.sessionRef(), grandchildMembership.rootRef());
+        assertEquals(root, grandchildMembership.rootSessionId());
+        assertEquals(separate.sessionRef(), registry.treeMembership(HOST, other).orElseThrow().rootRef());
+
+        assertFalse(registry.bindObservedChild(HOST, other, grandchild));
+        assertFalse(registry.bindObservedChild(HOST, grandchild, child));
+        assertFalse(registry.bindObservedChild(HOST, grandchild, root));
+        assertFalse(registry.bindObservedChild(HOST, child, child));
+        assertTrue(registry.treeMembership("antigravity", child).isEmpty());
+    }
+
     /**
      * The row a PreToolUse hook leaves for the call it precedes: one claim per row (the claim deletes it), the same call id seen again replaces the
      * row, a prefix claim takes every row under it and answers with the newest, and the rows nobody claimed go by age when a new row is written.

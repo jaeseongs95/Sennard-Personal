@@ -11,6 +11,8 @@ import java.net.HttpURLConnection;
 import java.net.Proxy;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
@@ -48,6 +50,7 @@ import tools.jackson.databind.json.JsonMapper;
 public final class NativeWakeWorker {
     private static final System.Logger LOG = System.getLogger(NativeWakeWorker.class.getName());
     private static final int MAX_OPEN_CHILDREN = 8;
+    private static final Duration TITLE_REFRESH_INTERVAL = Duration.ofSeconds(10);
 
     private NativeWakeWorker() {
     }
@@ -58,7 +61,7 @@ public final class NativeWakeWorker {
     private record Poll(String marker, String childId, Launch launch) {
     }
 
-    public static int run(String[] args, InputStream input, Map<String, String> environment) {
+    public static int run(String[] args, InputStream input, Map<String, String> environment, Clock clock) {
         if (args.length != 3) {
             return 2;
         }
@@ -87,7 +90,7 @@ public final class NativeWakeWorker {
             }
             var target = new WakeTransport.Target(context.sessionId(), context.workspace());
             NativeWakeAdapter adapter = host.provider().adapter(new LocalWakeProcess(), mapper);
-            return watch(server, key, target, environment, adapter, mapper);
+            return watch(server, key, target, environment, adapter, mapper, clock);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return 1;
@@ -98,7 +101,7 @@ public final class NativeWakeWorker {
     }
 
     static int watch(ServerAddress server, String key, WakeTransport.Target target, Map<String, String> environment,
-            NativeWakeAdapter adapter, JsonMapper mapper) throws IOException, InterruptedException {
+            NativeWakeAdapter adapter, JsonMapper mapper, Clock clock) throws IOException, InterruptedException {
         String session = target.hostSessionId();
         ObjectReader launches = mapper.readerFor(Launch.class).with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
                 .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
@@ -110,6 +113,7 @@ public final class NativeWakeWorker {
             case WakeTransport.Availability.Missing ignored -> RootUnavailable.MISSING;
         };
         Map<String, ManagedConversation> children = new HashMap<>();
+        Thread titleObserver = observeTitle(server, key, target, environment, adapter, mapper, clock);
         try {
             Optional<ManagedLauncher> managed = adapter.managedLauncher(environment, target);
             Capability capability;
@@ -135,10 +139,72 @@ public final class NativeWakeWorker {
             }
             return 0;
         } finally {
+            titleObserver.interrupt();
             children.values().forEach(ManagedConversation::close);
             if (rootWake != null) {
                 rootWake.close();
             }
+            titleObserver.join();
+        }
+    }
+
+    private static Thread observeTitle(ServerAddress server, String key, WakeTransport.Target target, Map<String, String> environment,
+            NativeWakeAdapter adapter, JsonMapper mapper, Clock clock) {
+        return Thread.ofVirtual().start(() -> {
+            try {
+                var source = adapter.sessionTitles(environment, target);
+                if (source.isEmpty()) {
+                    return;
+                }
+                var reader = source.orElseThrow();
+                NativeWakeProtocol.SessionTitle pending = null;
+                while (server.live() && !Thread.currentThread().isInterrupted()) {
+                    long observedAt = clock.instant().toEpochMilli();
+                    try {
+                        Optional<String> title = reader.read();
+                        if (title.isPresent()) {
+                            pending = new NativeWakeProtocol.SessionTitle(title.orElseThrow(), observedAt);
+                        }
+                        if (pending != null) {
+                            if (!publishTitle(server, key, mapper, pending)) {
+                                return;
+                            }
+                            pending = null;
+                        }
+                    } catch (IOException | IllegalArgumentException | JacksonException unavailable) {
+                        LOG.log(System.Logger.Level.DEBUG, "The host title was not observed ({0})", unavailable.getClass().getSimpleName());
+                    }
+                    Thread.sleep(TITLE_REFRESH_INTERVAL);
+                }
+            } catch (InterruptedException stopped) {
+                Thread.currentThread().interrupt();
+            } catch (IOException | IllegalArgumentException | SecurityException unavailable) {
+                LOG.log(System.Logger.Level.DEBUG, "The host title source was unavailable ({0})", unavailable.getClass().getSimpleName());
+            }
+        });
+    }
+
+    private static boolean publishTitle(ServerAddress server, String key, JsonMapper mapper, NativeWakeProtocol.SessionTitle title) throws IOException {
+        byte[] body = mapper.writeValueAsBytes(title);
+        if (body.length > NativeWakeProtocol.INPUT_LIMIT) {
+            return true;
+        }
+        var connection = request(server.baseUrl().resolve(NativeWakeProtocol.SESSION_TITLE), key);
+        try {
+            connection.setReadTimeout(2_000);
+            connection.setRequestProperty("Content-Type", MediaType.APPLICATION_JSON_VALUE);
+            connection.setDoOutput(true);
+            connection.setFixedLengthStreamingMode(body.length);
+            try (var output = connection.getOutputStream()) {
+                output.write(body);
+            }
+            int status = connection.getResponseCode();
+            if (status >= 500 || status == 408 || status == 429) {
+                throw new IOException("The native wake title report must be retried.");
+            }
+            return status != HttpURLConnection.HTTP_GONE;
+        } finally {
+            connection.disconnect();
         }
     }
 

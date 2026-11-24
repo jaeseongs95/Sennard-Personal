@@ -23,8 +23,8 @@ final class RunRequest {
     private RunRequest() {
     }
 
-    /** {@code list_session_workflows} takes no selector. Its scope is supplied by the host binding. */
-    record SessionList() { }
+    /** An omitted cursor returns retained history. An empty cursor starts the bounded open-root listing. */
+    record SessionList(@JsonDeserialize(using = StrictInput.Text.class) @Size(max = 255) String openRootAfter) { }
 
     /** {@code get_workflow_status}: the run to read. */
     record Lookup(@JsonDeserialize(using = StrictInput.Text.class) @JsonInclude(JsonInclude.Include.NON_NULL) String runId) {

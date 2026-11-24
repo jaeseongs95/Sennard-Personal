@@ -145,4 +145,80 @@ class SessionWorkflowLimitsServerTest {
         assertEquals(1,count(session));
         assertEquals(before+1,server.bean(WorkflowStore.class).readActiveRoots().size());
     }
+
+    @Test void aSessionOverItsLimitCanReadBoundedRecoveryPagesAndResumeItsPausedRun() throws Exception {
+        String session = SessionServerSupport.uniqueSession();
+        assertEquals(200, DomainServerSupport.hook(server.server.port, "windows", "codex", "SessionStart", null, session,
+                body -> body.put("cwd", workspaces.toString())).status());
+        JsonNode ended = open(session);
+        ok(server.call("finalize_workflow", revision(ended), session));
+        limit(25);
+        Map<String, JsonNode> active = new HashMap<>();
+        for (int index = 0; index < 25; index++) {
+            JsonNode run = open(session);
+            active.put(run.path("rootId").asString(), run);
+        }
+        JsonNode target = active.values().iterator().next();
+        Map<String, Object> pause = new HashMap<>(revision(target));
+        pause.put("reason", "Waiting for review");
+        pause.put("resumeCondition", "Review is ready");
+        JsonNode paused = ok(server.call("pause_workflow", pause, session));
+        limit(10);
+
+        JsonNode rejected = server.callAsNewHostCall("start_inquiry_workflow", Map.of("goal", "New read-only work"), session);
+        reached(rejected, 10, 25);
+        JsonNode details = rejected.path("error").path("details");
+        assertEquals("list_session_workflows", details.path("recoveryTool").asString(), rejected.toString());
+        assertEquals("", details.path("recoveryArgs").path("openRootAfter").asString("missing"));
+
+        JsonNode full = ok(server.call("list_session_workflows", Map.of(), session));
+        assertEquals(26, full.path("runs").size());
+        assertEquals(25, full.path("openRoots").size());
+
+        String cursor = "";
+        JsonNode recoveryRun = null;
+        for (String expectedRoot : active.keySet().stream().sorted().toList()) {
+            JsonNode result = server.call("list_session_workflows", Map.of("openRootAfter", cursor), session);
+            JsonNode page = ok(result);
+            assertTrue(result.toString().length() < 1024, result.toString());
+            assertEquals(1, page.path("openRoots").size());
+            assertEquals(1, page.path("runs").size());
+            cursor = page.path("openRoots").get(0).path("rootId").asString();
+            assertEquals(expectedRoot, cursor);
+            JsonNode run = page.path("runs").get(0);
+            assertEquals(active.get(cursor).path("runId"), run.path("runId"));
+            if (run.path("runId").equals(paused.path("runId"))) {
+                recoveryRun = run;
+            }
+        }
+        JsonNode end = ok(server.call("list_session_workflows", Map.of("openRootAfter", cursor), session));
+        assertTrue(end.path("openRoots").isEmpty());
+        assertTrue(end.path("runs").isEmpty());
+        assertNotNull(recoveryRun);
+        assertEquals("PAUSED", recoveryRun.path("state").asString());
+        assertEquals(paused.path("revision"), recoveryRun.path("revision"));
+        Map<String, Object> resume = new HashMap<>(revision(recoveryRun));
+        resume.put("operationKey", "resume-recovery-" + UUID.randomUUID());
+        assertEquals("RUNNING", ok(server.call("resume_workflow", resume, session)).path("state").asString());
+        assertEquals(25, count(session));
+    }
+
+    @Test void recoveryListingUsesTheSameSessionAndHostBindingAsTheFullList() throws Exception {
+        String session = server.session();
+        JsonNode run = open(session);
+        String rootId = run.path("rootId").asString();
+        String other = server.session();
+        String tool = "list_session_workflows";
+        Map<String, Object> first = Map.of("openRootAfter", "");
+        JsonNode empty = ok(server.call(tool, first, other));
+        assertTrue(empty.path("openRoots").isEmpty());
+        assertTrue(empty.path("runs").isEmpty());
+        assertEquals(rootId, ok(server.call(tool, first, session)).path("openRoots").get(0).path("rootId").asString());
+
+        assertEquals(200, DomainServerSupport.hook(server.server.port, "windows", "claude", "SessionStart", null, session, body -> { }).status());
+        JsonNode ambiguous = server.call(tool, first, session);
+        assertFalse(ambiguous.path("ok").asBoolean(), ambiguous.toString());
+        assertEquals("BINDING_INVALID", ambiguous.path("error").path("code").asString());
+        assertFalse(ambiguous.toString().contains(rootId), ambiguous.toString());
+    }
 }

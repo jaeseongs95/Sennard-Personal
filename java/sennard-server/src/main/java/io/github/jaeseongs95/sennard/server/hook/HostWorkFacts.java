@@ -103,29 +103,41 @@ public interface HostWorkFacts {
         return false;
     }
 
+    /**
+     * A call of one of the host's own tools that sends a message to another agent or session, as the host's facts classify it. Whether the message stays inside the sender's delegation (the
+     * session that started it, and the subagents that session started) is decided by the server from these facts and what it recorded; the text of the recipient decides nothing.
+     *
+     * @param recipient how the call names its recipient (the id the host gave a subagent, the name it was started with, a thread), or null when the call names none or the host does not
+     *            say where the tool names it (a record component is never an Optional)
+     * @param toParent the call names the agent that started the sender, in the host's own notation for it
+     * @param insideDelegation the host itself delivers this tool only inside the sender's delegation, whatever the recipient says
+     */
+    record NativeSend(String recipient, boolean toParent, boolean insideDelegation) {
+        /** A send whose recipient and reach the host does not state: it is let through only for a recipient the server recorded. */
+        public static NativeSend unstated() {
+            return new NativeSend(null, false, false);
+        }
+    }
+
+    /** Present when this tool call is a send of one of the host's native inter-agent or inter-session tools. */
+    default Optional<NativeSend> nativeSend(ToolCall tool) {
+        return Optional.empty();
+    }
+
+    /**
+     * What a later send can call the subagents that this finished tool call started: the ids the host returns and the names it was given. Empty for a call that started none.
+     *
+     * @param result the end of what the tool returned, or null when it returned nothing
+     */
+    default Set<String> subagentAddresses(ToolCall tool, String result) {
+        return Set.of();
+    }
+
     /** Whether this call uses a host tool that executes a script with access to other tools. */
     default boolean runsToolScript(ToolCall tool) {
         return false;
     }
 
-    /** Whether the host reports a call to one of its native inter-agent send tools. */
-    default boolean sendsNativePeerMessage(ToolCall tool) {
-        return false;
-    }
-
-    /** A recipient named by a native send. The host identifies addresses that designate the sender's parent. */
-    record NativeRecipient(String address, boolean parent) {
-    }
-
-    /** The recipient named by a native send, if this host describes its address. */
-    default Optional<NativeRecipient> nativeRecipient(ToolCall tool) {
-        return Optional.empty();
-    }
-
-    /** Addresses of subagents whose start this host event reports. */
-    default Set<String> subagentAddresses(HostEvent event) {
-        return Set.of();
-    }
 
     /** Present when this tool call edits files; a tool that edits but whose target cannot be read gives an empty list. */
     default Optional<EditTargets> editTargets(ToolCall tool) {

@@ -370,7 +370,7 @@ class WorkflowToolsServerTest {
                 Arguments.of("abort_workflow", Set.of("runId", "expectedRevision", "operationKey"), Set.of("runId", "expectedRevision", "responseMode", "operationKey")),
                 Arguments.of("get_convergence_status", Set.of("rootId"), Set.of("rootId", "detail")),
                 Arguments.of("get_workflow_status", Set.of("runId"), Set.of("runId", "detail")),
-                Arguments.of("list_session_workflows", Set.of(), Set.of()));
+                Arguments.of("list_session_workflows", Set.of(), Set.of("openRootAfter")));
     }
 
     @ParameterizedTest
@@ -1733,6 +1733,24 @@ class WorkflowToolsServerTest {
                 "frame", MAPPER.convertValue(current.get("frame"), Map.class), "plan", MAPPER.convertValue(planned, Map.class), "outputTargets", List.of("alpha"), "priorFailure", null), session);
     }
 
+    /** A root waiting for its review is not closed by the abort of the run that is still live on it: an abort ends the attempt, and the review is the root's own decision. */
+    @Test
+    void anAbortOfTheRunOfARootInReviewEndsTheAttemptAndLeavesTheRootInReview() throws Exception {
+        Path workspace = product();
+        String owner = session();
+        JsonNode started = ok(call("start_workflow", start(workspace, List.of("alpha")), owner));
+        String rootId = started.get("rootId").asString();
+        assertEquals("FRAME_REVIEW_REQUIRED", code(claimChanged(rootId, owner, owner)));
+        assertEquals("NEEDS_REVIEW", root(rootId, owner).get("state").asString());
+
+        JsonNode aborted = ok(call("abort_workflow", arguments("runId", started.get("runId").asString(), "expectedRevision", started.get("revision").asLong()), owner));
+
+        assertEquals("BLOCKED", aborted.get("state").asString());
+        JsonNode after = root(rootId, owner);
+        assertEquals("NEEDS_REVIEW", after.get("state").asString(), "the root still waits for its review: " + after);
+        assertTrue(after.path("release").isNull() || after.path("release").isMissingNode(), after.toString());
+    }
+
     /**
      * A claim that leaves out the task and the frame (the root's own are used) is judged by the schema on what the caller wrote, with those two put in: a schemaVersion that was never
      * sent is named as a missing member, not refused for a value ("must be 1.0.0") it never had; and the validator's sentences are English whatever the language of the machine.
@@ -2735,7 +2753,7 @@ class WorkflowToolsServerTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"xhigh,,xhigh", "xhigh,high,high", ",high,high", ",,"})
+    @CsvSource({"xhigh,,xhigh", "xhigh,high,xhigh", ",high,high", ",,"})
     void claudeRecordsEffortWhenTheModelComesFromTheTranscript(String hookEffort, String transcriptEffort, String expectedEffort,
             @TempDir Path transcriptFolder) throws Exception {
         Path workspace = product();
@@ -2768,7 +2786,7 @@ class WorkflowToolsServerTest {
         assertEquals(expectedEffort == null, policyNotes.contains("HOST_EFFORT_UNREPORTED"), bootstrap.toString());
     }
 
-    /** AGS3-D-0312: a refusal for a model the transcript does not give says why it was not found (a code and numbers, never the transcript's text). */
+    /** A refusal for a model the transcript does not give says why it was not found (a code and numbers, never the transcript's text). */
     @Test
     void aBindingRefusedForANotFoundModelSaysWhyTheTranscriptGaveNone(@TempDir Path transcriptFolder) throws Exception {
         Path workspace = product();
@@ -2786,7 +2804,113 @@ class WorkflowToolsServerTest {
         JsonNode observation = refused.path("error").path("details").path("observation");
         assertEquals("HOOK_MODEL_NOT_REPORTED", observation.path("reasonCode").asString(), refused.toString());
         assertEquals("MODEL_FIELD_MISSING", observation.path("transcriptReason").asString(), refused.toString());
-        assertTrue(observation.path("waitedMs").asLong() >= 0 && observation.has("linesSeen"), refused.toString());
+        assertTrue(observation.has("linesSeen"), refused.toString());
+        assertEquals(0, observation.path("waitedMs").asLong(-1), "the line of the call was in the file: nothing was waited for; " + refused);
+    }
+
+    /**
+     * A call made in a message with several blocks has no line in the transcript until its tools have finished, so the model behind it is the one the host sent the request
+     * with, which the host writes when it sends it. The line of the call is not in the file here; the request record of the main thread is, with another answer's model before it.
+     */
+    @Test
+    void aParallelCallIsObservedFromTheRequestRecord(@TempDir Path transcriptFolder) throws Exception {
+        Path workspace = product();
+        String owner = session();
+        String toolUse = "toolu_" + UUID.randomUUID();
+        Path transcript = Files.createFile(transcriptFolder.resolve("transcript.jsonl"));
+        Map<String, Object> request = arguments("type", "api-request", "querySource", "repl_main_thread", "sessionId", owner,
+                "params", arguments("model", "a-request-model", "output_config", arguments("effort", "high")));
+        Map<String, Object> earlierAnswer = arguments("type", "assistant", "sessionId", owner, "isSidechain", false,
+                "message", arguments("model", "an-answer-model", "content", List.of(arguments("type", "text", "text", "t"))));
+        Files.writeString(transcript, "{\"type\":\"user\"}\n" + MAPPER.writeValueAsString(earlierAnswer) + "\n" + MAPPER.writeValueAsString(request) + "\n");
+        ObjectNode hookBody = (ObjectNode) MAPPER.readTree(new String(SessionServerSupport.hook("windows", "claude", "PreToolUse", owner, toolUse), StandardCharsets.UTF_8));
+        hookBody.put("tool_name", "mcp__plugin_sennard_sennard__start_workflow").put("transcript_path", transcript.toString());
+        hookBody.remove("model");
+        hookBody.remove("effort");
+        assertEquals(200, SessionServerSupport.post(server.port, "/hooks/v1/claude/PreToolUse/governance", hookBody.toString().getBytes(StandardCharsets.UTF_8)).status());
+        JsonNode started = ok(body(client("claude").callTool(McpSchema.CallToolRequest.builder("start_workflow").arguments(OperationKeys.withKey("start_workflow", startAll(workspace))).meta(SessionServerSupport.meta("windows", "claude", owner, toolUse)).build())));
+        assertEquals("RUNNING", started.get("state").asString());
+        JsonNode receipt = ok(callAs("claude", "get_workflow_status", arguments("runId", started.get("runId").asString()), owner));
+        JsonNode bootstrap = receipt.path("plan").path("bootstrapExecution").path("context");
+        assertEquals("a-request-model", bootstrap.path("model").asString(), bootstrap.toString());
+        assertEquals("high", bootstrap.path("reasoningEffort").asString(null), bootstrap.toString());
+        List<String> notes = new ArrayList<>();
+        bootstrap.path("policyNotes").forEach(note -> notes.add(note.asString()));
+        assertTrue(notes.contains("MODEL_FROM_REQUEST_RECORD"), bootstrap.toString());
+    }
+
+    /**
+     * A call by a subagent of a workflow, whose hook gave the effort and the subagent's id ({@code agent_id}) but no model: its own file is under the run's folder of the session's
+     * {@code subagents/workflows} ({@code wf_<hex>-<hex>-<n>} is the form of a workflow subagent's id), and holds its request record. The main agent's request records are another thread's.
+     */
+    private static void workflowSubagentCall(Path transcriptFolder, String owner, String agentId, String toolUse, String hookEffort, String requestEffort, Path transcript) throws Exception {
+        Path file = transcriptFolder.resolve(owner).resolve("subagents").resolve("workflows").resolve("run-1").resolve("agent-" + agentId + ".jsonl");
+        Files.createDirectories(file.getParent());
+        Map<String, Object> request = arguments("type", "api-request", "querySource", "agent:builtin:general-purpose", "sessionId", owner, "agentId", agentId, "isSidechain", true,
+                "params", arguments("model", "a-subagent-model", "output_config", arguments("effort", requestEffort)));
+        Files.writeString(file, MAPPER.writeValueAsString(request) + "\n");
+        Map<String, Object> mainRequest = arguments("type", "api-request", "querySource", "repl_main_thread", "sessionId", owner, "params", arguments("model", "the-main-agents-model", "output_config", arguments("effort", "high")));
+        Files.writeString(transcript, MAPPER.writeValueAsString(mainRequest) + "\n");
+        ObjectNode hookBody = (ObjectNode) MAPPER.readTree(new String(SessionServerSupport.hook("windows", "claude", "PreToolUse", owner, toolUse), StandardCharsets.UTF_8));
+        hookBody.put("tool_name", "mcp__plugin_sennard_sennard__start_workflow").put("transcript_path", transcript.toString()).put("agent_id", agentId).put("agent_type", "general-purpose");
+        hookBody.remove("model");
+        hookBody.putObject("effort").put("level", hookEffort);
+        assertEquals(200, SessionServerSupport.post(server.port, "/hooks/v1/claude/PreToolUse/governance", hookBody.toString().getBytes(StandardCharsets.UTF_8)).status());
+    }
+
+    @Test
+    void aWorkflowSubagentsCallIsObservedFromItsOwnFilesRequestWithTheEffortOfTheHook(@TempDir Path transcriptFolder) throws Exception {
+        Path workspace = product();
+        String owner = session();
+        String toolUse = "toolu_" + UUID.randomUUID();
+        String agentId = "wf_0a1b2c3d-4e5-6";
+        Path transcript = Files.createFile(transcriptFolder.resolve("transcript.jsonl"));
+        workflowSubagentCall(transcriptFolder, owner, agentId, toolUse, "high", "high", transcript);
+        JsonNode started = ok(body(client("claude").callTool(McpSchema.CallToolRequest.builder("start_workflow").arguments(OperationKeys.withKey("start_workflow", startAll(workspace))).meta(SessionServerSupport.meta("windows", "claude", owner, toolUse)).build())));
+        JsonNode bootstrap = ok(callAs("claude", "get_workflow_status", arguments("runId", started.get("runId").asString()), owner)).path("plan").path("bootstrapExecution").path("context");
+        assertEquals("a-subagent-model", bootstrap.path("model").asString(), bootstrap.toString());
+        assertEquals("high", bootstrap.path("reasoningEffort").asString(null), bootstrap.toString());
+        List<String> notes = new ArrayList<>();
+        bootstrap.path("policyNotes").forEach(note -> notes.add(note.asString()));
+        assertTrue(notes.contains("MODEL_FROM_REQUEST_RECORD"), bootstrap.toString());
+    }
+
+    @Test
+    void aSubagentsRequestThatNamesAnotherEffortThanTheHookIsRefusedAndSaysWhy(@TempDir Path transcriptFolder) throws Exception {
+        Path workspace = product();
+        String owner = session();
+        String toolUse = "toolu_" + UUID.randomUUID();
+        Path transcript = Files.createFile(transcriptFolder.resolve("transcript.jsonl"));
+        workflowSubagentCall(transcriptFolder, owner, "wf_0a1b2c3d-4e5-7", toolUse, "low", "high", transcript);
+        JsonNode refused = body(client("claude").callTool(McpSchema.CallToolRequest.builder("start_workflow").arguments(OperationKeys.withKey("start_workflow", startAll(workspace))).meta(SessionServerSupport.meta("windows", "claude", owner, toolUse)).build()));
+        assertEquals("BINDING_REQUIRED", code(refused), refused.toString());
+        JsonNode observation = refused.path("error").path("details").path("observation");
+        assertEquals("REQUEST_EFFORT_MISMATCH", observation.path("transcriptReason").asString(), refused.toString());
+        assertEquals(250, observation.path("waitedMs").asLong(-1), refused.toString());
+    }
+
+    /** The line of a subagent's call is in the subagent's own file (under a run's folder): the line is found at the first look, so nothing is waited for, whatever the line says (here: no model). */
+    @Test
+    void aWorkflowSubagentsCallLineInItsOwnFileIsFoundWithoutWaiting(@TempDir Path transcriptFolder) throws Exception {
+        Path workspace = product();
+        String owner = session();
+        String toolUse = "toolu_" + UUID.randomUUID();
+        String agentId = "wf_0a1b2c3d-4e5-8";
+        Path transcript = Files.createFile(transcriptFolder.resolve("transcript.jsonl"));
+        Path file = transcriptFolder.resolve(owner).resolve("subagents").resolve("workflows").resolve("run-1").resolve("agent-" + agentId + ".jsonl");
+        Files.createDirectories(file.getParent());
+        Map<String, Object> issuer = arguments("type", "assistant", "sessionId", owner, "agentId", agentId, "isSidechain", true,
+                "message", arguments("content", List.of(arguments("type", "tool_use", "id", toolUse, "name", "start_workflow", "input", Map.of()))));
+        Files.writeString(file, MAPPER.writeValueAsString(issuer) + "\n");
+        ObjectNode hookBody = (ObjectNode) MAPPER.readTree(new String(SessionServerSupport.hook("windows", "claude", "PreToolUse", owner, toolUse), StandardCharsets.UTF_8));
+        hookBody.put("tool_name", "mcp__plugin_sennard_sennard__start_workflow").put("transcript_path", transcript.toString()).put("agent_id", agentId).put("agent_type", "general-purpose");
+        hookBody.remove("model");
+        assertEquals(200, SessionServerSupport.post(server.port, "/hooks/v1/claude/PreToolUse/governance", hookBody.toString().getBytes(StandardCharsets.UTF_8)).status());
+        JsonNode refused = body(client("claude").callTool(McpSchema.CallToolRequest.builder("start_workflow").arguments(OperationKeys.withKey("start_workflow", startAll(workspace))).meta(SessionServerSupport.meta("windows", "claude", owner, toolUse)).build()));
+        assertEquals("BINDING_REQUIRED", code(refused), refused.toString());
+        JsonNode observation = refused.path("error").path("details").path("observation");
+        assertEquals("MODEL_FIELD_MISSING", observation.path("transcriptReason").asString(), refused.toString());
+        assertEquals(0, observation.path("waitedMs").asLong(-1), "the line of the call was in the subagent's file: nothing was waited for; " + refused);
     }
 
     private static long rowsOf(String table, String where, Object... params) {

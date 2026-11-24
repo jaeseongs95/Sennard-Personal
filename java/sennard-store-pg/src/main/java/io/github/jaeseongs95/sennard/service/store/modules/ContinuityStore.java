@@ -304,6 +304,11 @@ public class ContinuityStore extends ModuleStore {
 
     public record SessionWorkflowRow(String rootId, String runId, long revision, String state, String kind) { }
 
+    // Keep host ambiguity detection and root ownership in the same statement snapshot in both views.
+    private static final String SESSION_WORKFLOW_SCOPE = "WITH ambiguity AS (SELECT EXISTS (SELECT 1 FROM " + T
+            + "session_ref WHERE local_session_id = :sessionId AND host <> :host) AS present), "
+            + "owned (root_id) AS (SELECT root_id FROM (" + OWNED_ROOT_IDS + ") bound(root_id) WHERE NOT (SELECT present FROM ambiguity)) ";
+
     /**
      * All retained runs and all active roots across every epoch of this session. Legacy continuity keys use the
      * raw session ID, so a collision returns one row with no root ID. Check the binding and select the rows from
@@ -311,13 +316,31 @@ public class ContinuityStore extends ModuleStore {
      */
     public List<SessionWorkflowRow> listSessionWorkflows(String taskCorrelation, String host, String sessionId) {
         List<String> active = java.util.Arrays.stream(RootState.values()).filter(RootState::isActive).map(Enum::name).toList();
-        return ownedRootsQuery("WITH ambiguity AS (SELECT EXISTS (SELECT 1 FROM " + T + "session_ref WHERE local_session_id = :sessionId AND host <> :host) AS present), "
-                + "owned (root_id) AS (SELECT root_id FROM (" + OWNED_ROOT_IDS + ") bound(root_id) WHERE NOT (SELECT present FROM ambiguity)) "
+        return ownedRootsQuery(SESSION_WORKFLOW_SCOPE
                 + "SELECT r.root_id, NULL AS run_id, r.revision, r.state, NULL AS kind FROM " + T + "convergence_roots r JOIN owned o ON o.root_id = r.root_id WHERE r.state IN (:states) "
                 + "UNION ALL SELECT l.root_id, w.run_id, w.revision, w.state, w.kind FROM " + T + "workflow_attempt_links l "
                 + "JOIN owned o ON o.root_id = l.root_id JOIN " + T + "workflow_runs w ON w.run_id = l.run_id "
                 + "UNION ALL SELECT NULL, NULL, 0, NULL, NULL FROM ambiguity WHERE present ORDER BY root_id, run_id", taskCorrelation)
                 .param("states", active).param("host", host).param("sessionId", sessionId).query(SessionWorkflowRow.class).list();
+    }
+
+    /** One active root after the cursor, plus its latest linked run by epoch and attempt order. */
+    public List<SessionWorkflowRow> listSessionRecoveryPage(String taskCorrelation, String host, String sessionId, String openRootAfter) {
+        List<String> active = java.util.Arrays.stream(RootState.values()).filter(RootState::isActive).map(Enum::name).toList();
+        String selectedRoot = limit.applyLimit("SELECT r.root_id, r.revision, r.state FROM " + T
+                + "convergence_roots r JOIN owned o ON o.root_id = r.root_id WHERE r.state IN (:states) AND r.root_id > :afterRoot "
+                + "ORDER BY r.root_id", ":rowLimit");
+        String latestRun = limit.applyLimit("SELECT l.root_id, w.run_id, w.revision, w.state, w.kind FROM " + T
+                + "workflow_attempt_links l JOIN selected_root r ON r.root_id = l.root_id JOIN " + T
+                + "workflow_runs w ON w.run_id = l.run_id ORDER BY l.epoch DESC, l.ordinal DESC, l.run_id DESC", ":rowLimit");
+        return ownedRootsQuery(SESSION_WORKFLOW_SCOPE
+                + ", selected_root AS (" + selectedRoot + "), latest_run AS (" + latestRun + ") "
+                + "SELECT root_id, NULL AS run_id, revision, state, NULL AS kind FROM selected_root "
+                + "UNION ALL SELECT root_id, run_id, revision, state, kind FROM latest_run "
+                + "UNION ALL SELECT NULL, NULL, 0, NULL, NULL FROM ambiguity WHERE present", taskCorrelation)
+                .param("states", active).param("host", host).param("sessionId", sessionId).param("afterRoot", openRootAfter)
+                .param("rowLimit", 1)
+                .query(SessionWorkflowRow.class).list();
     }
 
     /**

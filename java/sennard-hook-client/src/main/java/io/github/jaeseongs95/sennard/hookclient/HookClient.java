@@ -62,8 +62,6 @@ public final class HookClient {
     private static final String DENY_REASON_END = "), so the tool was not run. Try the same call again. If it keeps being refused, check the Sennard admin page or the server log.";
     private static final String DENY_FAILURE_START = "[Sennard] The Sennard hook could not verify this tool call (";
     private static final String DENY_FAILURE_END = "), so the tool was not run. Check the Sennard admin page or the server log.";
-    private static final String DENY_RESULT_START = "[Sennard] The result was withheld because the hook could not process it (";
-    private static final String DENY_RESULT_END = "). Use Sennard peer messaging for subagent results.";
     /** How a hook's wait ends for the host when a message woke it: the exit code that wakes the session. */
     public static final int WAKE_EXIT = 2;
     private static final int TOOL_BLOCKED = 2;
@@ -323,7 +321,6 @@ public final class HookClient {
             case GUIDANCE_STEPS -> printed(stdout, GUIDANCE_STEPS_JSON);
             case ALLOW_DECISION -> printed(stdout, ALLOW_DECISION_JSON);
             case DENY_DECISION -> printed(stdout, deniedJson(DENY_FAILURE_START, cause, DENY_FAILURE_END));
-            case DENY_RESULT -> printed(stdout, deniedJson(DENY_RESULT_START, cause, DENY_RESULT_END));
             case GUIDANCE_SYSTEM_MESSAGE -> printed(stdout, GUIDANCE_SYSTEM_MESSAGE_JSON);
         };
     }

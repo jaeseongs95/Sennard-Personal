@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionException;
 import tools.jackson.core.JacksonException;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import io.github.jaeseongs95.sennard.app.board.BoardService;
@@ -41,7 +42,8 @@ public class SessionBoardService {
     }
 
     public record Listed(String host, String sessionId, boolean current, String presence, String startedAt, String lastSeenAt, String cwd, Object repo, String summary, String summaryAt,
-            String role, RoleSource roleSource, Boolean summaryStale, String lastPromptAt, Object wake) {
+            String role, RoleSource roleSource, Boolean summaryStale, String lastPromptAt, Object wake,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String userTitle) {
     }
 
     /** Whose word the listed role is: the signed record of the admin page, or the session's own line. The wire shows the lower-case words of the contract. */
@@ -117,7 +119,8 @@ public class SessionBoardService {
         String role = signedRole != null ? signedRole : selfRole;
         return new Listed(row.host(), row.sessionId(), row.host().equals(selfHost) && row.sessionId().equals(selfSessionId), row.state(), row.startedAt(), row.heartbeatAt(),
                 entry == null ? null : entry.cwd(), null, entry == null ? null : entry.summary(), entry == null ? null : wire(entry.summaryAt()), role,
-                signedRole != null ? RoleSource.SIGNED : role != null ? RoleSource.SELF : null, entry == null ? null : entry.summaryStale(), entry == null ? null : wire(entry.lastPromptAt()), null);
+                signedRole != null ? RoleSource.SIGNED : role != null ? RoleSource.SELF : null, entry == null ? null : entry.summaryStale(),
+                entry == null ? null : wire(entry.lastPromptAt()), null, entry == null ? null : entry.userTitle());
     }
 
     /** The tools show a time as fixed-width UTC text (contracts/session-board-list.v2.schema.json); the null of an absent time stays null. */

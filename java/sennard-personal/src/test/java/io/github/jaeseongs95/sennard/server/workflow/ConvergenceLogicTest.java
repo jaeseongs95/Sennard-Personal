@@ -293,6 +293,28 @@ class ConvergenceLogicTest {
         assertNull(first.identity().host());
     }
 
+    /**
+     * The idle roots a candidate takes the files from are the ones it overlaps (a folder and a file of it, either way, or the same key); an idle root of another place is left
+     * its row, so it gives nothing up for a root that does not touch its files.
+     */
+    @Test
+    void aCandidateTakesTheFilesOnlyFromTheIdleRootsItOverlaps() throws IOException {
+        Path ws = directory("ws");
+        ConvergenceRoot folder = root("folder", null, RootState.OPEN, ws, "src");
+        ConvergenceRoot file = root("file", null, RootState.OPEN, ws, "src/inner/File.java");
+        ConvergenceRoot same = root("same", null, RootState.OPEN, ws, "lib");
+        ConvergenceRoot elsewhere = root("elsewhere", null, RootState.OPEN, ws, "docs");
+        ConvergenceRoot candidate = root("candidate", null, RootState.OPEN, ws, "src", "lib");
+        List<ConvergenceLogic.Identified> idle = new ArrayList<>();
+        for (ConvergenceRoot active : List.of(folder, file, same, elsewhere)) {
+            idle.add(ConvergenceLogic.activeRootIdentity(digests, active, null, RESOLVER));
+        }
+        ConvergenceLogic.Plan plan = ConvergenceLogic.planRootInsertion(digests, candidate, List.of(), HOST, RESOLVER);
+
+        List<String> taken = ConvergenceLogic.takenFrom(digests, candidate, plan.identity(), plan.surfaceKey(), idle).stream().map(root -> root.root().rootId()).toList();
+        assertEquals(List.of("folder", "file", "same"), taken);
+    }
+
     @Test
     void aReplacementIsNeverBlockedByItsParentAndStillByEveryOtherRoot() throws IOException {
         Path ws = directory("ws");

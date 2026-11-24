@@ -13,9 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.util.Base64;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
@@ -95,41 +93,44 @@ class GeminiHookAdapterTest {
         return ADAPTER.read(event, input(event, fields));
     }
 
+    private static final String INVOKE_AGENT_RESULT = """
+            "tool_name":"invoke_agent",
+            "tool_input":{"agent_name":"fixture_worker","prompt":"fixture question"},
+            "tool_response":{"llmContent":[{"text":"fixture native result"}],
+                             "returnDisplay":{"isSubagentProgress":true,"agentName":"fixture_worker","state":"completed","result":"fixture native result"}}
+            """;
+
+    /**
+     * A subagent's result is the result of an ordinary tool call. The host turns a deny of a result into "Tool result blocked" in its place (coreToolHookTriggers.ts), so the parent would
+     * lose what the subagent returned: the result goes to the domain like any other, and the hook never answers it with a deny.
+     */
     @Test
-    void aNativeAgentResultIsDeniedBeforeOrdinaryConsumersSeeIt() {
-        String fields = """
-                "tool_name":"invoke_agent",
-                "tool_input":{"agent_name":"fixture_worker","prompt":"fixture question"},
-                "tool_response":{"llmContent":[{"text":"fixture native result"}],
-                                 "returnDisplay":{"isSubagentProgress":true,"agentName":"fixture_worker","state":"completed","result":"fixture native result"}}
-                """;
+    void aSubagentResultIsAnOrdinaryToolResultAndIsNeverDenied() {
         AtomicInteger handled = new AtomicInteger();
         StaticListableBeanFactory beans = new StaticListableBeanFactory();
         beans.addBean("handler", (HostEventHandler) call -> {
             handled.incrementAndGet();
-            return new HookVerdict.AddContext(List.of(new ContextBlock("pending peer message", false)));
+            assertInstanceOf(HostEvent.ToolFinished.class, call.event());
+            return handled.get() == 1 ? new HookVerdict.Proceed() : new HookVerdict.AddContext(List.of(new ContextBlock("pending peer message", false)));
         });
-        StaticMessageSource source = new StaticMessageSource();
-        source.addMessage("peer.result.useSennard", Locale.ENGLISH, "Use the Sennard peer inbox.");
-        HookPipeline pipeline = new HookPipeline(List.of(ADAPTER), beans.getBeanProvider(HostEventHandler.class), new Messages(new MessageSourceAccessor(source)));
+        HookPipeline pipeline = new HookPipeline(List.of(ADAPTER), beans.getBeanProvider(HostEventHandler.class), new Messages(new MessageSourceAccessor(new StaticMessageSource())));
 
-        JsonNode result = MAPPER.valueToTree(pipeline.answer("gemini", "AfterTool", null, input("AfterTool", fields), List.of()));
+        JsonNode proceeded = MAPPER.valueToTree(pipeline.answer("gemini", "AfterTool", null, input("AfterTool", INVOKE_AGENT_RESULT), List.of()));
+        JsonNode withContext = MAPPER.valueToTree(pipeline.answer("gemini", "AfterTool", null, input("AfterTool", INVOKE_AGENT_RESULT), List.of()));
 
-        assertEquals(MAPPER.readTree("{\"decision\":\"deny\",\"reason\":\"Use the Sennard peer inbox.\"}"), result);
-        assertEquals(0, handled.get(), "the ordinary path may consume a pending peer message");
+        assertEquals(MAPPER.readTree("{}"), proceeded);
+        assertFalse(proceeded.has("decision"), proceeded.toString());
+        assertEquals("pending peer message", withContext.path("hookSpecificOutput").path("additionalContext").asString(), withContext.toString());
+        assertFalse(withContext.has("decision"), withContext.toString());
+        assertEquals(2, handled.get(), "each result reached the domain");
     }
 
     @Test
-    void similarlyNamedAndMcpToolsKeepTheirOrdinaryResult() {
-        String outcome = ",\"tool_response\":{\"llmContent\":\"ordinary result\"}";
-        for (String fields : List.of("\"tool_name\":\"invoke_agent_report\"", """
-                "tool_name":"invoke_agent",
-                "mcp_context":{"server_name":"foreign","tool_name":"invoke_agent"}
-                """)) {
-            HostEvent.ToolFinished finished = assertInstanceOf(HostEvent.ToolFinished.class, read("AfterTool", fields + outcome));
-            assertEquals("ordinary result", finished.resultTail());
-            assertTrue(finished.stepBoundary());
-        }
+    void aSubagentResultReadsAsAToolFinishedWithItsResultAndCannotBeRefused() {
+        HostEvent.ToolFinished finished = assertInstanceOf(HostEvent.ToolFinished.class, read("AfterTool", INVOKE_AGENT_RESULT));
+        assertEquals("invoke_agent", finished.tool().name());
+        assertTrue(finished.resultTail().contains("fixture native result"), finished.resultTail());
+        assertThrows(HookRejected.class, () -> ADAPTER.respond("AfterTool", finished, new HookVerdict.Refuse("no")));
     }
 
     private static HookRejected rejected(Runnable call) {
@@ -375,7 +376,7 @@ class GeminiHookAdapterTest {
         assertEquals(EVENTS.stream().sorted().toList(), hooks.propertyNames().stream().sorted().toList());
         for (String event : EVENTS) {
             JsonNode entry = hooks.path(event).get(0);
-            assertEquals(event.equals("AfterTool") ? "^(?!invoke_agent$).*$" : "*", entry.path("matcher").asString(), event);
+            assertEquals("*", entry.path("matcher").asString(), event);
             JsonNode handler = entry.path("hooks").get(0);
             assertEquals("command", handler.path("type").asString(), event);
             assertEquals("sennard-" + event, handler.path("name").asString(), event);
@@ -389,23 +390,14 @@ class GeminiHookAdapterTest {
             assertEquals(event.equals("SessionStart"), command.contains("--on-failure=guidance-system-message"), command);
             assertFalse(command.contains("--wake"), command);
         }
-        JsonNode nativeResult = hooks.path("AfterTool").get(1);
-        assertEquals("^invoke_agent$", nativeResult.path("matcher").asString());
-        assertEquals("\"C:/Program Files/Java/bin/java.exe\" -cp client.jar HookClientMain hook gemini AfterTool --on-failure=deny-result",
-                nativeResult.path("hooks").get(0).path("command").asString());
+        for (String event : EVENTS) {
+            assertEquals(1, hooks.path(event).size(), "one entry per event: a subagent's result (invoke_agent) has none of its own: " + event);
+        }
 
         JsonNode windows = hooksOf(new HookInstallation(program, relay, HookInstallation.Platform.WINDOWS));
         for (String event : EVENTS) {
             assertEquals(hooks.path(event).get(0), windows.path(event).get(0), event);
         }
-        JsonNode windowsResult = windows.path("AfterTool").get(1);
-        assertEquals(nativeResult.path("matcher"), windowsResult.path("matcher"));
-        String command = windowsResult.path("hooks").get(0).path("command").asString();
-        Base64.Encoder base64 = Base64.getEncoder();
-        String arguments = "\"-cp\" \"client.jar\" \"HookClientMain\" \"hook\" \"gemini\" \"AfterTool\" \"--on-failure=deny-result\"";
-        assertTrue(command.contains("[Diagnostics.Process]::Start($start)"), command);
-        assertTrue(command.contains(base64.encodeToString(program.getFirst().getBytes(StandardCharsets.UTF_8))), command);
-        assertTrue(command.contains(base64.encodeToString(arguments.getBytes(StandardCharsets.UTF_8))), command);
     }
 
     @Test

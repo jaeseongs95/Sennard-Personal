@@ -35,9 +35,12 @@ import org.junit.jupiter.api.io.TempDir;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.springframework.aop.framework.Advised;
 import io.github.jaeseongs95.sennard.app.messaging.WakeReservation;
+import io.github.jaeseongs95.sennard.app.board.BoardService;
 import io.github.jaeseongs95.sennard.app.messaging.WakeReservation.State;
 import io.github.jaeseongs95.sennard.app.messaging.WakeReservationRepository;
 import io.github.jaeseongs95.sennard.app.messaging.WakeReservationService;
+import io.github.jaeseongs95.sennard.domain.error.BindingCode;
+import io.github.jaeseongs95.sennard.domain.error.BindingException;
 import io.github.jaeseongs95.sennard.domain.messaging.ClaimReceipt;
 import io.github.jaeseongs95.sennard.domain.messaging.PeerAddress;
 import io.github.jaeseongs95.sennard.hookclient.HookHeaders;
@@ -45,6 +48,7 @@ import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
 import io.github.jaeseongs95.sennard.personal.wake.NativeWakeWorker;
 import io.github.jaeseongs95.sennard.server.hook.HostContext;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
+import io.github.jaeseongs95.sennard.server.messaging.WakeWaiters.MessageQueued;
 import io.github.jaeseongs95.sennard.server.hook.host.ClaudeHost;
 import io.github.jaeseongs95.sennard.server.hook.host.CodexHost;
 import io.github.jaeseongs95.sennard.server.messaging.IdleWakeService;
@@ -77,7 +81,38 @@ class NativeWakeReservationServerTest {
     private WakeReservationService service() { return server.bean(WakeReservationService.class); }
 
     @Test
-    void managedWakeIsOfferedAndConsumedOnlyByTheBoundChild() throws Exception {
+    void aTitleReportCanUpdateOnlyTheCurrentWorkerSession() throws Exception {
+        String key = UUID.randomUUID().toString();
+        var board = server.bean(BoardService.class);
+        String session;
+        try (var owned = ownedTarget(key); var other = ownedTarget()) {
+            session = owned.target().session();
+            var mapper = JsonMapper.builder().build();
+            long observed = java.time.Instant.now().toEpochMilli();
+            byte[] first = mapper.writeValueAsBytes(Map.of("title", "Draft α", "observedAtMillis", observed));
+            assertEquals(410, reportTitle(UUID.randomUUID().toString(), first).status());
+            assertNull(board.readEntry("codex", session).orElseThrow().userTitle());
+            assertEquals(204, reportTitle(key, first).status());
+            assertEquals("Draft α", board.readEntry("codex", session).orElseThrow().userTitle());
+            assertNull(board.readEntry("codex", other.target().session()).orElseThrow().userTitle());
+            byte[] renamed = mapper.writeValueAsBytes(Map.of("title", "<b>Review β</b>", "observedAtMillis", observed + 1));
+            assertEquals(204, reportTitle(key, renamed).status());
+            assertEquals(204, reportTitle(key, first).status());
+            assertEquals("<b>Review β</b>", board.readEntry("codex", session).orElseThrow().userTitle());
+            assertEquals(400, reportTitle(key, mapper.writeValueAsBytes(Map.of("title", "", "observedAtMillis", observed + 2))).status());
+        }
+        byte[] late = JsonMapper.builder().build().writeValueAsBytes(Map.of("title", "Expired", "observedAtMillis", java.time.Instant.now().toEpochMilli()));
+        assertEquals(410, reportTitle(key, late).status());
+        assertEquals("<b>Review β</b>", board.readEntry("codex", session).orElseThrow().userTitle());
+    }
+
+    private static RawHttp.Response reportTitle(String key, byte[] body) throws Exception {
+        return RawHttp.exchange(server.port, "POST", "/hooks/v1/native-wake/session-title",
+                Map.of(NativeWakeProtocol.KEY, key, "Content-Type", "application/json", "Content-Length", Integer.toString(body.length)), body);
+    }
+
+    @Test
+    void codexManagedChildrenStartWithoutReceivingPeerWake() throws Exception {
         String key = UUID.randomUUID().toString();
         try (var owned = ownedTarget(key); var executor = Executors.newVirtualThreadPerTaskExecutor();
                 var client = DomainServerSupport.client(server.port, "codex")) {
@@ -110,33 +145,13 @@ class NativeWakeReservationServerTest {
             completeManagedLaunch(key, executor.submit(() -> managedPoll(key)),
                     siblingLaunch, sibling);
 
-            Target sender = target();
-            var messages = server.bean(SessionMessageService.class);
-            var prepared = messages.prepare(PeerAddress.session(sender.ref()), "codex", root.session(), child, "exact work for " + child, null,
-                    OperationKeys.operation("prepare_session_message", sender.ref()));
-            messages.send(sender.ref(), "codex", prepared.messageId(), OperationKeys.operation("send_session_message", sender.ref()));
-            var offer = managedPoll(key);
-            assertEquals(200, offer.status(), offer.text());
-            String marker = offer.text();
-            assertTrue(NativeWakeProtocol.validMarker(marker));
-            assertEquals(child, offer.headers().get(NativeWakeProtocol.CHILD_ID.toLowerCase(Locale.ROOT)));
-            assertEquals(409, completeManagedWake(key, marker, sibling).status());
-            assertFalse(submitManagedMarker(root.session(), marker).contains(prepared.messageId()));
-            assertFalse(submitManagedMarker(sibling, marker).contains(prepared.messageId()));
-            assertTrue(submitManagedMarker(child, marker).contains(prepared.messageId()));
-            assertFalse(submitManagedMarker(child, marker).contains(prepared.messageId()));
-            assertEquals(204, completeManagedWake(key, marker, child).status());
-            assertEquals(409, completeManagedWake(key, marker, child).status());
-
+            assertManagedConversationDoesNotReceivePeer("codex", root.session(), child);
             var registry = server.bean(SessionRegistry.class);
             String childRef = registry.findRef("codex", child).orElseThrow();
-            assertEquals(State.OBSERVED, service().status(childRef).orElseThrow().state());
+            assertTrue(service().status(childRef).isEmpty());
             assertTrue(service().status(root.ref()).isEmpty());
             assertTrue(service().status(registry.findRef("codex", sibling).orElseThrow()).isEmpty());
             assertTrue(service().reserve(childRef, root.generation() + 1, UUID.randomUUID().toString()).isEmpty());
-            assertEquals(1, SessionServerSupport.count(server,
-                    "SELECT count(*) FROM sennard.messages WHERE message_id = ? AND target_actor_id = ? AND delivery_attempts = 1 AND acknowledged_at IS NULL",
-                    prepared.messageId(), child));
             assertEquals(0, SessionServerSupport.count(server, "SELECT count(*) FROM sennard.user_prompt WHERE session_id IN (?, ?, ?)", root.session(), child, sibling));
         }
     }
@@ -212,17 +227,6 @@ class NativeWakeReservationServerTest {
         assertTrue(result.path("ok").asBoolean(), result.toString());
         assertEquals("CREATED", result.path("data").path("result").asString());
         assertEquals(child, result.path("data").path("childId").asString());
-    }
-
-    private RawHttp.Response completeManagedWake(String key, String marker, String child) throws Exception {
-        return RawHttp.exchange(server.port, "POST", NativeWakeProtocol.COMPLETE + "/SUBMITTED",
-                Map.of(NativeWakeProtocol.KEY, key, NativeWakeProtocol.MARKER, marker, NativeWakeProtocol.CHILD_ID, child), null);
-    }
-
-    private String submitManagedMarker(String session, String marker) throws Exception {
-        var response = DomainServerSupport.hook(server.port, "windows", "codex", "UserPromptSubmit", null, session, body -> body.put("prompt", marker));
-        assertEquals(200, response.status(), response.text());
-        return response.text();
     }
 
     @Test
@@ -330,6 +334,7 @@ class NativeWakeReservationServerTest {
             assertNull(acceptedKey(agyWakeHook(owner, "SessionStart", child, key)));
             assertEquals(410, RawHttp.exchange(server.port, "POST", NativeWakeProtocol.POLL, Map.of(NativeWakeProtocol.KEY, key), null).status());
 
+            DomainServerSupport.observeAgyRoot(server, root);
             DomainServerSupport.observeAgy(server, child, root, root);
             assertNull(acceptedKey(agyWakeHook(owner, "SessionStart", child, key)));
             assertNull(acceptedKey(agyWakeHook(owner, "Stop", child, key)));
@@ -376,7 +381,7 @@ class NativeWakeReservationServerTest {
     }
 
     @Test
-    void antigravityManagedWakeConsumesTheMarkerOnItsFirstInvocationOnly() throws Exception {
+    void antigravityManagedChildrenStartWithoutReceivingPeerWake() throws Exception {
         Process owner = ownerProcess();
         try (var executor = Executors.newVirtualThreadPerTaskExecutor(); var client = DomainServerSupport.client(server.port, "agy")) {
             String root = SessionServerSupport.uniqueSession();
@@ -397,21 +402,7 @@ class NativeWakeReservationServerTest {
             launchAgyChild(client, executor, executor.submit(() -> managedPoll(key)), key, root, sibling);
             assertNull(acceptedKey(agyWakeHook(owner, "SessionStart", child, UUID.randomUUID().toString())));
 
-            Target sender = target();
-            SessionMessageService messages = server.bean(SessionMessageService.class);
-            var prepared = messages.prepare(PeerAddress.session(sender.ref()), "antigravity", root, child, "exact Antigravity peer body", null,
-                    OperationKeys.operation("prepare_session_message", sender.ref()));
-            messages.send(sender.ref(), "codex", prepared.messageId(), OperationKeys.operation("send_session_message", sender.ref()));
-            var offer = managedPoll(key);
-            assertEquals(200, offer.status(), offer.text());
-            String marker = offer.text();
-            assertTrue(NativeWakeProtocol.validMarker(marker));
-            assertEquals(child, offer.headers().get(NativeWakeProtocol.CHILD_ID.toLowerCase(Locale.ROOT)));
-            assertFalse(submitAgyMarker(root, marker).contains(prepared.messageId()));
-            assertFalse(submitAgyMarker(sibling, marker).contains(prepared.messageId()));
-            assertTrue(submitAgyMarker(child, marker).contains(prepared.messageId()));
-            assertFalse(submitAgyMarker(child, marker).contains(prepared.messageId()));
-            assertEquals(204, completeManagedWake(key, marker, child).status());
+            assertManagedConversationDoesNotReceivePeer("antigravity", root, child);
             assertEquals(0, SessionServerSupport.count(server, "SELECT count(*) FROM sennard.user_prompt WHERE session_id IN (?, ?, ?)", root, child, sibling));
         } finally {
             reap(owner);
@@ -432,15 +423,19 @@ class NativeWakeReservationServerTest {
         completeManagedLaunch(key, poll, launch, child);
     }
 
-    private String submitAgyMarker(String session, String marker) throws IOException {
-        var response = DomainServerSupport.hook(server.port, "windows", "agy", "PreInvocation", null, session,
-                body -> body.put("invocationNum", 0).put("lastUserInput", marker));
-        assertEquals(200, response.status(), response.text());
-        return response.text();
+    private void assertManagedConversationDoesNotReceivePeer(String host, String root, String child) throws Exception {
+        Target sender = target();
+        var messages = server.bean(SessionMessageService.class);
+        var refused = assertThrows(BindingException.class, () -> messages.prepare(PeerAddress.session(sender.ref()), host, root, child,
+                "legacy child address", null, OperationKeys.operation("prepare_session_message", sender.ref())));
+        assertEquals(BindingCode.PEER_MAIN_SESSION_REQUIRED, refused.code());
+        server.bean(IdleWakeService.class).on(new MessageQueued(host, root, child));
+        String childRef = server.bean(SessionRegistry.class).findRef(host, child).orElseThrow();
+        assertTrue(service().status(childRef).isEmpty());
     }
 
     @Test
-    void antigravityRemovesWakeReadinessAfterAnObservedChildTransition() throws Exception {
+    void antigravityRefusesToMoveAnObservedRootUnderAnotherRoot() throws Exception {
         Process owner = ownerProcess();
         try {
             String conversation = SessionServerSupport.uniqueSession();
@@ -454,9 +449,11 @@ class NativeWakeReservationServerTest {
             IdleWakeService wake = server.bean(IdleWakeService.class);
             assertTrue(wake.outlook("antigravity", conversation).isPresent());
 
-            DomainServerSupport.observeAgy(server, conversation, parent, parent);
+            DomainServerSupport.observeAgyRoot(server, parent);
+            var response = DomainServerSupport.agyObservation(server, conversation, parent, parent);
 
-            assertTrue(wake.outlook("antigravity", conversation).isEmpty());
+            assertEquals("BINDING_REQUIRED", response.path("error").path("code").asString());
+            assertTrue(wake.outlook("antigravity", conversation).isPresent());
         } finally {
             reap(owner);
         }
@@ -550,7 +547,7 @@ class NativeWakeReservationServerTest {
             input.write(SessionServerSupport.hook("windows", host, event, session, "none"));
         }
         assertEquals(0, NativeWakeWorker.run(new String[]{NativeWakeProtocol.COMMAND, host, event},
-                new ByteArrayInputStream(bytes.toByteArray()), environment));
+                new ByteArrayInputStream(bytes.toByteArray()), environment, Clock.systemUTC()));
     }
 
     @Test

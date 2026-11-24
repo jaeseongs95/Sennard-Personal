@@ -32,7 +32,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import io.github.jaeseongs95.sennard.personal.ReleasedFolder;
-import io.github.jaeseongs95.sennard.personal.RunEnvironment;
+import io.github.jaeseongs95.sennard.server.execution.StreamOutput;
+import io.github.jaeseongs95.sennard.server.skills.SkillRunEnvironment;
 import io.github.jaeseongs95.sennard.server.skills.SkillCheckService;
 import io.github.jaeseongs95.sennard.server.skills.SkillCheckService.Outcome;
 
@@ -53,9 +54,10 @@ import tools.jackson.databind.node.ObjectNode;
  * g  an empty argv, an empty item, a NUL, 129 items, an item of 8193 characters are refused and nothing runs
  * i  a command that changes, or deletes, a file of the snapshot is INPUT_CHANGED whatever its exit code was
  * j  (in ToolRulesServerTest) run_skill_check answers with a job and the job holds the receipt
- * k  output past the runner's bound of a program that ended by itself (a check interval of an hour, so no look came first) is SPAWN_ERROR with exit code 0 and the kept start;
+ * k  output past what the runner keeps in memory of a program that ended by itself is SPAWN_ERROR with its exit code and the kept start;
  *    a program that cannot be started is SPAWN_ERROR; a blank environment-note is refused
- * l  a command that writes without end (stdout, then stderr) is stopped at the bound while it runs, not at its limit: SPAWN_ERROR with the first mebibyte, its process gone
+ * l  a command that writes without end (stdout, then stderr) is not stopped for its output: it is killed at its limit (TIMED_OUT) with the kept start of the stream, its process gone;
+ *    the whole of what a run wrote is in the log files of the state directory
  * m  a command that ends on its own and left a process it started running: that process is killed before run answers
  * n  the child's environment: no server variable outside the allow list; a variable the caller names is there; the default environmentNote names the caller's variables, not values;
  *    refused: an env that is not an object of strings, too many variables, a bad name or value (more in the cases below)
@@ -126,6 +128,8 @@ class EngineeringRunTest {
                 }
             }
             """;
+    /** What the runner keeps of one stream in memory: its first and its last bytes. */
+    private static final int MEMORY = StreamOutput.HEAD_BYTES + StreamOutput.TAIL_BYTES;
     private static final String LOUD = """
             public class Loud {
                 public static void main(String[] args) {
@@ -197,11 +201,11 @@ class EngineeringRunTest {
                 }
             }
             """;
-    /** Writes one mebibyte plus the number of bytes its second argument names to stdout (first argument "out") or stderr ("err"), flushes, stays a second and a half, and ends with 0. */
+    /** Writes what the runner keeps of a stream in memory plus the number of bytes its second argument names to stdout (first argument "out") or stderr ("err"), flushes, stays a second and a half, and ends with 0. */
     private static final String EXACT = """
             public class Exact {
                 public static void main(String[] args) throws Exception {
-                    int count = 1024 * 1024 + Integer.parseInt(args[1]);
+                    int count = @MEMORY@ + Integer.parseInt(args[1]);
                     byte[] bytes = new byte[count];
                     java.util.Arrays.fill(bytes, (byte) 'x');
                     java.io.PrintStream target = "err".equals(args[0]) ? System.err : System.out;
@@ -210,7 +214,7 @@ class EngineeringRunTest {
                     Thread.sleep(1_500);
                 }
             }
-            """;
+            """.replace("@MEMORY@", Integer.toString(MEMORY));
     private static final String CWD = """
             public class Cwd {
                 public static void main(String[] args) {
@@ -339,18 +343,31 @@ class EngineeringRunTest {
         assertEquals(java("Hello.java", "one", "two"), TestJson.strings(receipt.get("argv")));
         assertEquals(JAVA, receipt.get("executable").stringValue());
         assertEquals(30000, receipt.get("timeoutMs").intValue(), "the default limit");
-        assertEquals("Child environment: emptied, then the server's variables " + String.join(", ", RunEnvironment.INHERITED_NAMES)
+        assertEquals("Child environment: emptied, then the server's variables " + String.join(", ", SkillRunEnvironment.INHERITED_NAMES)
                 + " when the server has them, then the variables set by the caller (names only; values are not recorded): none. Undeclared environmental inputs are not captured.",
                 receipt.get("environmentNote").stringValue());
         assertEquals(before.get("digest"), receipt.get("snapshot").get("digest"));
         assertEquals(before.get("digest"), receipt.get("afterDigest"));
         assertEquals(before, receipt.get("snapshot"));
-        assertNoOutputFiles();
+        assertTrue(someLogHolds("stdout.log", "hello one,two stdin=-1"), "the whole stdout of the run is in its log file in the state directory");
+        assertTrue(someLogHolds("stderr.log", "note on stderr"), "so is its stderr, in a file of its own");
     }
 
-    /** The output of a run is read from the pipes of its command and is not written to disk: the runner makes no folder for it under the state directory. */
-    private static void assertNoOutputFiles() {
-        assertFalse(Files.exists(state.resolve("runs")), "the output of a run is not written to the state directory");
+    /** Whether the log file {@code name} of some execution in this class's state directory holds {@code text}. */
+    private static boolean someLogHolds(String name, String text) throws IOException {
+        Path logs = state.resolve("executions");
+        if (!Files.isDirectory(logs)) {
+            return false;
+        }
+        try (java.util.stream.Stream<Path> folders = Files.list(logs)) {
+            for (Path folder : folders.toList()) {
+                Path file = folder.resolve(name);
+                if (Files.isRegularFile(file) && Files.readString(file).contains(text)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Test
@@ -525,21 +542,17 @@ class EngineeringRunTest {
     }
 
     @Test
-    void outputPastTheBoundOfAProgramThatEndedByItselfIsSpawnErrorWithItsExitCodeAndTheKeptStart(@TempDir Path state, @TempDir Path root) throws IOException {
-        // The runner looks at the output size every sennard.run.output-check-interval; with an hour the program (1.5 MB, then the end) is over long before the first look, so what
-        // is judged here is only a program that ended by itself. The program that is killed while it runs is the case of aCommandThatWritesWithoutEnd... (exitCode null).
-        try (AnnotationConfigApplicationContext own = SkillCheckContext.open(state, java.util.Map.of("sennard.run.output-check-interval", "1h"))) {
-            SkillCheckService slowLooks = own.getBean(SkillCheckService.class);
-            source(root, "Loud.java", LOUD);
-            ObjectNode before = (ObjectNode) value(slowLooks.run("test-engineering", "snapshot", TestJson.object("root", root.toString(), "files", TestJson.array(List.of("Loud.java"))))).deepCopy();
-            Outcome loud = slowLooks.run("test-engineering", "run", TestJson.object("root", root.toString(), "snapshot", before, "timeout-ms", 60000, "argv", TestJson.array(java("Loud.java"))));
-            JsonNode receipt = value(loud);
-            assertSealed(receipt);
-            assertEquals("SPAWN_ERROR", receipt.get("status").stringValue());
-            assertEquals(1, loud.exitCode());
-            assertEquals(0, receipt.get("exitCode").intValue(), "the program ended by itself, and the exit code it ended with is recorded");
-            assertEquals(1024 * 1024, receipt.get("stdout").stringValue().length(), "the first mebibyte is kept");
-        }
+    void outputPastWhatTheRunnerKeepsOfAProgramThatEndedByItselfIsSpawnErrorWithItsExitCodeAndTheKeptStart(@TempDir Path root) throws IOException {
+        source(root, "Loud.java", LOUD);
+        ObjectNode before = snapshot(root, "Loud.java");
+        Outcome loud = run("root", root.toString(), "snapshot", before, "timeout-ms", 60000, "argv", TestJson.array(java("Loud.java")));
+        JsonNode receipt = value(loud);
+        assertSealed(receipt);
+        assertEquals("SPAWN_ERROR", receipt.get("status").stringValue());
+        assertEquals(1, loud.exitCode());
+        assertEquals(0, receipt.get("exitCode").intValue(), "the program ended by itself, and the exit code it ended with is recorded");
+        assertEquals(StreamOutput.HEAD_BYTES, receipt.get("stdout").stringValue().length(), "the first bytes are kept");
+        assertTrue(someLogHolds("stdout.log", "x".repeat(1_500_000)), "the whole of what it wrote is in the log file");
     }
 
     @Test
@@ -557,46 +570,44 @@ class EngineeringRunTest {
     // ------------------------------------------------------------------------------------------------------------------------- l: the output bound while it runs
 
     @Test
-    void aCommandThatWritesWithoutEndIsStoppedAtTheBoundAndItsProcessIsKilled(@TempDir Path root) throws Exception {
+    void aCommandThatWritesWithoutEndIsNotStoppedForItsOutputAndIsKilledAtItsLimit(@TempDir Path root) throws Exception {
         source(root, "Flood.java", FLOOD);
         ObjectNode before = snapshot(root, "Flood.java");
         for (boolean toStderr : new boolean[] {false, true}) {
             Files.deleteIfExists(root.resolve("flood.pid"));
-            Outcome outcome = toStderr ? runJava(root, before, 20000, "Flood.java", "stderr") : runJava(root, before, 20000, "Flood.java");
+            Outcome outcome = toStderr ? runJava(root, before, 5000, "Flood.java", "stderr") : runJava(root, before, 5000, "Flood.java");
 
             JsonNode receipt = value(outcome);
             assertSealed(receipt);
-            // A command stopped at its limit would be TIMED_OUT; SPAWN_ERROR with no exit code is the stop at the output bound.
-            assertEquals("SPAWN_ERROR", receipt.get("status").stringValue(), () -> "stderr " + toStderr + ": " + receipt.get("status"));
+            // The runner does not stop a command for what it writes: it ran until its limit and was killed there.
+            assertEquals("TIMED_OUT", receipt.get("status").stringValue(), () -> "stderr " + toStderr + ": " + receipt.get("status"));
             assertEquals(1, outcome.exitCode());
             assertTrue(receipt.get("exitCode").isNull(), "it did not end by itself");
-            assertEquals(1024 * 1024, receipt.get(toStderr ? "stderr" : "stdout").stringValue().length(), "the first mebibyte of the stream it flooded is kept");
+            assertEquals(StreamOutput.HEAD_BYTES, receipt.get(toStderr ? "stderr" : "stdout").stringValue().length(), "the first bytes of the stream it flooded are kept");
             assertEquals("", receipt.get(toStderr ? "stdout" : "stderr").stringValue());
             long pid = Long.parseLong(Files.readString(root.resolve("flood.pid")));
             assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false), "the flooding process is gone when run answers");
-            assertNoOutputFiles();
         }
         ReleasedFolder.await(root);
     }
 
     @Test
-    void aProcessTheCommandStartedThatWritesWithoutEndIsStoppedAtTheBoundAndKilledWithTheCommand(@TempDir Path root) throws Exception {
+    void aProcessTheCommandStartedThatWritesWithoutEndIsKilledWithTheCommandAtItsLimit(@TempDir Path root) throws Exception {
         source(root, "FloodParent.java", FLOOD_PARENT);
         source(root, "Flood.java", FLOOD);
         ObjectNode before = snapshot(root, "FloodParent.java", "Flood.java");
-        Outcome outcome = runJava(root, before, 60000, "FloodParent.java");
+        Outcome outcome = runJava(root, before, 5000, "FloodParent.java");
 
         JsonNode receipt = value(outcome);
         assertSealed(receipt);
-        // The command itself writes nothing: what crosses the bound is written by the process it started, into the files of the command's output.
-        assertEquals("SPAWN_ERROR", receipt.get("status").stringValue(), () -> receipt.get("status").toString());
+        // The command itself writes nothing: what is written is by the process it started, into the pipes of the command's output; the command is killed at its limit with it.
+        assertEquals("TIMED_OUT", receipt.get("status").stringValue(), () -> receipt.get("status").toString());
         assertTrue(receipt.get("exitCode").isNull(), "it did not end by itself");
-        assertEquals(1024 * 1024, receipt.get("stdout").stringValue().length(), "the first mebibyte is kept");
+        assertEquals(StreamOutput.HEAD_BYTES, receipt.get("stdout").stringValue().length(), "the first bytes are kept");
         long parent = Long.parseLong(Files.readString(root.resolve("parent.pid")));
         long flooder = Long.parseLong(Files.readString(root.resolve("flood.pid")));
         assertFalse(ProcessHandle.of(parent).map(ProcessHandle::isAlive).orElse(false), "the command is gone when run answers");
-        assertFalse(ProcessHandle.of(flooder).map(ProcessHandle::isAlive).orElse(false), "the process that wrote past the bound is gone when run answers");
-        assertNoOutputFiles();
+        assertFalse(ProcessHandle.of(flooder).map(ProcessHandle::isAlive).orElse(false), "the process that wrote without end is gone when run answers");
         ReleasedFolder.await(root);
     }
 
@@ -630,7 +641,7 @@ class EngineeringRunTest {
     void theChildSeesNoVariableOfTheServerThatIsNotOnTheAllowList(@TempDir Path root) throws IOException {
         source(root, "EnvNames.java", ENV_NAMES);
         ObjectNode before = snapshot(root, "EnvNames.java");
-        Set<String> listed = RunEnvironment.INHERITED_NAMES.stream().map(name -> name.toUpperCase(Locale.ROOT)).collect(Collectors.toSet());
+        Set<String> listed = SkillRunEnvironment.INHERITED_NAMES.stream().map(name -> name.toUpperCase(Locale.ROOT)).collect(Collectors.toSet());
         Set<String> serverOnly = System.getenv().keySet().stream().filter(name -> !listed.contains(name.toUpperCase(Locale.ROOT))).collect(Collectors.toCollection(TreeSet::new));
         assertFalse(serverOnly.isEmpty(), "the test JVM's own environment has variables beyond the list, or this case proves nothing");
 
@@ -769,37 +780,32 @@ class EngineeringRunTest {
     // ------------------------------------------------------------------------------------------------------------------------------ r: the bound of the output
 
     @Test
-    void exactlyOneMebibyteOnEachStreamIsKeptWhole(@TempDir Path root) throws IOException {
+    void exactlyWhatTheRunnerKeepsInMemoryOnEachStreamIsKeptWhole(@TempDir Path root) throws IOException {
         source(root, "Exact.java", EXACT);
         ObjectNode before = snapshot(root, "Exact.java");
         for (String stream : List.of("out", "err")) {
-            // The program stays alive after it wrote, so a look at the size finds exactly the bound while it runs: it must not be killed for it.
+            // The program stays alive after it wrote: what it wrote is judged while it runs and at its end.
             JsonNode receipt = value(runJava(root, before, 60000, "Exact.java", stream, "0"));
             assertSealed(receipt);
             assertEquals("PASS", receipt.get("status").stringValue(), () -> stream + ": " + receipt.get("status"));
             assertEquals(0, receipt.get("exitCode").intValue());
             String kept = receipt.get("out".equals(stream) ? "stdout" : "stderr").stringValue();
-            assertEquals(1024 * 1024, kept.length(), "the whole mebibyte is kept");
+            assertEquals(MEMORY, kept.length(), "all of it is kept");
             assertEquals("", receipt.get("out".equals(stream) ? "stderr" : "stdout").stringValue());
         }
     }
 
     @Test
-    void oneByteOverTheBoundOnEitherStreamIsSpawnErrorWithTheFirstMebibyteKept(@TempDir Path state, @TempDir Path root) throws IOException {
-        // An hour between looks: the program has ended before the first one, so the receipt is of a program that ended by itself (exit code 0), and what is judged is the bound.
-        try (AnnotationConfigApplicationContext own = SkillCheckContext.open(state, java.util.Map.of("sennard.run.output-check-interval", "1h"))) {
-            SkillCheckService slowLooks = own.getBean(SkillCheckService.class);
-            source(root, "Exact.java", EXACT);
-            ObjectNode before = (ObjectNode) value(slowLooks.run("test-engineering", "snapshot", TestJson.object("root", root.toString(), "files", TestJson.array(List.of("Exact.java"))))).deepCopy();
-            for (String stream : List.of("out", "err")) {
-                Outcome outcome = slowLooks.run("test-engineering", "run", TestJson.object("root", root.toString(), "snapshot", before, "timeout-ms", 60000, "argv",
-                        TestJson.array(java("Exact.java", stream, "1"))));
-                JsonNode receipt = value(outcome);
-                assertSealed(receipt);
-                assertEquals("SPAWN_ERROR", receipt.get("status").stringValue(), () -> stream + ": " + receipt.get("status"));
-                assertEquals(0, receipt.get("exitCode").intValue());
-                assertEquals(1024 * 1024, receipt.get("out".equals(stream) ? "stdout" : "stderr").stringValue().length(), "the first mebibyte is kept");
-            }
+    void oneByteOverWhatTheRunnerKeepsInMemoryOnEitherStreamIsSpawnErrorWithTheStartKept(@TempDir Path root) throws IOException {
+        source(root, "Exact.java", EXACT);
+        ObjectNode before = snapshot(root, "Exact.java");
+        for (String stream : List.of("out", "err")) {
+            Outcome outcome = runJava(root, before, 60000, "Exact.java", stream, "1");
+            JsonNode receipt = value(outcome);
+            assertSealed(receipt);
+            assertEquals("SPAWN_ERROR", receipt.get("status").stringValue(), () -> stream + ": " + receipt.get("status"));
+            assertEquals(0, receipt.get("exitCode").intValue());
+            assertEquals(StreamOutput.HEAD_BYTES, receipt.get("out".equals(stream) ? "stdout" : "stderr").stringValue().length(), "the first bytes are kept");
         }
     }
 
@@ -832,7 +838,6 @@ class EngineeringRunTest {
         assertTrue(receipt.get("exitCode").isNull(), "the command was killed, it did not end by itself");
         assertEquals(receipt.get("snapshot").get("digest"), receipt.get("afterDigest"));
         assertTrue(interruptKept.get(), "the caller's interrupt is still set when run answers");
-        assertNoOutputFiles();
         ReleasedFolder.await(root);
     }
 }

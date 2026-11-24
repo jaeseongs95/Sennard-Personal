@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.IntConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 import org.springframework.stereotype.Service;
@@ -147,7 +148,14 @@ public class MessagingService {
 
     @Transactional
     public <A> Receipted<A> send(PeerAddress sender, @NotBlank String senderHost, String messageId, OperationKey operation, Class<A> answerType, Function<Sent, A> answer) {
-        return receipts.once(peerOperation(sender, operation), answerType, () -> answer.apply(send(sender, senderHost, messageId)));
+        return send(sender, senderHost, messageId, operation, answerType, answer, ignored -> { });
+    }
+
+    /** Checks the immutable target of an unsent draft before enqueuing it, in the same transaction. */
+    @Transactional
+    public <A> Receipted<A> send(PeerAddress sender, @NotBlank String senderHost, String messageId, OperationKey operation, Class<A> answerType, Function<Sent, A> answer,
+            Consumer<PeerAddress> requireTarget) {
+        return receipts.once(peerOperation(sender, operation), answerType, () -> answer.apply(send(sender, senderHost, messageId, requireTarget)));
     }
 
     @Transactional
@@ -228,14 +236,17 @@ public class MessagingService {
      * The send of a prepared message: ID ownership, capacity, the place in the queue and the first receipt, as one transaction. A message that was sent is answered again
      * with its first receipt ({@code duplicate}); a message ID that is not this sender's, never issued or already gone is {@link NotFoundCode#MESSAGE_ID_UNAVAILABLE}.
      */
-    private Sent send(PeerAddress sender, String senderHost, String messageId) {
+    private Sent send(PeerAddress sender, String senderHost, String messageId, Consumer<PeerAddress> requireTarget) {
         MessageRules.messageId(messageId);
         Instant now = now();
         reclaimExpired(now);
         PreparedMessage draft = findDraft(sender, messageId, now);
         return switch (draft.state()) {
             case SUBMITTED, RECALLED -> firstReceipt(draft);
-            case PREPARED -> enqueue(draft, senderHost, now);
+            case PREPARED -> {
+                requireTarget.accept(draft.target());
+                yield enqueue(draft, senderHost, now);
+            }
             case QUEUED, DELIVERED, ACKNOWLEDGED -> throw new IntegrityException(IntegrityCode.VALUE_NOT_ALLOWED, SennardException.args("state", draft.state().name()));
         };
     }
@@ -419,14 +430,14 @@ public class MessagingService {
 
     // ------------------------------------------------------------------------------------------------------------------- claim
 
-    private List<ClaimedMessage> take(PeerAddress target, ClaimLimits limits, Instant now) {
+    private List<ClaimedMessage> take(String targetRef, ClaimLimits limits, Instant now) {
         MessageRules.ClaimBudget budget = MessageRules.claimBudget(limits, properties.claimMaxMessages(), properties.claimAnswerMaxBytes());
-        if (!sessions.existsBySessionRef(target.sessionRef())) {
+        if (!sessions.existsBySessionRef(targetRef)) {
             return List.of();
         }
         List<ClaimedMessage> claimed = new ArrayList<>();
         long bodyChars = 0;
-        for (Message row : queue.findClaimable(target.sessionRef(), target.actorId(), now, budget.maxMessages())) {
+        for (Message row : queue.findClaimable(targetRef, now, budget.maxMessages())) {
             long previous = row.deliveryAttempts();
             String receipt = MessageRules.claimReceipt(previous + 1, ids.generateId());
             Instant firstDeliveredAt = row.firstDeliveredAt() != null ? row.firstDeliveredAt() : now;
@@ -443,7 +454,7 @@ public class MessagingService {
             Instant leaseUntil = now.plus(MessageRules.claimLease(previous, properties.claimLeaseBase(), properties.claimLeaseMax()));
             // The statement's changed rows are the verdict: 0 rows means another claimer took this message (or it was acknowledged) since it was read, so it is theirs and this
             // claimer goes on without it. Nothing is done again for it; the receipt made above is dropped with it.
-            if (queue.claim(row.messageId(), target.sessionRef(), target.actorId(), previous, now, leaseUntil, firstDeliveredAt, receipt) == 1) {
+            if (queue.claim(row.messageId(), targetRef, previous, now, leaseUntil, firstDeliveredAt, receipt) == 1) {
                 claimed.add(message);
                 bodyChars += message.body().length();
             }
@@ -474,17 +485,9 @@ public class MessagingService {
     public List<ClaimedMessage> claim(@NotBlank String targetRef, ClaimLimits limits, Generation generation) {
         Instant now = now();
         pruneAcknowledged(now);
-        List<ClaimedMessage> claimed = take(PeerAddress.session(targetRef), limits, now);
+        List<ClaimedMessage> claimed = take(targetRef, limits, now);
         markClaimBoundary(targetRef, now, generation);
         return claimed;
-    }
-
-    /** The addressed peer claim shares the queue transaction without touching session-wide native input and wake state. */
-    @Transactional
-    public List<ClaimedMessage> claim(PeerAddress target, ClaimLimits limits) {
-        Instant now = now();
-        pruneAcknowledged(now);
-        return take(target, limits, now);
     }
 
     /** The claim at a tool boundary: the first one after a native input is skipped once (see {@link #observeNativeInput}). */
@@ -495,7 +498,7 @@ public class MessagingService {
         if (settleDeferred(targetRef)) {
             return List.of();
         }
-        List<ClaimedMessage> claimed = take(PeerAddress.session(targetRef), limits, now);
+        List<ClaimedMessage> claimed = take(targetRef, limits, now);
         markClaimBoundary(targetRef, now, generation);
         return claimed;
     }
@@ -506,7 +509,7 @@ public class MessagingService {
         Instant now = now();
         pruneAcknowledged(now);
         observations.settle(targetRef);
-        List<ClaimedMessage> claimed = take(PeerAddress.session(targetRef), limits, now);
+        List<ClaimedMessage> claimed = take(targetRef, limits, now);
         markClaimBoundary(targetRef, now, generation);
         return claimed;
     }
@@ -518,7 +521,7 @@ public class MessagingService {
         pruneAcknowledged(now);
         // Take the observation row before messages, as the tool and turn-end claims do.
         recordWakeInput(targetRef, now);
-        List<ClaimedMessage> claimed = take(PeerAddress.session(targetRef), limits, now);
+        List<ClaimedMessage> claimed = take(targetRef, limits, now);
         markClaimBoundary(targetRef, now, generation);
         return claimed;
     }

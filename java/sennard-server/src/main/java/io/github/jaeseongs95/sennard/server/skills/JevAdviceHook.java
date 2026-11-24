@@ -51,7 +51,8 @@ public class JevAdviceHook implements HookDomain {
             return PROCEED;
         }
         return switch (call.event()) {
-            case HostEvent.UserPromptSubmitted submitted -> {
+            // The advice judges the user's request; a prompt the host wrote itself is not one.
+            case HostEvent.UserPromptSubmitted submitted when submitted.origin() == HostEvent.PromptOrigin.USER -> {
                 roots.of(submitted.context()).ifPresent(session -> classification.startAdvice(session.host(), session.sessionId(), submitted.prompt()));
                 yield PROCEED;
             }

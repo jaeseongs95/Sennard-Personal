@@ -23,8 +23,7 @@ public interface HostCallerAdapter {
     HostId host();
 
     /**
-     * Whether this host's hooks tell a subagent's from a main agent's. When they do not, a session registered from its hooks may be a
-     * subagent's, and the admin page asks the user about one that has said nothing about itself.
+     * Whether this host's hooks can identify the actor without a correlated tool call.
      */
     default boolean hooksMarkSubagents() {
         return true;

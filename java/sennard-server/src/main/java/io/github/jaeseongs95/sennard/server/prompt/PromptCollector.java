@@ -77,7 +77,8 @@ public class PromptCollector implements HookDomain {
         if (call.module() != null || context.actor().role() != Role.ROOT) {
             return PROCEED;
         }
-        if (call.event() instanceof HostEvent.UserPromptSubmitted submitted) {
+        // The archive holds what the user wrote: a prompt the host wrote itself (a finished-task notice) is not kept.
+        if (call.event() instanceof HostEvent.UserPromptSubmitted submitted && submitted.origin() == HostEvent.PromptOrigin.USER) {
             HostCallerAdapter adapter = adapters.get(context.hostLabel());
             ReceivedPrompt input = input(context, submitted.prompt());
             if (adapter != null && adapter.currentHookActor(context.sessionId()) != null) {

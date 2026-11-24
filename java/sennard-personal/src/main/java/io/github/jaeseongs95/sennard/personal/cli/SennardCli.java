@@ -46,7 +46,7 @@ public final class SennardCli {
 
     public static void main(String[] args) {
         if (args.length > 0 && NativeWakeProtocol.COMMAND.equals(args[0])) {
-            System.exit(NativeWakeWorker.run(args, System.in, InstallEnvironment.current().environment()));
+            System.exit(NativeWakeWorker.run(args, System.in, InstallEnvironment.current().environment(), clock()));
         }
         Utf8Boundary.Streams streams = Utf8Boundary.fixStandardStreams();
         CliOutput output = new CliOutput(streams.out(), streams.err(), System.in);

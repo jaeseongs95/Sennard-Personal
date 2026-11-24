@@ -18,15 +18,16 @@ import io.github.jaeseongs95.sennard.app.operation.OperationReceipts;
 import io.github.jaeseongs95.sennard.domain.board.BoardEntry;
 import io.github.jaeseongs95.sennard.domain.board.BoardRules;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 /**
- * The session board: per session, the one-line summary, the role and the last prompt time. The service opens the transactions
+ * The session board: per session, the host-provided user title, one-line summary, role and last prompt time. The service opens the transactions
  * ({@code @Transactional}), the time comes from the injected clock, and the limits from {@link BoardProperties}. It knows no MCP and no HTTP: a refusal is an
  * {@code SennardException} and a result is a record.
  *
  * <p>Each use case is one method and one transaction. A change of an existing row is one UPDATE statement ({@link BoardSessionRepository#touch},
  * {@link BoardSessionRepository#summarize}) that the database applies to the row as the last committed writer left it, so two writers of one row both take effect and nothing is
- * retried. When the UPDATE changes no row the session has none yet, and the same transaction writes it with an INSERT under the table's primary key. Two first writes of one
+ * retried. When either of those updates changes no row the session has none yet, and the same transaction writes it with an INSERT under the table's primary key. Two first writes of one
  * session at the same moment meet that key: the one that loses ends with the translated duplicate-key {@code ConflictException}, which is not caught and not run again.
  */
 @Service
@@ -89,9 +90,18 @@ public class BoardService {
         return new SummaryResult(line, at, find(host, sessionId).orElseThrow().role());
     }
 
+    /**
+     * Stores a host-confirmed title observation on an existing session. A null title represents a confirmed removal.
+     * Like other board timestamps, observations are compared at the JDBC boundary's millisecond precision.
+     */
+    @Transactional
+    public void observeTitle(@NotBlank String host, @NotBlank String sessionId, String title, @NotNull Instant observedAt) {
+        sessions.observeTitle(host, sessionId, title, observedAt.truncatedTo(ChronoUnit.MILLIS));
+    }
+
     @Transactional(readOnly = true)
     public Optional<BoardEntry> readEntry(String host, String sessionId) {
-        return find(host, sessionId).map(row -> new BoardEntry(row.cwd(), row.summary(), row.summaryAt(), row.role(), row.lastPromptAt()));
+        return find(host, sessionId).map(row -> new BoardEntry(row.cwd(), row.summary(), row.summaryAt(), row.role(), row.lastPromptAt(), row.userTitle()));
     }
 
     /** The injected clock's instant, to the millisecond: the precision the tools show and every database stores. */

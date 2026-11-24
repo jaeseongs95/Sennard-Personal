@@ -41,6 +41,7 @@ import io.github.jaeseongs95.sennard.app.board.BoardSessionKey;
 import io.github.jaeseongs95.sennard.app.board.BoardSessionRepository;
 import io.github.jaeseongs95.sennard.app.messaging.PreparedMessage;
 import io.github.jaeseongs95.sennard.app.messaging.PreparedMessageRepository;
+import io.github.jaeseongs95.sennard.service.database.SqlBuilder;
 
 /**
  * The one conversion between an {@code Instant} and a {@code TIMESTAMP} column ({@link UtcTimestampColumns}), and the proof that the application layer's entities carry
@@ -118,6 +119,7 @@ class UtcTimestampColumnsTest {
         jdbc.execute("CREATE SCHEMA sennard");
         jdbc.execute("CREATE TABLE sennard.board_sessions (host VARCHAR(100) NOT NULL, session_id VARCHAR(100) NOT NULL, "
                 + "cwd VARCHAR(200), summary VARCHAR(500), summary_at TIMESTAMP, last_prompt_at TIMESTAMP, seen_at TIMESTAMP NOT NULL, role VARCHAR(200), version BIGINT NOT NULL, "
+                + "user_title " + SqlBuilder.generateLongText(SqlBuilder.Database.H2) + ", user_title_observed_at TIMESTAMP, "
                 + "PRIMARY KEY (host, session_id))");
         jdbc.execute("CREATE TABLE sennard.prepared_messages (message_id VARCHAR(128) NOT NULL, sender_ref VARCHAR(100), "
                 + "sender_actor_id VARCHAR(200) NOT NULL, target_ref VARCHAR(100), target_actor_id VARCHAR(200) NOT NULL, "
@@ -147,6 +149,16 @@ class UtcTimestampColumnsTest {
         assertEquals(seen, found.seenAt());
         assertEquals(prompt, found.lastPromptAt());
         assertNull(found.summaryAt(), "t4: a null column stays null");
+        assertNull(found.userTitle());
+        assertNull(found.userTitleObservedAt());
+
+        Instant observed = Instant.parse("2027-01-01T00:00:00.125Z");
+        sessions.observeTitle("claude", "s1", "Session title", observed);
+        assertEquals("2027-01-01 00:00:00.125", jdbc.queryForObject(
+                "SELECT CAST(user_title_observed_at AS VARCHAR(40)) FROM sennard.board_sessions WHERE host = ? AND session_id = ?", String.class, "claude", "s1"));
+        BoardSession titled = sessions.findByKeyHostAndKeySessionId("claude", "s1").orElseThrow();
+        assertEquals("Session title", titled.userTitle());
+        assertEquals(observed, titled.userTitleObservedAt());
 
         assertEquals(0, sessions.deleteBySeenAtLessThan(seen), "a derived query takes an Instant; the row is not before itself");
         assertEquals(1, sessions.deleteBySeenAtLessThan(seen.plusMillis(1)));

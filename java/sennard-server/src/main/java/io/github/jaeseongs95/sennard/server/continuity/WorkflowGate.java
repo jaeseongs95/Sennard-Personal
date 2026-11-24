@@ -91,7 +91,10 @@ public class WorkflowGate {
             return Optional.of(messages.renderLines(unavailable));
         }
         ContinuityService.Attribution attributed = check.requireReadable();
-        String reason = !attributed.any() ? "none" : host.runsCommand(tool) && !attributed.allows(WorkflowKind.Action.COMMAND) ? "command" : null;
+        boolean command = host.runsCommand(tool);
+        boolean read = !command && host.editTargets(tool).isEmpty();
+        boolean parentRead = read && !attributed.any() && actor != null && continuity.attribution(session, null).allows(WorkflowKind.Action.READ);
+        String reason = !attributed.any() && !parentRead ? "none" : command && !attributed.allows(WorkflowKind.Action.COMMAND) ? "command" : null;
         if (reason == null) {
             return Optional.empty();
         }
@@ -101,8 +104,11 @@ public class WorkflowGate {
         return Optional.of(messages.renderLines(lines));
     }
 
-    /** Guidance for a continuation, or the reason to end the turn when no more continuations are allowed. */
-    public record StopCheck(List<MessageRef> guidance, MessageRef terminationReason) {
+    /** Guidance for a continuation, whether it offers to resume a running workflow, or the reason to end the turn. */
+    public record StopCheck(List<MessageRef> guidance, MessageRef terminationReason, boolean offersResume) {
+        public StopCheck(List<MessageRef> guidance, MessageRef terminationReason) {
+            this(guidance, terminationReason, false);
+        }
     }
 
     /** Checks selection at every Stop. A turn that already ended has no rechecks left. */
@@ -111,8 +117,8 @@ public class WorkflowGate {
             return switch (continuity.checkStopSelection(session, actor, stopLimit(continuable))) {
                 case SELECTED, UNAVAILABLE -> NO_STOP_ACTION;
                 case EXHAUSTED -> STOP_EXHAUSTED;
-                case RECHECK -> stopGuidance(session, false);
-                case LAST_RECHECK -> stopGuidance(session, true);
+                case RECHECK -> stopGuidance(session, actor, false);
+                case LAST_RECHECK -> stopGuidance(session, actor, true);
             };
         } catch (DataAccessException | IllegalStateException unreadable) {
             LOG.warn("The workflow gate could not read what serves the request", unreadable);
@@ -120,24 +126,29 @@ public class WorkflowGate {
         }
     }
 
-    private StopCheck stopGuidance(String session, boolean last) {
+    private StopCheck stopGuidance(String session, String actor, boolean last) {
         List<MessageRef> guidance = new ArrayList<>();
+        boolean offersResume = false;
+        boolean showLastRecheck = last;
         try {
-            var open = continuity.openInstanceCount(session);
+            var open = continuity.openInstanceCount(session, actor);
             if (!open.unavailable().isEmpty()) {
                 guidance.addAll(STOP_UNAVAILABLE);
                 guidance.addAll(open.unavailable());
             } else {
-                guidance.add(MessageRef.of("hooks.workflowGate.stop", "count", open.count(), "procedures", PROCEDURES));
+                offersResume = open.hasRunning();
+                Object resume = offersResume ? MessageRef.of("hooks.workflowGate.stopResume") : "";
+                guidance.add(MessageRef.of("hooks.workflowGate.stop", "count", open.count(), "procedures", PROCEDURES, "resume", resume));
+                showLastRecheck = last && open.count() > 0;
             }
         } catch (DataAccessException | IllegalStateException unreadable) {
             LOG.warn("The open workflows could not be counted for the stop gate", unreadable);
             guidance.addAll(STOP_UNAVAILABLE);
         }
-        if (last) {
+        if (showLastRecheck) {
             guidance.add(MessageRef.of("hooks.workflowGate.stopLastRecheck"));
         }
-        return new StopCheck(guidance, null);
+        return new StopCheck(guidance, null, offersResume);
     }
 
     /** Applies the Stop limit to each workflow that has a recorded violation. */
@@ -185,27 +196,13 @@ public class WorkflowGate {
         return continuable ? limits.current().maxAttemptsPerEpoch() : 0;
     }
 
-    /**
-     * Closes the instances the session's own agent opened for this request whose kind closes with the turn. What a subagent opened is not the main agent's turn's: the workflow instances are
-     * independent, and {@link #closeSubagent} closes it at the subagent's end. A failure to close one is logged with its cause and the instance stays open (the prompt shows it again),
-     * because the end of a turn is not failed for it.
-     */
+    /** Closes the tree's turn-scoped inquiry at the end of its root turn. */
     public void closeTurn(String session) {
         try {
             continuity.turnEndInstances(session).forEach(workflows::closeInstance);
         } catch (RuntimeException failure) {
             // Boundary (hook entrance): the close is the server's tidiness of an answer-only instance; the hook's answer does not depend on it.
             LOG.warn("The instances that close with the turn could not be closed", failure);
-        }
-    }
-
-    /** Closes the instances of the kind that closes with the turn that this subagent took, at the end of the subagent; a failure is logged and the end goes on, as for {@link #closeTurn}. */
-    public void closeSubagent(String session, String actor) {
-        try {
-            continuity.subagentEndInstances(session, actor).forEach(workflows::closeInstance);
-        } catch (RuntimeException failure) {
-            // Boundary (hook entrance): the same as the main agent's turn end.
-            LOG.warn("The instances of the subagent that close with its end could not be closed", failure);
         }
     }
 

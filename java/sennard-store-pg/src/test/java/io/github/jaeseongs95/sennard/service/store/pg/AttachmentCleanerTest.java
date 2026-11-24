@@ -57,9 +57,9 @@ import io.github.jaeseongs95.sennard.domain.error.NotFoundException;
  * 7   c1  the TTL counts again from the last chunk   an upload expires ten minutes after its last chunk, not after its begin; the status shows the new time; the cleaner leaves it until then
  * 7   c2  the cleaner deletes what expired            at the very expiry (the condition is "expires_at &lt;= now") the row and the file are deleted; one millisecond before they are not;
  *                                                      after the expiry and before the cleaner a chunk or a finish is ARTIFACT_EXPIRED (not retryable)
- * 7   c3  a done upload's row                         a COMPLETED row is removed by the cleaner and the attachment and its file stay
- * 7   c3b a finish after the row is gone               a finish sent after the cleaner removed the rows (it carries no author: the attachment id alone) answers the same attachment, whose
- *                                                      author is still the owner of the begin; a chunk of the upload id is ARTIFACT_NOT_FOUND
+ * 7   c3  a done upload's row                         a COMPLETED row, its attachment and its file stay through the cleaner
+ * 7   c3b a finish of a legacy attachment             finish by attachment ID returns the original attachment and author after an older cleaner removed the completed rows;
+ *                                                      a chunk sent to the old upload ID is ARTIFACT_NOT_FOUND
  * 8   c4  a file with no row, before and after the grace  not moved before orphan-grace (24 h from the file's time), moved to orphans/ at it (never deleted); kept there; an explicit purge
  *                                                      deletes it and returns its name
  * 8   c5  a file that got its row back                a file moved to orphans/ whose storage key has a row again (a restored database) is put back in its place and reads
@@ -67,7 +67,7 @@ import io.github.jaeseongs95.sennard.domain.error.NotFoundException;
  *                                                      by a cleaner round long after; an open upload whose file is gone is reported, and the cleaner deletes its row at its expiry
  * 8   c7  an attachment nothing points at             stays, with its file, through a cleaner round long after; it is listed and the check finds nothing wrong with it
  * 4   c8  damage is reported, never deleted           a damaged file is reported as damaged and neither it nor its row is deleted by the cleaner
- * 7   c9  the cleaner does not walk the folder        the cleaner's round (the expired and the done upload rows) leaves a file with no row and a replaced file where they are, however late; the
+ * 7   c9  the cleaner does not walk the folder        the cleaner's round leaves a file with no staging or copy row and a replaced file where they are, however late; the
  *                                                      comparison of the folder with the rows ({@code reconcileFolder}) moves both once the grace has passed
  * 7   c10 the two rounds on their own intervals       the registered tasks are the cleaner at {@code reaper-interval} and the comparison at {@code reconcile-interval}; each task's own run does
  *                                                      its own work only (no clock is waited for: the test runs the tasks' runnables)
@@ -101,7 +101,7 @@ class AttachmentCleanerTest {
         world.clock().set(instant);
     }
 
-    /** One round of the cleaner (the expired and the done upload rows). */
+    /** One round of the cleaner for expired staging rows. */
     private AttachmentMaintenance.Reaped reap() {
         return world.maintenance().reap();
     }
@@ -131,7 +131,7 @@ class AttachmentCleanerTest {
         assertEquals(T0.plus(Duration.ofMinutes(19)), world.uploads().uploadStatus(id).expiresAt(), "ten minutes after the last chunk, not after the begin");
 
         at(T0.plus(Duration.ofMinutes(10))); // the time the begin gave: the upload has had a chunk since
-        assertEquals(new AttachmentMaintenance.Reaped(0, 0), reap());
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap());
         assertTrue(Files.exists(file));
         assertTrue(world.hasStaging(id));
 
@@ -139,7 +139,7 @@ class AttachmentCleanerTest {
         world.chunk(id, 1, second);
         assertEquals(T0.plus(Duration.ofMinutes(28)), world.uploads().uploadStatus(id).expiresAt(), "a second chunk counts again");
         at(T0.plus(Duration.ofMinutes(27)));
-        assertEquals(new AttachmentMaintenance.Reaped(0, 0), reap());
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap());
         assertTrue(Files.exists(file));
     }
 
@@ -154,7 +154,7 @@ class AttachmentCleanerTest {
         assertEquals(T0.plus(TTL), expires);
 
         at(expires.minusMillis(1));
-        assertEquals(new AttachmentMaintenance.Reaped(0, 0), reap());
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap());
         assertTrue(Files.exists(file));
         assertTrue(world.hasStaging(id));
 
@@ -169,7 +169,7 @@ class AttachmentCleanerTest {
         assertFalse(Files.exists(file), "the file of the expired upload is deleted after the row");
         assertTrue(world.service().uploadStatus(id).isEmpty());
         refused(NotFoundException.class, NotFoundCode.ARTIFACT_NOT_FOUND, false, () -> world.chunk(id, 1, content));
-        assertEquals(new AttachmentMaintenance.Reaped(0, 0), reap(), "a second round finds nothing");
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap(), "a second round finds nothing");
     }
 
     @Test
@@ -182,7 +182,7 @@ class AttachmentCleanerTest {
     }
 
     @Test
-    void aFinishedUploadsRowIsRemovedByTheCleanerAndTheAttachmentAndItsFileStay() throws SQLException {
+    void aFinishedUploadsRowAndItsAttachmentStayThroughTheCleaner() throws SQLException {
         byte[] content = world.bytes(90);
         AttachmentService.Kept kept = world.upload(ALICE, "done.bin", content, 30);
         Path file = world.pathOfAttachment(kept.attachmentId());
@@ -191,26 +191,28 @@ class AttachmentCleanerTest {
         at(T0.plus(Duration.ofDays(30)));
         AttachmentMaintenance.Reaped reaped = reap();
 
-        assertEquals(1, reaped.completedUploads());
         assertEquals(0, reaped.expiredUploads());
-        assertEquals(0, world.count("SELECT count(*) FROM sennard.upload_staging"));
+        assertEquals(1, world.count("SELECT count(*) FROM sennard.upload_staging WHERE state = 'COMPLETED'"));
         assertEquals(1, world.count("SELECT count(*) FROM sennard.attachment"));
         assertEquals(1, world.count("SELECT count(*) FROM sennard.attachment_file"));
         assertEquals(1, world.count("SELECT count(*) FROM sennard.attachment_storage"));
         assertTrue(Files.exists(file), "the file is the attachment's, not the upload's");
         assertArrayEquals(content, world.readAll(kept.attachmentId(), 40));
-        assertEquals(kept, world.uploads().finish(kept.attachmentId()), "a finish sent after the row is gone finds the attachment by the same id");
+        assertEquals(kept, world.uploads().finish(kept.attachmentId()));
     }
 
     @Test
-    void aFinishOfAnotherAuthorAfterTheRowIsGoneAnswersTheSameAttachmentAndTheAuthorStaysTheOwnerOfTheBegin() throws SQLException {
+    void aFinishByIdStillFindsAnAttachmentWhoseCompletedRowAnOlderCleanerRemoved() throws SQLException {
         byte[] content = world.bytes(90);
         AttachmentWorld.Single begun = world.begin(ALICE, "alices.bin", content);
         world.send(begun.uploadId(), content, 30);
         AttachmentService.Kept kept = world.uploads().finish(begun.attachmentId());
-        at(T0.plus(Duration.ofDays(30)));
-        assertEquals(1, reap().completedUploads());
-        assertFalse(world.hasStaging(begun.uploadId()), "the staging row is gone");
+        try (Connection connection = BusinessDb.connect(); PreparedStatement olderCleaner = connection.prepareStatement(
+                "DELETE FROM sennard.upload_staging WHERE attachment_id = ? AND state = 'COMPLETED'")) {
+            olderCleaner.setString(1, begun.attachmentId());
+            assertEquals(1, olderCleaner.executeUpdate());
+        }
+        assertFalse(world.hasStaging(begun.uploadId()));
 
         // The finish carries no author; it is the one of a client that was handed the id by someone else than the author's session.
         assertEquals(kept, world.uploads().finish(kept.attachmentId()));
@@ -246,7 +248,7 @@ class AttachmentCleanerTest {
         assertTrue(Files.isRegularFile(world.directory().resolve("orphans").resolve(storageKey)));
         at(T0.plus(GRACE).plus(Duration.ofDays(400)));
         assertEquals(new AttachmentMaintenance.Reconciled(0, 0), reconcile(), "the comparison never empties the orphan folder");
-        assertEquals(new AttachmentMaintenance.Reaped(0, 0), reap(), "nor does the cleaner");
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap(), "nor does the cleaner");
         assertEquals(List.of(storageKey), world.store().quarantinedKeys());
 
         assertEquals(List.of(storageKey), world.maintenance().purgeQuarantine(), "the explicit command deletes it and says what it deleted");
@@ -258,13 +260,13 @@ class AttachmentCleanerTest {
         byte[] content = world.bytes(120);
         AttachmentService.Kept kept = world.upload(ALICE, "restore.bin", content, 50);
         at(T0.plus(Duration.ofMinutes(1)));
-        assertEquals(1, reap().completedUploads());
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap());
         AttachmentService.FileView view = world.service().view(kept.attachmentId(), 0).orElseThrow();
         AttachmentStorage current = view.current();
         Path file = world.pathOf(current.storageKey());
         setFileTime(file, T0);
 
-        // the database is restored from an older backup that has not got the attachment: its rows (the three tables') are gone, the file is still there
+        // The attachment and copy rows are missing. The retained completed upload is only a replay mapping and cannot own the file.
         deleteRows(kept.attachmentId());
         at(T0.plus(GRACE));
         assertEquals(1, reconcile().quarantined(), "the file looks like one that has no row");
@@ -396,12 +398,12 @@ class AttachmentCleanerTest {
         AttachmentStorage oldFile = world.service().view(kept.attachmentId(), 0).orElseThrow().current();
         Path oldPath = world.pathOf(oldFile.storageKey());
         assertEquals(1, world.service().addCopy(kept.attachmentId(), 0, world.store().newStorageKey(), oldFile.keyId()), "the replacing copy is rev 1");
-        assertEquals(new AttachmentMaintenance.Reaped(0, 1), reap(), "the done upload's row is the cleaner's");
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap());
 
         // long after the grace: every round of the cleaner finds nothing and does nothing to the folder
         at(T0.plus(GRACE).plus(Duration.ofDays(3)));
         for (int round = 0; round < 3; round++) {
-            assertEquals(new AttachmentMaintenance.Reaped(0, 0), reap());
+            assertEquals(new AttachmentMaintenance.Reaped(0), reap());
         }
         assertTrue(Files.exists(stray), "the cleaner does not move a file with no row");
         assertTrue(Files.exists(oldPath), "the cleaner does not move a replaced file");
@@ -474,7 +476,7 @@ class AttachmentCleanerTest {
         assertEveryRowExpiresAt(id, T0.plus(Duration.ofMinutes(19))); // file 0 and file 2, which got no chunk, live on with it
 
         at(T0.plus(TTL)); // the time the begin gave
-        assertEquals(new AttachmentMaintenance.Reaped(0, 0), reap(), "a file that was not sent is not cleaned while another file of its bundle is");
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap(), "a file that was not sent is not cleaned while another file of its bundle is");
         assertTrue(world.hasStaging(zero));
         assertTrue(world.hasStaging(two));
 
@@ -482,7 +484,7 @@ class AttachmentCleanerTest {
         world.chunk(zero, 0, items.get(0).content()); // a chunk of file 0 counts them all again
         assertEveryRowExpiresAt(id, T0.plus(Duration.ofMinutes(28)));
         at(T0.plus(Duration.ofMinutes(27)));
-        assertEquals(new AttachmentMaintenance.Reaped(0, 0), reap());
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap());
         Path fileOfZero = world.pathOfUpload(zero);
         Path fileOfOne = world.pathOfUpload(one);
         assertTrue(Files.exists(fileOfZero));
@@ -495,7 +497,7 @@ class AttachmentCleanerTest {
 
         AttachmentMaintenance.Reaped reaped = reap();
 
-        assertEquals(new AttachmentMaintenance.Reaped(3, 0), reaped, "the rows of all three files go in one round");
+        assertEquals(new AttachmentMaintenance.Reaped(3), reaped, "the rows of all three files go in one round");
         assertEquals(0, world.count("SELECT count(*) FROM sennard.upload_staging"));
         assertFalse(Files.exists(fileOfZero), "the files that were written are deleted after their rows");
         assertFalse(Files.exists(fileOfOne));
@@ -505,7 +507,7 @@ class AttachmentCleanerTest {
         assertEquals(0, world.count("SELECT count(*) FROM sennard.attachment_storage"));
         refused(NotFoundException.class, NotFoundCode.ARTIFACT_NOT_FOUND, false, () -> world.uploads().finish(id));
         refused(NotFoundException.class, NotFoundCode.ARTIFACT_NOT_FOUND, false, () -> world.chunk(one, 1, items.get(1).content()));
-        assertEquals(new AttachmentMaintenance.Reaped(0, 0), reap(), "a second round finds nothing");
+        assertEquals(new AttachmentMaintenance.Reaped(0), reap(), "a second round finds nothing");
     }
 
     private static IntervalTask taskOf(List<IntervalTask> tasks, Duration interval) {

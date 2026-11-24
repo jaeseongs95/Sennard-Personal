@@ -7,10 +7,7 @@ package io.github.jaeseongs95.sennard.server.session;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,8 +21,8 @@ import io.github.jaeseongs95.sennard.server.hook.HostContext.Basis;
 import io.github.jaeseongs95.sennard.server.hook.HostContext.Role;
 import io.github.jaeseongs95.sennard.server.hook.HostEvent;
 import io.github.jaeseongs95.sennard.server.hook.HostEventHandler.HookCall;
-import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts;
+import io.github.jaeseongs95.sennard.server.hook.HostWorkFactsRegistry;
 import io.github.jaeseongs95.sennard.server.updates.PluginUpdateService;
 import io.github.jaeseongs95.sennard.app.board.BoardService;
 import io.github.jaeseongs95.sennard.service.store.modules.SkillUsageService;
@@ -48,18 +45,18 @@ public class SessionObservations implements HookDomain {
     private final ContextLayerService context;
     private final PluginUpdateService updates;
     private final JsonMapper mapper;
-    private final Map<HostId, HostWorkFacts> facts;
+    private final HostWorkFactsRegistry facts;
     private final Clock clock;
 
     public SessionObservations(BoardService board, SkillUsageService usage, ContextLayerService context, PluginUpdateService updates,
-            JsonMapper mapper, List<HostWorkFacts> facts, Clock clock) {
+            JsonMapper mapper, HostWorkFactsRegistry facts, Clock clock) {
         this.clock = clock;
         this.board = board;
         this.usage = usage;
         this.context = context;
         this.updates = updates;
         this.mapper = mapper;
-        this.facts = facts.stream().collect(Collectors.toUnmodifiableMap(HostWorkFacts::host, Function.identity()));
+        this.facts = facts;
     }
 
     @Override
@@ -84,7 +81,7 @@ public class SessionObservations implements HookDomain {
 
     private void recordSkillLoads(String host, HostEvent.ToolFinished finished) {
         HostContext actorContext = finished.context();
-        HostWorkFacts hostFacts = facts.getOrDefault(actorContext.hostLabel(), HostWorkFacts.NONE);
+        HostWorkFacts hostFacts = facts.forHost(actorContext.hostLabel());
         boolean subagent = actorContext.actor().role() == Role.CHILD && actorContext.actor().basis() == Basis.OBSERVED;
         for (String skillId : hostFacts.skillLoads(finished.tool())) {
             String callId = finished.tool().callId() == null ? null : finished.tool().callId() + ":" + skillId;

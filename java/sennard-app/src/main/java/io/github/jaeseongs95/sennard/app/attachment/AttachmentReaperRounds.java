@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
  * {@code UpdateCheckRounds} does it): the first round of each comes one interval after the start, and each next one that long after the end of the one before.
  *
  * <ul>
- * <li>The cleaner, every {@code sennard.attachments.reaper-interval} (one minute by default): {@link AttachmentMaintenance#reap()}, which only finds the expired and the done upload rows in
- * the database and deletes them.</li>
+ * <li>The cleaner, every {@code sennard.attachments.reaper-interval} (one minute by default): {@link AttachmentMaintenance#reap()}, which finds expired staging rows and deletes them with
+ * their files.</li>
  * <li>The comparison of the folder with the rows, every {@code sennard.attachments.reconcile-interval} (24 hours by default): {@link AttachmentMaintenance#reconcileFolder()}, which looks at
  * every file of the folder. The comparison of the start is the store-ready task of the edition ({@code ServerStartTasks}); the command {@code sennard attachments purge-orphans} runs it too.</li>
  * </ul>

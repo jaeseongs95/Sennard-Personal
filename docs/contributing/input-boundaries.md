@@ -12,6 +12,8 @@ The common layer uses an arbitrary host identifier, observation of the executing
 
 The meaning of an input and whether it can be injected are also separate matters. It is not assumed that a host that can observe the end of a turn can inject additional context at the end of a turn. Common behavior is verified with a virtual host fixture, and verification on a real host proves only what the corresponding adapter observed.
 
+Ordinary prompts and host notifications reported at the start of a turn use the same workflow boundary. A later model invocation stays in the same turn. At Stop, the ability to continue and whether the host has already continued are independent. If the host needs to defer a Stop reason, the next ordinary input receives it once. A wake intercepted before ordinary input handling leaves the reason pending.
+
 ## Wake-up
 
 Claude Code uses its wait hook. Codex can opt in to a native queue doorbell after its hook supplies a target connection and the server owns its live generation. The Antigravity adapter uses the same nonce boundary and the target hook's connection values, including its project ID. Any supplied conversation ID must match the target. Isolated tests use synthetic inputs. Connection values and delivery in a live Antigravity session remain unverified. A verified nonce is intercepted before native-input consumers and claims peer context at the wake boundary. Ordinary input retains its existing deferral. See [native wake details](native-idle-wake.md) and [Session Collaboration](../user/collaboration.md).
@@ -40,7 +42,7 @@ The message ID and the provenance receipt ID are retained across redelivery. A r
 
 The whole injected JSON block is limited to 8192 bytes. A body whose size grows through escaping is represented losslessly with `messageEncoding: "base64-utf8"`. In this case the content of `message` restored from base64 to UTF-8 is the original text, and `receipt.contentDigest` is also based on the original text. The encoding does not change the trustworthiness or authority of the provenance.
 
-When an adapter observes that the caller is a subagent, the subagent is prevented from using the parent's inbox, ACK, sender identity, presence, and status board in its place. Without a marker, isolation is unconfirmed. The fact that a marker was inserted into a test fixture and checked does not support a claim that a real host supplies this marker.
+PEER claims and acknowledgements belong to confirmed main agents. A descendant uses host messaging to reach another member of the [session tree](architecture.md#session-unit). The status board entry belongs to the shared root. Synthetic hook fixtures verify the adapter’s response to their inputs. Live host observations verify which identity fields an installation actually supplies.
 
 ## Work Targets of the Ledger
 

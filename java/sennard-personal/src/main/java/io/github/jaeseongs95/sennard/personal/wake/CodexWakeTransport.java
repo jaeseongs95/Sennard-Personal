@@ -4,21 +4,24 @@
 
 package io.github.jaeseongs95.sennard.personal.wake;
 
-import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.regex.Pattern;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
 import io.github.jaeseongs95.sennard.protocol.ToolProcess;
 import io.github.jaeseongs95.sennard.server.diagnostics.SafeFailure;
 import io.github.jaeseongs95.sennard.server.hook.HostDefinition;
@@ -43,6 +46,11 @@ public final class CodexWakeTransport implements NativeWakeAdapter {
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(CodexWakeTransport.class);
+    private static final NativeWakeSend.Diagnostics SEND_DIAGNOSTICS = new NativeWakeSend.Diagnostics(
+            "CLI_NONZERO", "TIMED_OUT", "OUTPUT_LIMIT", "IO_AFTER_START", "START_FAILED",
+            "START_PREPARATION_FAILED", "CANCELLED", "CODEX_WAKE_SEND_FAILED", "CODEX_WAKE_SEND_PREPARATION_FAILED");
+    private static final Set<String> NATIVE_FIELDS = Set.of("PATH", "Path", "CODEX_MANAGED_PACKAGE_ROOT", "CODEX_HOME",
+            "SystemRoot", "HOME", "USERPROFILE", "TEMP", "TMP", "LANG");
     private final WakeProcess process;
     private final JsonMapper mapper;
     private final CodexQueueWakeSettings configuration;
@@ -73,9 +81,9 @@ public final class CodexWakeTransport implements NativeWakeAdapter {
                 return new Availability.Missing("NATIVE_EXECUTABLE_MISSING");
             }
             // Capture only this target's exposed environment, never System.getenv of the server or another target.
-            Map<String, String> child = nativeEnvironment(environment);
-            return new Availability.Ready((session, marker) -> target.hostSessionId().equals(session)
-                    ? send(executable.orElseThrow(), child, session, marker) : new Outcome.NotSent("SESSION_TARGET_MISMATCH"));
+            Map<String, String> child = NativeWakeSend.selectEnvironment(environment, NATIVE_FIELDS);
+            return NativeWakeSend.boundTo(target.hostSessionId(), "SESSION_TARGET_MISMATCH",
+                    (session, marker) -> send(executable.orElseThrow(), child, session, marker));
         } catch (IOException | UncheckedIOException | InvalidPathException | tools.jackson.core.JacksonException invalid) {
             LOG.warn("CODEX_WAKE_BOOTSTRAP_UNREADABLE", SafeFailure.capture(invalid));
             return new Availability.Missing("BOOTSTRAP_UNREADABLE");
@@ -84,15 +92,13 @@ public final class CodexWakeTransport implements NativeWakeAdapter {
 
     @Override
     public Optional<ManagedLauncher> managedLauncher(Map<String, String> environment, Target target) {
-        if (target.workspace() == null) {
-            return Optional.empty();
-        }
         try {
-            Path workspace = Path.of(target.workspace());
-            if (!workspace.isAbsolute() || !Files.isDirectory(workspace)) {
+            var directory = ManagedWakeWorkspace.existingDirectory(target.workspace());
+            if (directory.isEmpty()) {
                 return Optional.empty();
             }
-            Map<String, String> child = nativeEnvironment(environment);
+            Path workspace = directory.orElseThrow();
+            Map<String, String> child = NativeWakeSend.selectEnvironment(environment, NATIVE_FIELDS);
             return executable(environment).map(binary -> launch ->
                     CodexManagedConversation.open(binary, workspace, child, mapper, Duration.ofSeconds(10), launch.model(), launch.effort(), null));
         } catch (IOException | UncheckedIOException | InvalidPathException invalid) {
@@ -101,10 +107,67 @@ public final class CodexWakeTransport implements NativeWakeAdapter {
         }
     }
 
-    private static Map<String, String> nativeEnvironment(Map<String, String> environment) {
-        return environment.entrySet().stream()
-                .filter(entry -> List.of("PATH", "Path", "CODEX_MANAGED_PACKAGE_ROOT", "CODEX_HOME", "SystemRoot", "HOME", "USERPROFILE", "TEMP", "TMP", "LANG").contains(entry.getKey()))
-                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
+    @Override
+    public Optional<SessionTitleReader> sessionTitles(Map<String, String> environment, Target target) throws IOException {
+        if (!NativeWakeProtocol.validConversation(target.hostSessionId())) {
+            return Optional.empty();
+        }
+        var directory = ManagedWakeWorkspace.existingDirectory(target.workspace());
+        if (directory.isEmpty()) {
+            return Optional.empty();
+        }
+        Path workspace = directory.orElseThrow();
+        Map<String, String> child = NativeWakeSend.selectEnvironment(environment, NATIVE_FIELDS);
+        Path index = sessionNameIndex(child);
+        return executable(environment).map(binary -> new SessionTitleReader() {
+            private boolean read;
+            private IndexStamp previous;
+
+            @Override
+            public Optional<String> read() throws IOException, InterruptedException {
+                IndexStamp current = IndexStamp.capture(index);
+                if (read && Objects.equals(previous, current)) {
+                    return Optional.empty();
+                }
+                var process = ToolProcess.startStdio(List.of(binary.toString(), "app-server", "--listen", "stdio://"), workspace, child);
+                Optional<String> title = CodexAppServerConnection.readThreadTitle(process, mapper, Duration.ofSeconds(3), target.hostSessionId());
+                previous = current;
+                read = true;
+                return title;
+            }
+        });
+    }
+
+    /** The upstream index is used only as a change signal. The app-server supplies the title. */
+    private static Path sessionNameIndex(Map<String, String> environment) {
+        String explicit = environment.get("CODEX_HOME");
+        if (explicit != null && !explicit.isBlank()) {
+            Path directory = Path.of(explicit);
+            return directory.isAbsolute() ? directory.resolve("session_index.jsonl") : null;
+        }
+        String home = environment.getOrDefault("HOME", environment.get("USERPROFILE"));
+        if (home == null || home.isBlank()) {
+            return null;
+        }
+        Path directory = Path.of(home);
+        return directory.isAbsolute() ? directory.resolve(".codex").resolve("session_index.jsonl") : null;
+    }
+
+    private record IndexStamp(long size, FileTime modifiedAt, Object fileKey) {
+        private static IndexStamp capture(Path index) throws IOException {
+            if (index == null) {
+                return null;
+            }
+            try {
+                var attributes = Files.readAttributes(index, BasicFileAttributes.class);
+                return new IndexStamp(attributes.size(), attributes.lastModifiedTime(), attributes.fileKey());
+            } catch (NoSuchFileException absent) {
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("CODEX_SESSION_INDEX_ABSENT", SafeFailure.capture(absent));
+                }
+                return null;
+            }
+        }
     }
 
     private static Optional<Path> executable(Map<String, String> environment) throws IOException {
@@ -120,65 +183,23 @@ public final class CodexWakeTransport implements NativeWakeAdapter {
                 return candidates.size() == 1 ? Optional.of(candidates.getFirst().toAbsolutePath()) : Optional.empty();
             }
         }
-        String path = environment.getOrDefault("PATH", environment.getOrDefault("Path", ""));
-        for (String entry : path.split(Pattern.quote(File.pathSeparator))) {
-            if (entry.isBlank()) {
-                continue;
-            }
-            Path directory = Path.of(entry);
-            if (!directory.isAbsolute()) {
-                continue;
-            }
-            for (String name : List.of(CodexHost.ID.label(), CodexHost.ID.label() + ".exe")) {
-                Path candidate = directory.resolve(name);
-                if (Files.isRegularFile(candidate) && Files.isExecutable(candidate) && nativeFile(candidate)) {
-                    return Optional.of(candidate);
-                }
-            }
-        }
-        return Optional.empty();
+        return NativeLauncher.onPath(environment, CodexHost.ID.label(), CodexWakeTransport::nativeFile);
     }
 
     private static boolean nativeName(Path path) {
         String name = path.getFileName().toString();
-        return (name.equals(CodexHost.ID.label() + ".exe") || name.equals(CodexHost.ID.label())) && Files.isExecutable(path) && nativeFile(path);
+        return (name.equals(CodexHost.ID.label() + ".exe") || name.equals(CodexHost.ID.label())) && nativeFile(path);
     }
 
-    /** Executable permission alone also accepts scripts. Recognize native PE, ELF and Mach-O headers without launching a probe. */
     private static boolean nativeFile(Path path) {
-        try (InputStream input = Files.newInputStream(path)) {
-            byte[] header = input.readNBytes(4);
-            if (header.length < 4) return false;
-            int magic = java.nio.ByteBuffer.wrap(header).getInt();
-            return header[0] == 'M' && header[1] == 'Z' || magic == 0x7f454c46 || magic == 0xfeedface || magic == 0xcefaedfe
-                    || magic == 0xfeedfacf || magic == 0xcffaedfe || magic == 0xcafebabe || magic == 0xbebafeca;
-        } catch (IOException unreadable) {
-            LOG.warn("CODEX_NATIVE_EXECUTABLE_UNREADABLE", SafeFailure.capture(unreadable));
-            return false;
-        }
+        return NativeLauncher.eligible(path, NativeLauncher.ScriptPolicy.NATIVE_ONLY,
+                unreadable -> LOG.warn("CODEX_NATIVE_EXECUTABLE_UNREADABLE", SafeFailure.capture(unreadable)));
     }
 
     private Outcome send(Path executable, Map<String, String> environment, String session, String marker) {
-        ToolProcess.Request request = ToolProcess.Request.of(List.of(executable.toString(), "queue", "--thread", session, "--message", marker),
-                ToolProcess.Stderr.MERGE, Duration.ofSeconds(10)).limitedTo(65536).withoutInheritedEnvironment().withEnvironment(environment);
-        try {
-            return switch (process.run(request)) {
-                case ToolProcess.Finished finished when finished.exitCode() == 0 -> new Outcome.Submitted();
-                // Nonzero exits may follow a partial submission. Do not guess from free-text diagnostics that a send did not happen.
-                case ToolProcess.Finished ignored -> new Outcome.Unknown("CLI_NONZERO");
-                case ToolProcess.TimedOut ignored -> new Outcome.Unknown("TIMED_OUT");
-                case ToolProcess.Overflowed ignored -> new Outcome.Unknown("OUTPUT_LIMIT");
-            };
-        } catch (WakeProcess.Failure failed) {
-            LOG.warn("CODEX_WAKE_SEND_FAILED", SafeFailure.capture(failed));
-            return failed.phase() == WakeProcess.Phase.STARTED ? new Outcome.Unknown("IO_AFTER_START") : new Outcome.NotSent("START_FAILED");
-        } catch (IOException beforeStart) {
-            // ToolProcess can fail before entering its launch scope while allocating its temporary output file.
-            LOG.warn("CODEX_WAKE_SEND_PREPARATION_FAILED", SafeFailure.capture(beforeStart));
-            return new Outcome.NotSent("START_PREPARATION_FAILED");
-        } catch (InterruptedException cancelled) {
-            Thread.currentThread().interrupt();
-            return new Outcome.Unknown("CANCELLED");
-        }
+        ToolProcess.Request request = NativeWakeSend.request(
+                List.of(executable.toString(), "queue", "--thread", session, "--message", marker),
+                ToolProcess.Stderr.MERGE, environment);
+        return NativeWakeSend.run(process, request, LOG, SEND_DIAGNOSTICS);
     }
 }

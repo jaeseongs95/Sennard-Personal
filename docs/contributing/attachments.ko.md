@@ -27,7 +27,7 @@
 | `id` | `CHAR(36)` | 기본 키. 파일 하나의 업로드 ID |
 | `attachment_id` | `CHAR(36)` | finish가 만드는 첨부의 ID. 함께 begin한 파일은 이 값을 공유하므로 첨부 ID는 begin부터 알려져 있음 |
 | `seq` | `INTEGER` | 첨부 안의 파일 번호. `artifact_begin`의 `files` 목록에서의 위치이며 0부터 시작. `CHECK (seq >= 0)` |
-| `owner` | `VARCHAR(255)` | 작성자. 호출한 세션의 actor ID |
+| `owner` | `VARCHAR(255)` | 호출이 속한 메인 세션으로 식별하는 작성자 |
 | `operation_key` | `VARCHAR(128)` | `artifact_begin`의 `operationKey` |
 | `file_name` | `VARCHAR(512)` | 선언한 파일 이름 |
 | `media_type` | `VARCHAR(255)` | 선언한 미디어 형식 |
@@ -132,7 +132,7 @@
 1. 진입점이 같은 잠금 아래에서 파일을 읽습니다. 파일이 `stored_bytes`보다 길면 꼬리가 정확히 끝 표시(빈 평문, 마지막 표시, AAD 통과)여야 합니다. 앞선 finish가 끝 표시를 덧붙인 뒤 트랜잭션에서 진 경우이므로, 끝 표시 앞까지 검증을 이어 가고 다시 덧붙이지 않습니다. 그 밖의 꼬리는 `ARTIFACT_INCOMPLETE`입니다.
 2. 끝 표시 앞의 모든 세그먼트를 복호화해 태그를 검증하고, 평문의 sha256과 크기를 계산합니다. 선언보다 바이트가 적으면 `ARTIFACT_INCOMPLETE`, 많거나 sha256이 다르면 `ARTIFACT_HASH_MISMATCH`입니다. 어느 경우에도 파일을 닫지 않고 행은 `STAGING`으로 남으므로 만료될 때까지 같은 업로드를 이어 갈 수 있습니다.
 3. 끝 표시 세그먼트를 덧붙이고 `force(true)`를 호출한 뒤 파일을 읽기 전용으로 바꿉니다. 이미 있는 이름은 덮어쓰지 않습니다.
-4. 서비스(트랜잭션 하나)가 모든 파일의 검증한 크기·sha256을 선언값과 대조하고, 모든 업로드 행을 `UPDATE ... WHERE id = ? AND state = 'STAGING' AND expires_at > ?`로 `COMPLETED`로 바꾸고, `attachment` 행, 파일마다 `attachment_file` 행, 파일마다 `rev` 0의 `attachment_storage` 행을 넣습니다. 전부 들어가거나 하나도 들어가지 않습니다. 더는 `STAGING`이 아닌 행(묶음이 만료돼 정리되었거나 다른 finish가 먼저 완료함)이 있으면 트랜잭션이 끝나며, 이긴 다른 finish의 첨부는 그대로 답합니다. `artifact_finish`를 다시 부르면 정리기가 업로드 행을 지운 뒤에도 같은 첨부를 답합니다.
+4. 서비스(트랜잭션 하나)가 모든 파일의 검증한 크기·sha256을 선언값과 대조하고, 모든 업로드 행을 `UPDATE ... WHERE id = ? AND state = 'STAGING' AND expires_at > ?`로 `COMPLETED`로 바꾸고, `attachment` 행, 파일마다 `attachment_file` 행, 파일마다 `rev` 0의 `attachment_storage` 행을 넣습니다. 전부 들어가거나 하나도 들어가지 않습니다. 더는 `STAGING`이 아닌 행(묶음이 만료돼 정리되었거나 다른 finish가 먼저 완료함)이 있으면 트랜잭션이 끝나며, 이긴 다른 finish의 첨부는 그대로 답합니다. `artifact_finish`를 다시 부르면 같은 첨부를 반환합니다. 이전 버전의 정리기가 업로드 행을 지운 첨부에도 적용됩니다.
 
 ## 도구
 
@@ -149,10 +149,10 @@
 
 규칙:
 
-- **`operationKey`**는 `artifact_begin`에 전달합니다. 영문자, 숫자, `_ . : -`로 구성된 16~128자입니다. 같은 작성자가 같은 키로 파일 이름, 크기, 해시를 같은 순서로 보내면 기존 첨부 ID와 업로드 ID를 돌려줍니다. 목록이 다르면 `ARTIFACT_OPERATION_CONFLICT`를 반환합니다. 시작할 때 발급한 무작위 ID로 파일을 전송하고 첨부를 완료할 수 있습니다. 작성자는 시작한 세션이며 같은 첨부 ID로 완료를 다시 요청하면 기존 첨부를 돌려줍니다.
+- **`operationKey`**는 `artifact_begin`에 전달합니다. 영문자, 숫자, `_ . : -`로 구성된 16~128자입니다. 같은 작성자가 같은 키로 파일 이름, 미디어 유형, 크기, 해시를 같은 순서로 보내면 기존 첨부 ID와 업로드 ID를 돌려줍니다. 메타데이터가 다르면 `ARTIFACT_OPERATION_CONFLICT`를 반환합니다. 완료된 업로드의 ID는 임시 업로드 만료, 정리, 서버 재시작 이후에도 유지됩니다. 첨부의 작성자는 업로드를 시작한 세션입니다. 시작할 때 발급한 무작위 ID로 파일을 전송하고 첨부를 완료할 수 있습니다. 예전 정리기가 업로드 행을 지운 경우 `artifact_begin`으로는 기존 ID를 복원할 수 없습니다. 기존 첨부는 첨부 ID로 다시 완료하거나 읽을 수 있습니다.
 - **첨부의 파일.** 파일은 `artifact_begin`의 `files` 목록 순서대로 0, 1, 2 ... 번호를 받습니다. 이 번호(`seq`)로 단계 결과가 파일 하나를 가리킵니다. 첨부 하나는 최대 64개 파일입니다(`ARTIFACT_LIMIT`, `details.limit`는 `file-count`, `details.requested`와 `details.allowed`는 파일 개수). 파일이 하나인 첨부가 일반적인 경우입니다. `files`에 항목이 하나이고 파일은 `seq` 0(또는 `seq` 없음)으로 가리킵니다.
 - **`purpose`**는 `upload`, `staged`, `evidence` 중 하나입니다. Sennard는 `evidence`만 지원하며 `purpose`를 생략하면 `evidence`입니다. 나머지 둘은 `ARTIFACT_UNSUPPORTED_PURPOSE`로 거부합니다.
-- **한도**(파일 개수, 파일 크기, 예산, 작성자당 열린 업로드 수)는 `artifact_begin`에서 검사합니다. 한도를 넘는 요청은 잘라 내지 않고 통째로 거부합니다. 크기 한도는 파일마다 적용하고, 예산은 파일 크기의 합으로 셉니다. 작성자의 열린 업로드는 첨부 단위로 세므로 파일이 여럿인 첨부도 하나로 셉니다. 업로드를 시작하기 전에 모든 파일의 선언 크기가 디스크에 들어가는지 한 번 확인합니다.
+- **한도**(파일 개수, 파일 크기, 예산, 작성자당 열린 업로드 수)는 `artifact_begin`에서 검사합니다. 한도를 넘는 요청은 잘라 내지 않고 통째로 거부합니다. 크기 한도는 파일마다 적용하고, 예산은 파일 크기의 합으로 셉니다. 작성자의 열린 업로드는 첨부 단위로 세므로 파일이 여럿인 첨부도 하나로 셉니다. 새 업로드를 시작하거나 진행 중인 업로드의 시작 요청을 다시 보내면 모든 파일의 선언 크기가 디스크에 들어가는지 확인합니다. 완료된 업로드의 시작 요청을 다시 보내면 디스크 여유 공간을 확인하지 않습니다.
 - **같은 순간의 두 begin.** 같은 작성자가 같은 `operationKey`로 `artifact_begin`을 두 번 불렀는데 둘 다 업로드가 없는 것을 보고 같은 순간에 INSERT하면, 유일 키 `(owner, operation_key)`가 하나만 통과시킵니다. 진 쪽은 저장소의 유일 키 위반 그대로가 아니라 `ARTIFACT_BUSY`(`details.reason`은 `begin-in-progress`, `retryable` true)로 답합니다. 이 답은 유스케이스의 트랜잭션이 끝난 뒤 진입점이 만듭니다. 유스케이스는 위반을 잡아서 이어 가지 않고, 서버는 begin을 다시 보내지도 않습니다. 같은 `artifact_begin`을 다시 보내면 이긴 쪽의 `uploadId`로 답합니다(내용이 다르면 `ARTIFACT_OPERATION_CONFLICT`).
 - **동시 begin의 받아들인 한계.** 한도는 격리 수준 `READ COMMITTED`의 트랜잭션에서 행을 읽어 검사하며, 두 begin 사이에는 잠금이 없습니다. 그래서 `operationKey`가 다른 begin이 같은 순간에 돌면, 그 순간에 선언한 만큼 열린 업로드 수(`max-open-per-owner`)와 예산(`staging-budget-bytes`, `attachment-budget-bytes`)을 함께 넘을 수 있습니다. 이 한계는 받아들입니다. 한도는 회계가 아니라 디스크를 지키는 장치이고, 이미 시작한 업로드는 잘라 내지 않으며, 다음 `artifact_begin`은 그 업로드를 모두 보고 끝나거나 만료될 때까지 거부합니다.
 - **청크.** 마지막 청크를 같은 내용으로 다시 보내면 전과 같이 답합니다. 같은 번호에 다른 내용, 순서가 어긋난 번호, `COMPLETED`인 업로드에 보낸 청크는 `ARTIFACT_CHUNK_CONFLICT`입니다. 청크 해시가 맞지 않으면 `CHUNK_HASH_MISMATCH`입니다. 선언 크기를 넘게 되는 청크는 덧붙이기 전에 `ARTIFACT_HASH_MISMATCH`로 거부합니다. 청크를 반영할 때마다 첨부의 모든 파일의 만료 시각을 그 시점부터 다시 셉니다(`upload-ttl`). 그래서 첨부는 통째로 살고 통째로 죽으며, 일찍 보낸 파일이 다른 파일을 보내는 동안 정리되는 일이 없습니다. 만료된 업로드의 청크는 `ARTIFACT_EXPIRED`이고, 알 수 없는 `uploadId`는 `ARTIFACT_NOT_FOUND`이고, 올바른 `uploadId`의 청크는 어느 세션이나 클라이언트가 보내도 받습니다.
@@ -175,8 +175,8 @@
 | `sennard.attachments.disk-margin-bytes` | `64MB` | 파일을 쓴 뒤에도 디스크에 남겨야 하는 공간. 모자라면 쓰기를 `ARTIFACT_STORAGE_FULL`로 거부. 비교식은 `usable - size < margin`. 기본값은 파일 상한과 별개로 64 MiB를 남김. 관리자가 조정하는 자원 정책이며 측정값은 아님 |
 | `sennard.attachments.upload-ttl` | `10m` | 업로드 만료 시간. 마지막 청크부터 다시 셈 |
 | `sennard.attachments.orphan-grace` | `24h` | 행 없는 파일과 대체된 파일을 `orphans/`로 옮기기 전의 유예 |
-| `sennard.attachments.reaper-interval` | `1m` | 정리기 주기(한 바퀴가 끝난 뒤의 고정 지연). 정리기는 만료된 업로드 행과 완료된 업로드 행을 DB에서 찾아 지우기만 함 |
-| `sennard.attachments.reconcile-interval` | `24h` | 폴더와 행을 대조하는 주기(대조가 끝난 뒤의 고정 지연). 행 없는 파일, 대체된 파일, `orphans/`의 파일을 다룸. 시작 뒤 저장소가 준비됐을 때 한 번, 그리고 `--yes` 없는 `sennard attachments purge-orphans`에서도 돎. 기본값은 `orphan-grace`의 기본값과 같음. 파일은 `orphan-grace`가 지나야 옮기므로 그보다 자주 대조하면 같은 파일을 다시 볼 뿐이고, 유예마다 한 번이면 파일을 많아야 주기 하나만큼 늦게 옮김. 측정이 아니라 판단임. 대조는 폴더의 모든 파일을 파일마다 한 번에서 세 번 조회하므로 정리기처럼 1분마다 돌리지 않음 |
+| `sennard.attachments.reaper-interval` | `1m` | 만료된 임시 업로드의 정리 주기(한 바퀴가 끝난 뒤의 고정 지연) |
+| `sennard.attachments.reconcile-interval` | `24h` | 폴더와 행을 대조하는 주기(대조가 끝난 뒤의 고정 지연). 행 없는 파일, 대체된 파일, `orphans/`의 파일을 다룸. 시작 뒤 저장소가 준비됐을 때 한 번, 그리고 `--yes` 없는 `sennard attachments purge-orphans`에서도 돎. 기본값은 `orphan-grace`의 기본값과 같음. 파일은 `orphan-grace`가 지나야 옮기므로 그보다 자주 대조하면 같은 파일을 다시 볼 뿐이고, 유예마다 한 번이면 파일을 많아야 주기 하나만큼 늦게 옮김. 측정이 아니라 판단임. 대조는 폴더의 모든 파일을 파일마다 두 번에서 네 번 조회하므로 정리기처럼 1분마다 돌리지 않음 |
 
 청크 크기와 첨부의 파일 개수를 정하는 키는 없습니다. 상수 262144바이트와 64입니다(`AttachmentFileStore.MAX_CHUNK_BYTES`, `AttachmentService.MAX_FILES`). 양수가 아닌 값(`max-file-bytes`, `upload-ttl`, `reaper-interval`, `reconcile-interval`), 음수인 `orphan-grace`, 올바르지 않은 `active-key-id`는 시작을 막습니다.
 
@@ -224,15 +224,15 @@
 
 두 일이 각자의 주기로 따로 돕니다. 드는 비용이 다르기 때문입니다(`AttachmentReaperRounds`가 둘을 등록합니다).
 
-- **정리기**(`AttachmentMaintenance.reap`)는 시작 `reaper-interval` 뒤에 첫 바퀴를 돌고, 이후 한 바퀴가 끝난 뒤 `reaper-interval`마다 다시 돕니다. 만료된 업로드 행과 완료된 업로드 행을 DB에서 찾아 지우기만 합니다(아래 첫 두 규칙). 폴더를 나열하지 않고 파일마다 묻지도 않습니다.
-- **폴더와 행의 대조**(`AttachmentMaintenance.reconcileFolder`, 아래에서 파일을 옮기는 두 규칙)는 폴더의 모든 파일을 파일마다 한 번에서 세 번 조회합니다. 세 경우에 돕니다. 시작 뒤 저장소가 준비됐을 때 한 번(`ServerStartTasks`, 요청을 받은 뒤에 도는 작업이라 요청이 기다리지 않음), 그 뒤 `reconcile-interval`마다(첫 번째는 시작 `reconcile-interval` 뒤), 그리고 `--yes` 없이 `sennard attachments purge-orphans`를 실행할 때마다입니다.
+- **정리기**(`AttachmentMaintenance.reap`)는 서버가 시작되고 `reaper-interval`이 지나면 처음 실행합니다. 이후 한 바퀴가 끝날 때마다 같은 간격으로 반복합니다. DB에서 만료된 임시 업로드 행을 찾아 해당 파일과 함께 지웁니다.
+- **폴더와 행의 대조**(`AttachmentMaintenance.reconcileFolder`, 아래에서 파일을 옮기는 두 규칙)는 폴더의 모든 파일을 파일마다 두 번에서 네 번 조회합니다. 세 경우에 돕니다. 시작 뒤 저장소가 준비됐을 때 한 번(`ServerStartTasks`, 요청을 받은 뒤에 도는 작업이라 요청이 기다리지 않음), 그 뒤 `reconcile-interval`마다(첫 번째는 시작 `reconcile-interval` 뒤), 그리고 `--yes` 없이 `sennard attachments purge-orphans`를 실행할 때마다입니다.
 
 실패한 바퀴나 대조는 로그에 남기고 다음 차례에 다시 합니다.
 
-- **만료된 업로드.** 후보마다 `DELETE FROM upload_staging WHERE id = ? AND state = 'STAGING' AND expires_at <= ?`를 실행합니다. 조건 전체를 현재 행으로 다시 평가하므로 그사이 완료됐거나 만료 시각이 늘어난 업로드는 건너뜁니다. 한 행이 지워졌을 때만 파일을 지웁니다. 둘 사이에 프로세스가 죽으면 행 없는 파일이 남고, 다음 규칙이 처리합니다.
-- **완료된 업로드.** `DELETE ... WHERE id = ? AND state = 'COMPLETED'`로 행을 지웁니다. 파일은 첨부의 것이므로 지우지 않습니다.
+- **만료된 업로드.** 후보마다 `DELETE FROM upload_staging WHERE id = ? AND state = 'STAGING' AND expires_at <= ?`를 실행합니다. 조건 전체를 현재 행으로 다시 평가하므로 그사이 완료됐거나 만료 시각이 늘어난 업로드는 건너뜁니다. 한 행이 지워졌을 때만 파일을 지웁니다. 둘 사이에 프로세스가 죽으면 행 없는 파일이 남고, 폴더와 행을 대조할 때 처리합니다.
+- **완료된 업로드.** 같은 시작 요청에 기존 첨부 ID와 업로드 ID를 돌려주기 위해 완료 행을 보존합니다. 완료 행은 임시 업로드 한도에 포함되지 않으며 파일과 암호화 키의 소유권에도 관여하지 않습니다. 현재 파일 사본은 첨부의 저장 행으로 판정합니다. 파일 사본과 `STAGING` 행이 모두 조회되지 않으면 사본을 한 번 더 조회합니다. 두 조회 사이에 완료 트랜잭션이 첫 사본을 커밋할 수 있기 때문입니다.
 - **대체된 파일**(대조). `attachment_storage` 행은 있으나 그 파일의 현재 행이 아닌 파일(다시 암호화 뒤의 옛 파일)은 대체한 행을 쓴 뒤 `orphan-grace`가 지나면 `orphans/`로 옮깁니다. 옛 행으로 읽기를 시작한 요청이 사라진 파일을 만나지 않게 하기 위해서입니다.
-- **행 없는 파일**(대조). `upload_staging`과 `attachment_storage`의 어느 행도 이름을 가리키지 않는 파일은 마지막으로 쓰인 뒤 `orphan-grace`가 지나면 `directory` 아래 `orphans/`로 옮깁니다. 지우지 않습니다. 옛 백업으로 DB를 되돌리면 정상 파일이 이렇게 보일 수 있기 때문입니다. `orphans/`의 파일 이름을 가리키는 행이 다시 생기면 대조가 제자리로 돌려놓습니다.
+- **행 없는 파일**(대조). `upload_staging`의 `STAGING` 행과 `attachment_storage` 행 중 어느 쪽도 이름을 가리키지 않는 파일은 마지막으로 쓰인 뒤 `orphan-grace`가 지나면 `directory` 아래 `orphans/`로 옮깁니다. 지우지 않습니다. 옛 백업으로 DB를 되돌리면 정상 파일이 이렇게 보일 수 있기 때문입니다. `orphans/`의 파일 이름을 가리키는 행이 다시 생기면 대조가 제자리로 돌려놓습니다.
 - **`orphans/` 비우기**는 명시 명령으로만 합니다: `sennard attachments purge-orphans --yes`. 지운 파일 이름은 로그(`ATTACHMENT_QUARANTINE_PURGED`)에 남습니다. 확인한 실행은 `orphans/`에 있는 파일을 지우며 그 전에 폴더를 대조하지 않습니다. 그래서 `--yes` 없는 실행이 나열한 파일을 그대로 지우고, 지금 대조가 옮길 파일을 보지 못한 채 지우는 일은 없습니다.
 - **손상은 보고만 하고 고치지 않습니다.** 현재 파일이 없거나 태그·해시·크기·끝 표시가 맞지 않는 첨부는 `sennard attachments check`가 보고하며 지우지 않습니다. 어떤 기록도 가리키지 않는 첨부는 보존합니다.
 
@@ -279,7 +279,7 @@
 
 단계 결과는 모든 파일을 첨부 id와 파일 번호로 가리킵니다(계약은 `contracts/stage-result.v1.schema.json`). `evidence[]`, `output.artifacts[]`, `outputFile`은 각각 `attachmentId`, `seq`(첨부 안의 파일 번호. 생략하면 0이며, 파일이 하나인 첨부의 유일한 파일), `digest`(그 파일의 sha256)를 담고, `claim_workflow_attempt`의 `priorFailure.evidenceRefs`는 첨부를 id로 가리킵니다. 서버는 호출자 컴퓨터의 경로를 읽지 않습니다. 결과를 기록하는 세션이 먼저 업로드 클라이언트로 파일을 첨부합니다. 그다음 돌려받은 `attachmentId`와 파일마다의 `seq`, `sha256`을 이 필드에 넣습니다. 여러 항목이 한 첨부의 서로 다른 파일을 가리킬 수 있습니다. 계약이 `attachmentId`와 함께 `digest`를 요구하므로, `digest`가 없으면 판정 전에 `INVALID_INPUT`으로 거절합니다.
 
-- **포인터는 기록 트랜잭션 안에서 행으로 판정합니다.** `EvidenceAttachments`가 결과에 적힌 모든 첨부를 조회해 두 가지를 검사합니다. 첨부가 있는지, 만든 사람이 결과를 기록하는 세션과 같은지입니다. 하나라도 아니면 기록이 실패하고 아무것도 기록되지 않습니다. 오류는 `BINDING_INVALID`이며 `details.reason`은 `ATTACHMENT_NOT_FOUND` 또는 `ATTACHMENT_AUTHOR_MISMATCH`입니다. 작성자는 호출한 세션의 actor ID이며 `artifact_begin`이 `owner`로 기록하는 값과 같습니다. 트랜잭션 안에서는 파일을 읽지 않습니다.
+- **포인터는 기록 트랜잭션 안에서 행으로 판정합니다.** `EvidenceAttachments`가 결과에 적힌 모든 첨부를 조회해 두 가지를 검사합니다. 첨부가 있는지, 작성자가 결과를 기록하는 메인 세션과 같은지입니다. 하나라도 아니면 기록이 실패하고 아무것도 기록되지 않습니다. 오류는 `BINDING_INVALID`이며 `details.reason`은 `ATTACHMENT_NOT_FOUND` 또는 `ATTACHMENT_AUTHOR_MISMATCH`입니다. 작성자는 호출이 속한 메인 세션의 식별자이며 `artifact_begin`이 `owner`로 기록하는 값과 같습니다. 트랜잭션 안에서는 파일을 읽지 않습니다.
 - **digest는 행과 비교합니다.** 첨부의 sha256이 선언한 `digest`와 같으면 서버가 `artifactChecks`에 `SHA256_MATCHED`를 기록합니다. 다르면 통과하는 단계는 `BINDING_INVALID`(`details.reason` `ARTIFACT_DIGEST_MISMATCH`)로 실패하고, 다른 단계는 `NOT_CHECKED`로 기록합니다. 두 항목이 같은 첨부를 가리킬 수 있습니다.
 - **출력 파일과 고정된 요청은 트랜잭션 앞에서 읽습니다.** 진입점이 각 첨부에서 `AttachmentContents`로 읽고(읽기·복호화·해시 계산은 트랜잭션 안에서 하지 않습니다) 내용을 유스케이스에 넘깁니다. 출력 파일은 16 MiB 이하이며 sha256이 선언한 `digest`와 같아야 합니다.
 - **finalize는 호출자 컴퓨터의 파일을 읽지 않습니다.** 필수 감사는 감사한 첨부가 기록된 sha256 그대로 남아 있고 전체를 읽을 수 있는지 `AttachmentContents`로 확인합니다. 아니면 finalize가 `GATE_FAILED`(`details.reason` `AUDIT_TARGET_UNAVAILABLE`)로 실패합니다. 근거로 쓰인 첨부는 지워지지 않으므로, 업로드한 뒤 원본 파일을 바꾸거나 지워도 finalize는 실패하지 않습니다.

@@ -19,7 +19,7 @@ Sennard Personal의 첫 공개판인 1.0.0 설치 절차는 [README의 설치 �
 후속 판으로 업데이트하기 전에 해당 릴리스 노트의 「업그레이드 전 확인」에서 이관·호환성·복구 절차를 확인합니다.
 개인판을 업데이트할 때는 다음 절차를 따릅니다.
 
-1. 연동 중인 호스트 세션을 닫고 Sennard 상태 폴더와 연결된 업무 데이터베이스를 백업합니다.
+1. 연동 중인 호스트 세션을 닫습니다. `sennard stop`으로 서버를 멈춘 뒤 Sennard 상태 폴더와 연결된 업무 데이터베이스를 백업합니다.
 2. Sennard가 이미 설치된 호스트에서는 [README의 호스트별 설치 절차](../../README.ko.md#설치)에 따라 플러그인을 대상 판과 정확히 같은 판으로 업데이트합니다. Antigravity 플러그인 파일을 교체하기 전에는 앱을 닫습니다. 훅을 추가로 등록하고 새 세션을 시작하는 방법은 4단계를 따릅니다.
 
    Sennard 개인판 1.3.0의 GitHub 릴리스 첨부 파일에는 Gemini CLI 설치용 별도 패키지가 없습니다. 공개 소스에는 `gemini-extension/`이 포함됩니다. `~/.gemini/extensions/sennard`에 이전 버전의 Sennard 확장이 남아 있으면 `HOST_PACKAGE_VERSION_MISMATCH` 오류로 업그레이드가 중단됩니다. 터미널에서 `gemini extensions uninstall sennard`로 이전 확장을 제거한 뒤 업그레이드를 다시 실행합니다. [Gemini CLI 공식 제거 안내](https://geminicli.com/docs/extensions/reference/#uninstall-an-extension)를 참고합니다.

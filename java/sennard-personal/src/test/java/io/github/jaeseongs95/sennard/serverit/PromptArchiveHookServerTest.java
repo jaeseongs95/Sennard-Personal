@@ -199,12 +199,12 @@ class PromptArchiveHookServerTest {
         postedPrompt(AGY, child, "input before the actor is known");
         assertEquals(0, prompts(AGY, child));
 
+        DomainServerSupport.observeAgyRoot(server, root);
         DomainServerSupport.observeAgy(server, child, root, root);
         assertEquals(0, prompts(AGY, child));
         postedPrompt(AGY, child, "input of the now-linked child");
         assertEquals(0, prompts(AGY, child));
 
-        DomainServerSupport.observeAgyRoot(server, root);
         answer(post(AGY, AGY.promptEvent(), root, body -> {
             body.put("invocationNum", 0);
             body.remove("lastUserInput");

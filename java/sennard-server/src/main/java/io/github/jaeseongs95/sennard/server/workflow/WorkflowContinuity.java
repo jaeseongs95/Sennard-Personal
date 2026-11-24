@@ -35,14 +35,16 @@ public class WorkflowContinuity {
     private final ContinuityStore store;
     private final WorkflowSettlement settlement;
     private final ResourceLimitSource limits;
+    private final WorkflowDocuments documents;
 
     private final Clock clock;
 
-    public WorkflowContinuity(ContinuityStore store, WorkflowSettlement settlement, Clock clock, ResourceLimitSource limits) {
+    public WorkflowContinuity(ContinuityStore store, WorkflowSettlement settlement, Clock clock, ResourceLimitSource limits, WorkflowDocuments documents) {
         this.clock = clock;
         this.store = store;
         this.settlement = settlement;
         this.limits = limits;
+        this.documents = documents;
     }
 
     ContinuityStore store() {
@@ -109,6 +111,30 @@ public class WorkflowContinuity {
         settlement.settle(store.ensureTask(correlate(call.sessionId()), now), now);
     }
 
+    /** Called under the same start guard that serializes the new run, before creating it. */
+    void requireInquirySlot(WorkflowCall call) {
+        ContinuityStore.Task task = store.readTask(correlate(call.sessionId()));
+        if (task == null) {
+            return;
+        }
+        for (String rootId : store.boundRoots(task.taskCorrelation(), task.currentEpoch())) {
+            if (kindOf(task, rootId) != WorkflowKind.INQUIRY) {
+                continue;
+            }
+            switch (documents.readCurrent(rootId)) {
+                case WorkflowDocuments.Readable read -> {
+                    WorkflowReceipt run = read.latestRun();
+                    if (run != null && !run.state().isTerminal()) {
+                        throw new WorkflowFailure(WorkflowCode.INVALID_TRANSITION,
+                                msg("workflow.service.inquiryAlreadyOpen", "runId", run.runId()),
+                                details("reason", "INQUIRY_ALREADY_OPEN", "runId", run.runId(), "nextAction", "resume_workflow"));
+                    }
+                }
+                case WorkflowDocuments.Unavailable unavailable -> throw unavailable.cause();
+            }
+        }
+    }
+
     /** The longer paths that start a run ({@code start_guarded_workflow}) open a change. */
     void prepareWorkflowStart(WorkflowCall call, String rootId, boolean childOwner) {
         prepareWorkflowStart(call, rootId, childOwner, WorkflowKind.CHANGE);
@@ -138,7 +164,9 @@ public class WorkflowContinuity {
 
     /** The request in progress is handled by this instance, for this agent: the record the hooks look for before they let a tool run. Found by the instance's id, with the agent's. */
     private void attribute(ContinuityStore.Task task, WorkflowCall call, String rootId, String now) {
+        long turnStart = turnStart(task);
         store.recordObservation(task.taskCorrelation(), task.currentEpoch(), WorkflowEvents.attributedEvent(hashOpaque("actor", call.actorId()), rootId), null, true, now);
+        store.recordObservation(task.taskCorrelation(), task.currentEpoch(), WorkflowEvents.turnSelected(turnStart), null, true, now);
     }
 
     /**
@@ -180,26 +208,35 @@ public class WorkflowContinuity {
     }
 
     private TransitionTurn transitionTurn(ContinuityStore.Task task, WorkflowCall call, boolean child) {
-        ContinuityStore.ObservationAt start = child ? null : store.lastObservationAnyEpoch(task.taskCorrelation(), WorkflowEvents.TURN_START);
+        Long turnStart = child ? null : turnStart(task);
         return new TransitionTurn(task.taskCorrelation(), task.currentEpoch(),
-                WorkflowEvents.transitionPrefix(child ? hashOpaque("actor", call.actorId()) : null, start == null ? 0 : start.id()));
+                WorkflowEvents.transitionPrefix(child ? hashOpaque("actor", call.actorId()) : null, turnStart == null ? 0 : turnStart), turnStart);
     }
 
-    record TransitionTurn(String correlation, long epoch, String prefix) {
+    private long turnStart(ContinuityStore.Task task) {
+        ContinuityStore.ObservationAt start = store.lastObservationAnyEpoch(task.taskCorrelation(), WorkflowEvents.TURN_START);
+        return start == null ? 0 : start.id();
+    }
+
+    record TransitionTurn(String correlation, long epoch, String prefix, Long rootTurnStart) {
     }
 
     /** Written in the same transaction as the resulting revision and its operation receipt. */
     void recordTransition(TransitionTurn turn, WorkflowEvents.Transition transition, String subjectId, long revision) {
-        store.recordObservation(turn.correlation(), turn.epoch(), turn.prefix() + transition.name() + ":" + subjectId + ":" + revision,
-                null, true, clock.instant().toString());
+        String now = clock.instant().toString();
+        store.recordObservation(turn.correlation(), turn.epoch(), turn.prefix() + transition.name() + ":" + subjectId + ":" + revision, null, true, now);
+        if (turn.rootTurnStart() != null) {
+            store.recordObservation(turn.correlation(), turn.epoch(), WorkflowEvents.turnSelected(turn.rootTurnStart()), null, true, now);
+        }
     }
 
     /** The kind an instance was opened as; an instance with no record was opened by a longer path and is a change. */
     WorkflowKind kindOf(WorkflowCall call, String rootId) {
         ContinuityStore.Task task = store.readTask(correlate(call.sessionId()));
-        if (task == null) {
-            return WorkflowKind.CHANGE;
-        }
+        return task == null ? WorkflowKind.CHANGE : kindOf(task, rootId);
+    }
+
+    private WorkflowKind kindOf(ContinuityStore.Task task, String rootId) {
         for (WorkflowKind kind : WorkflowKind.values()) {
             if (store.hasObservation(task.taskCorrelation(), task.currentEpoch(), WorkflowEvents.kindEvent(kind, rootId))) {
                 return kind;
@@ -237,7 +274,8 @@ public class WorkflowContinuity {
             throw new WorkflowFailure(WorkflowCode.INVALID_TRANSITION,
                     msg("workflow.capacity.reached", "openCount", capacity.openCount(), "limit", capacity.limit()),
                     details("reason", "SESSION_WORKFLOW_LIMIT_REACHED", "limit", capacity.limit(), "openCount", capacity.openCount(), "remaining", 0,
-                            "nextAction", "resume_workflow", "changePlanTool", "submit_change_plan"));
+                            "nextAction", "resume_workflow", "changePlanTool", "submit_change_plan",
+                            "recoveryTool", "list_session_workflows", "recoveryArgs", Map.of("openRootAfter", "")));
         }
     }
 

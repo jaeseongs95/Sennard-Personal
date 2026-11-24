@@ -131,7 +131,7 @@ The history table (`sennard.expand_history`, `sennard.contract_history`; `sennar
 | `version` | `BIGINT` | the script's number |
 | `attempt` | `INTEGER` | which attempt of that number this row is (from 1) |
 | `script` | `VARCHAR(255)` | the file name |
-| `digest` | `CHAR(64)` | SHA-256 of the file as it is in the jar, before the placeholder is replaced |
+| `digest` | `CHAR(64)` | SHA-256 of the original file in the jar, before SQL is prepared for execution |
 | `applied_at` | `TIMESTAMP` | UTC, from the injected `Clock` |
 | `outcome` | `VARCHAR(10)` | `SUCCEEDED` or `FAILED` (a `CHECK` where the database takes it) |
 
@@ -147,6 +147,8 @@ Changing a table that already holds rows:
 - **A database is not recreated to change a table.** `ALTER TABLE` is the way, and the rows are kept. `ALTER TABLE t ADD c <type>` (without the keyword `COLUMN`) is accepted by PostgreSQL, Oracle, SQL Server, MySQL, MariaDB, Db2 and H2, so a script may add a column to an existing table. A `NOT NULL` column added to a table that has rows is written `ADD c <type> DEFAULT <constant> NOT NULL`, with `DEFAULT` before `NOT NULL`, the order Oracle takes. `DROP COLUMN`, `DROP CONSTRAINT` and `ADD CONSTRAINT` are portable too. The earlier sentence in the comment of `V12__session_kind.sql`, that the standard `ALTER TABLE` has no `ADD COLUMN` spelling that Oracle and SQL Server take and so no script adds a column to an existing table, is wrong; that script is not edited because it is applied.
 - **Statements that differ by product are avoided:** `SET NOT NULL`, `MODIFY`, `ALTER COLUMN` and `RENAME`. A change that needs one of them makes a new table, copies the rows with `INSERT ... SELECT`, and drops the old table.
 - **A released migration is not changed; a business change goes forward only, in a new `V` script (`ALTER TABLE` first, additions preferred).** Only a script that has not been released may be corrected. `V21__attachment.sql` creates the final attachment bundle structure directly (see [Attachments and Uploads](attachments.md)). `V22` (`workflow_runs.kind`, added with `ALTER TABLE ... ADD kind VARCHAR(32) DEFAULT 'CHANGE' NOT NULL`) is an example of the form a change takes after release: it changes a table that already exists and keeps its rows.
+
+When business expand V27 is pending, the runner verifies the released resource path, SHA-256 and lock-row INSERT. It binds the attempt's Java UTC timestamp to that INSERT within the migration transaction. Databases with a successful V27 keep their existing history and lock row. A mismatch stops V27 before recording an attempt. If the DBMS committed part of a failed attempt through nontransactional DDL, recover the pre-attempt schema before retrying and keep the failed history row.
 
 ### The operationKey of a Write Tool and Its Receipt
 

@@ -41,7 +41,7 @@ import tools.jackson.databind.node.ObjectNode;
  * <pre>
  * q  the concurrency limit: with {@code sennard.run.max-concurrent} 2, two commands running and a third asked for is refused at once and starts nothing; when one has ended a new one runs
  * r  the server's stop kills the running command and the process it started, a run asked for after the stop is refused
- * s  the runner is started with the context and a run writes nothing under the state directory (its output is read from the pipes of the command)
+ * s  the runner is started with the context and a run writes the output of its command to log files of a folder of its own under the state directory
  * </pre>
  */
 class EngineeringRunLifecycleTest {
@@ -184,7 +184,7 @@ class EngineeringRunLifecycleTest {
     // ---------------------------------------------------------------------------------------------------------------------------------------------------- s
 
     @Test
-    void theRunnerIsStartedWithTheContextAndARunWritesNothingUnderTheStateDirectory(@TempDir Path state, @TempDir Path root) throws Exception {
+    void theRunnerIsStartedWithTheContextAndARunLogsItsOutputInAFolderOfItsOwnUnderTheStateDirectory(@TempDir Path state, @TempDir Path root) throws Exception {
         try (AnnotationConfigApplicationContext context = SkillCheckContext.open(state)) {
             assertTrue(context.getBean(LocalProcessRunner.class).isRunning(), "the runner was started with the context");
             SkillCheckService service = context.getBean(SkillCheckService.class);
@@ -194,7 +194,11 @@ class EngineeringRunLifecycleTest {
 
             assertEquals("PASS", outcome.body().get("value").get("status").stringValue(), () -> outcome.body().toString());
             assertTrue(Files.exists(root.resolve("ran.txt")));
-            assertFalse(Files.exists(state.resolve("runs")), "no folder is made for the output of the run");
+            try (java.util.stream.Stream<java.nio.file.Path> folders = Files.list(state.resolve("executions"))) {
+                java.util.List<java.nio.file.Path> made = folders.toList();
+                assertEquals(1, made.size(), "one folder was made for the one run: " + made);
+                assertTrue(Files.isRegularFile(made.get(0).resolve("stdout.log")) && Files.isRegularFile(made.get(0).resolve("stderr.log")), "a log file for each stream");
+            }
         }
     }
 }

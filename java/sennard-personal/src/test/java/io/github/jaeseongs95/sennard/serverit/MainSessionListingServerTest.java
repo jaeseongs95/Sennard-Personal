@@ -8,9 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -22,6 +24,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.mcp.annotation.McpMeta;
 
+import io.github.jaeseongs95.sennard.app.board.BoardService;
 import io.github.jaeseongs95.sennard.server.mcp.McpConfiguration;
 import io.github.jaeseongs95.sennard.server.mcp.McpSessionResolver;
 import io.github.jaeseongs95.sennard.server.mcp.SessionBinding;
@@ -95,6 +98,31 @@ class MainSessionListingServerTest {
     }
 
     // ------------------------------------------------------------------------------------------------------------------ cases
+
+    @Test
+    void anotherSessionCanDistinguishSameRoleSessionsByTheirUserTitles() throws Exception {
+        String a = sennard.session();
+        String b = sennard.session();
+        sennard.call("update_session_status", Map.of("schemaVersion", "1.0.0", "summary", "Inspecting", "role", "developer"), a);
+        sennard.call("update_session_status", Map.of("schemaVersion", "1.0.0", "summary", "Inspecting", "role", "developer"), b);
+        BoardService board = sennard.bean(BoardService.class);
+        Instant observedAt = Instant.now();
+        board.observeTitle("codex", a, "Draft A", observedAt);
+        board.observeTitle("codex", b, "Draft A", observedAt);
+        assertEquals("Draft A", listedRow(a).path("userTitle").asString());
+        assertEquals("Draft A", listedRow(b).path("userTitle").asString());
+
+        board.observeTitle("codex", a, "Review β", observedAt.plusMillis(1));
+        JsonNode renamed = listedRow(a);
+        assertEquals("Review β", renamed.path("userTitle").asString());
+        assertEquals("codex", renamed.path("host").asString());
+        assertEquals(a, renamed.path("sessionId").asString());
+        assertFalse(renamed.path("current").asBoolean());
+        assertEquals("developer", renamed.path("role").asString());
+        assertEquals("Draft A", listedRow(b).path("userTitle").asString());
+        assertEquals("developer", listedRow(b).path("role").asString());
+        assertTrue(listedRow(self).path("userTitle").isMissingNode());
+    }
 
     /** Case 1: a hook that carries agent_id is a subagent's; it registers nothing and the session is not listed. */
     @Test
@@ -211,23 +239,30 @@ class MainSessionListingServerTest {
         assertEquals(0, refs(session), "and no session");
     }
 
-    /** Case 5: a conversation an Antigravity hook registered as a root, and a tool call then says is a child's, leaves the list. */
+    /** Case 5: an Antigravity conversation stays hidden when a tool call identifies it as a child. */
     @Test
-    void aConversationObservedAsAChildByAToolCallLeavesTheList() throws Exception {
+    void aConversationObservedAsAChildByAToolCallStaysHidden() throws Exception {
         String child = SessionServerSupport.uniqueSession();
         String root = SessionServerSupport.uniqueSession();
         assertEquals(200, SessionServerSupport.post(sennard.server.port, "/hooks/v1/agy/SessionStart", SessionServerSupport.hook("windows", "agy", "SessionStart", child, "none")).status());
-        assertTrue(listed().contains(child), "the hook cannot tell: it is listed until a call says otherwise");
+        assertEquals(1, refs(child));
+        assertEquals("UNKNOWN", kindOf(child));
+        assertFalse(listed().contains(child));
+        assertNull(adminRow(child));
 
+        assertEquals(200, SessionServerSupport.post(sennard.server.port, "/hooks/v1/agy/SessionStart", SessionServerSupport.hook("windows", "agy", "SessionStart", root, "none")).status());
+        DomainServerSupport.observeAgyRoot(sennard.server, root);
         DomainServerSupport.observeAgy(sennard.server, child, root, root);
 
-        assertFalse(listed().contains(child), "observed as a child: not listed");
-        assertEquals(null, adminRow(child), "nor on the page");
         assertEquals("CHILD", kindOf(child));
+        assertFalse(listed().contains(child));
+        assertNull(adminRow(child));
 
-        // The child's later hooks do not bring it back.
+        // Later hooks leave the child hidden.
         assertEquals(200, SessionServerSupport.post(sennard.server.port, "/hooks/v1/agy/PostToolUse", SessionServerSupport.hook("windows", "agy", "PostToolUse", child, "none")).status());
-        assertFalse(listed().contains(child), "a later hook of the child does not list it again");
+        assertEquals("CHILD", kindOf(child));
+        assertFalse(listed().contains(child));
+        assertNull(adminRow(child));
     }
 
     /** Case 6: the main session's end hook still ends it. */
@@ -262,14 +297,23 @@ class MainSessionListingServerTest {
         assertEquals("MAIN", kindOf(session));
     }
 
-    /** Case 8: on a host whose hooks cannot mark a subagent, a session that said nothing about itself is offered to the user as undecided. */
+    /** Case 8: an Antigravity conversation becomes visible once a tool call confirms it is a main session. */
     @Test
-    void aSessionOfAHostThatMarksNoSubagentsAndSaidNothingIsUndecided() throws Exception {
-        String undecided = SessionServerSupport.uniqueSession();
-        assertEquals(200, SessionServerSupport.post(sennard.server.port, "/hooks/v1/agy/SessionStart", SessionServerSupport.hook("windows", "agy", "SessionStart", undecided, "none")).status());
-        JsonNode row = adminRow(undecided);
+    void anAntigravityConversationIsListedOnceObservedAsMain() throws Exception {
+        String conversation = SessionServerSupport.uniqueSession();
+        assertEquals(200, SessionServerSupport.post(sennard.server.port, "/hooks/v1/agy/SessionStart", SessionServerSupport.hook("windows", "agy", "SessionStart", conversation, "none")).status());
+        assertEquals(1, refs(conversation));
+        assertEquals("UNKNOWN", kindOf(conversation));
+        assertFalse(listed().contains(conversation));
+        assertNull(adminRow(conversation));
+
+        DomainServerSupport.observeAgyRoot(sennard.server, conversation);
+
+        assertEquals("MAIN", kindOf(conversation));
+        assertTrue(listed().contains(conversation));
+        JsonNode row = adminRow(conversation);
         assertNotNull(row);
-        assertTrue(row.path("kindUnknown").asBoolean(false), row.toString());
+        assertFalse(row.path("kindUnknown").asBoolean(false), row.toString());
 
         String main = SessionServerSupport.uniqueSession();
         assertEquals(200, post("SessionStart", null, claude("SessionStart", main, "none", "")));

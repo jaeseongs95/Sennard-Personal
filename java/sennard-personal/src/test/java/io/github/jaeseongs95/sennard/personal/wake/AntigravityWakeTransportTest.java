@@ -198,6 +198,18 @@ class AntigravityWakeTransportTest {
         }
     }
 
+    @Test void foreignExplicitExecutableDisablesBothLaunchPathsWithoutPathFallback() throws Exception {
+        var adapter = adapter(request -> { throw new AssertionError("discovery never launches"); });
+        var exposed = environment();
+        Path foreign = NativeLauncherFixture.executable(temporary.resolve("foreign.exe"), NativeLauncherFixture.foreignHeader());
+        exposed.put("PATH", temporary.toString());
+        exposed.put("ANTIGRAVITY_AGENTAPI_EXE", foreign.toString());
+        var managedTarget = new WakeTransport.Target(TARGET.hostSessionId(), temporary.toString());
+        assertAll(
+                () -> assertEquals(new WakeTransport.Availability.Missing("AGY_NATIVE_EXECUTABLE_MISSING"), adapter.connect(exposed, TARGET)),
+                () -> assertTrue(adapter.managedLauncher(exposed, managedTarget).isEmpty()));
+    }
+
     @Test void onlyExplicitNativeExecutableOrExposedPathIsUsed() throws Exception {
         var adapter = adapter(request -> { throw new AssertionError("connect never launches"); });
         var exposed = environment();
@@ -208,16 +220,26 @@ class AntigravityWakeTransportTest {
         assertInstanceOf(WakeTransport.Availability.Ready.class, adapter.connect(exposed, TARGET));
         exposed.put("ANTIGRAVITY_AGENTAPI_EXE", "");
         assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(exposed, TARGET), "present empty path cannot fall back");
-        Path script = Files.writeString(temporary.resolve("unsafe.cmd"), "echo unsafe");
-        exposed.put("ANTIGRAVITY_AGENTAPI_EXE", script.toString());
-        assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(exposed, TARGET));
+        for (String name : List.of("unsafe.cmd", "unsafe.bat", "unsafe.PS1")) {
+            Path script = NativeLauncherFixture.executable(temporary.resolve(name), NativeLauncherFixture.localHeader());
+            exposed.put("ANTIGRAVITY_AGENTAPI_EXE", script.toString());
+            assertEquals(new WakeTransport.Availability.Missing("AGY_NATIVE_EXECUTABLE_MISSING"), adapter.connect(exposed, TARGET), name);
+        }
         exposed.put("ANTIGRAVITY_AGENTAPI_EXE", "relative-agy.exe");
         assertInstanceOf(WakeTransport.Availability.Missing.class, adapter.connect(exposed, TARGET));
     }
 
     @Test void onlySendRunsAndCapturedProjectEnvironmentCannotBeReplaced() throws Exception {
         var exposed = environment();
-        exposed.put("UNRELATED_SECRET", "must-not-be-copied");
+        exposed.put("UNRELATED_SETTING", "fixture-value");
+        exposed.put("APPDATA", "managed-only");
+        exposed.put("Path", "fixture-path");
+        Map<String, String> expectedEnvironment = Map.of(
+                "ANTIGRAVITY_LS_ADDRESS", exposed.get("ANTIGRAVITY_LS_ADDRESS"),
+                "ANTIGRAVITY_PROJECT_ID", exposed.get("ANTIGRAVITY_PROJECT_ID"),
+                "ANTIGRAVITY_CSRF_TOKEN", exposed.get("ANTIGRAVITY_CSRF_TOKEN"),
+                "ANTIGRAVITY_CONVERSATION_ID", exposed.get("ANTIGRAVITY_CONVERSATION_ID"),
+                "Path", "fixture-path");
         List<ToolProcess.Request> calls = new ArrayList<>();
         String executable = exposed.get("ANTIGRAVITY_AGENTAPI_EXE");
         var connection = ready(exposed, request -> {
@@ -234,10 +256,7 @@ class AntigravityWakeTransportTest {
         assertFalse(request.inheritEnvironment());
         assertEquals(ToolProcess.Stderr.DISCARD, request.stderr());
         assertEquals(65536, request.maxOutputBytes());
-        assertEquals("project-a", request.environment().get("ANTIGRAVITY_PROJECT_ID"));
-        assertEquals("synthetic-token", request.environment().get("ANTIGRAVITY_CSRF_TOKEN"));
-        assertFalse(request.environment().containsKey("UNRELATED_SECRET"));
-        assertFalse(request.environment().containsKey("ANTIGRAVITY_AGENTAPI_EXE"));
+        assertEquals(expectedEnvironment, request.environment());
     }
 
     @Test void actualSessionStartTargetFencesEverySendEvenWithoutOptionalConversationEnvironment() throws Exception {
@@ -272,14 +291,19 @@ class AntigravityWakeTransportTest {
     }
 
     @Test void postSendFailuresStayUnknownAndPreStartFailureIsNotSent() throws Exception {
-        for (ToolProcess.Outcome failure : List.of(new ToolProcess.Finished(1, "synthetic-token".getBytes(StandardCharsets.UTF_8)),
-                new ToolProcess.TimedOut(), new ToolProcess.Overflowed())) {
+        Map<ToolProcess.Outcome, String> failures = Map.of(
+                new ToolProcess.Finished(1, "synthetic-token".getBytes(StandardCharsets.UTF_8)), "AGY_SEND_NONZERO",
+                new ToolProcess.TimedOut(), "AGY_SEND_TIMED_OUT", new ToolProcess.Overflowed(), "AGY_SEND_OUTPUT_LIMIT");
+        for (var entry : failures.entrySet()) {
             AtomicInteger calls = new AtomicInteger();
-            var outcome = ready(environment(), request -> { calls.incrementAndGet(); return failure; }).wake("conversation-a", "marker");
-            assertInstanceOf(WakeTransport.Outcome.Unknown.class, outcome);
+            var outcome = ready(environment(), request -> { calls.incrementAndGet(); return entry.getKey(); }).wake("conversation-a", "marker");
+            assertEquals(new WakeTransport.Outcome.Unknown(entry.getValue()), outcome);
             assertEquals(1, calls.get());
             assertFalse(outcome.toString().contains("synthetic-token"));
         }
+        Map<WakeProcess.Phase, WakeTransport.Outcome> expected = Map.of(
+                WakeProcess.Phase.STARTED, new WakeTransport.Outcome.Unknown("AGY_SEND_IO_AFTER_START"),
+                WakeProcess.Phase.NOT_STARTED, new WakeTransport.Outcome.NotSent("AGY_SEND_START_FAILED"));
         for (WakeProcess.Phase phase : WakeProcess.Phase.values()) {
             IOException cause = new IOException("synthetic-token");
             WakeProcess.Failure failure = new WakeProcess.Failure(phase, cause);
@@ -287,10 +311,10 @@ class AntigravityWakeTransportTest {
             assertEquals(phase, failure.phase());
             AtomicInteger calls = new AtomicInteger();
             var outcome = ready(environment(), request -> { calls.incrementAndGet(); throw failure; }).wake("conversation-a", "marker");
-            assertTrue(phase == WakeProcess.Phase.STARTED ? outcome instanceof WakeTransport.Outcome.Unknown : outcome instanceof WakeTransport.Outcome.NotSent);
+            assertEquals(expected.get(phase), outcome);
             assertEquals(1, calls.get());
         }
-        assertInstanceOf(WakeTransport.Outcome.NotSent.class, ready(environment(), request -> {
+        assertEquals(new WakeTransport.Outcome.NotSent("AGY_SEND_PREPARATION_FAILED"), ready(environment(), request -> {
             throw new IOException("synthetic-token");
         }).wake("conversation-a", "marker"));
     }
@@ -307,6 +331,7 @@ class AntigravityWakeTransportTest {
                     .wake("conversation-a", "marker");
             assertEquals(1, logged.list.size());
             var line = logged.list.getFirst();
+            assertEquals("AGY_SEND_FAILED", line.getFormattedMessage());
             assertNotNull(line.getThrowableProxy());
             String rendered = line.getFormattedMessage() + ThrowableProxyUtil.asString(line.getThrowableProxy());
             assertTrue(rendered.contains(IOException.class.getName()));
@@ -333,7 +358,7 @@ class AntigravityWakeTransportTest {
     @Test void sendInterruptRestoresInterruptAndRemainsUncertain() throws Exception {
         try {
             var outcome = ready(environment(), request -> { throw new InterruptedException("synthetic-token"); }).wake("conversation-a", "marker");
-            assertInstanceOf(WakeTransport.Outcome.Unknown.class, outcome);
+            assertEquals(new WakeTransport.Outcome.Unknown("AGY_SEND_CANCELLED"), outcome);
             assertTrue(Thread.currentThread().isInterrupted());
         } finally {
             Thread.interrupted();
@@ -341,8 +366,7 @@ class AntigravityWakeTransportTest {
     }
 
     private Map<String, String> environment() throws Exception {
-        Path executable = Files.write(temporary.resolve("agy.exe"), new byte[] {'M', 'Z', 0, 0});
-        assertTrue(executable.toFile().setExecutable(true));
+        Path executable = NativeLauncherFixture.executable(temporary.resolve("agy.exe"), NativeLauncherFixture.localHeader());
         return new HashMap<>(Map.of("ANTIGRAVITY_AGENTAPI_EXE", executable.toString(), "ANTIGRAVITY_LS_ADDRESS", "127.0.0.1:1234",
                 "ANTIGRAVITY_CSRF_TOKEN", "synthetic-token", "ANTIGRAVITY_PROJECT_ID", "project-a", "ANTIGRAVITY_CONVERSATION_ID", "conversation-a"));
     }

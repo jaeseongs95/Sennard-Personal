@@ -4,10 +4,8 @@
 
 package io.github.jaeseongs95.sennard.server.hook.host;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,7 +50,6 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Component
 public final class GeminiHookAdapter implements HostHookAdapter {
-    private static final String INVOKE_AGENT = "invoke_agent";
     private static final HostId HOST = GeminiHost.ID;
     private static final Path HOOKS_FILE = Path.of("hooks", "hooks.json");
     /** The extension's manifest, and the member of it that registers the MCP servers (RFC 6901). */
@@ -62,40 +59,6 @@ public final class GeminiHookAdapter implements HostHookAdapter {
     private static final List<String> SENNARD_TOOL_PREFIXES = List.of("mcp_sennard_", "sennard__");
     /** The host's time limit for a hook is in milliseconds (60 000 by default); a hook here waits for the server for nine seconds at most. */
     private static final int HOOK_TIMEOUT_MILLISECONDS = 10_000;
-    private static final String WINDOWS_RESULT_HOOK = """
-            $ErrorActionPreference = 'Stop';
-            $clock = [Diagnostics.Stopwatch]::StartNew();
-            $client = $null;
-            try {
-                $utf8 = [Text.UTF8Encoding]::new($false);
-                [Console]::InputEncoding = $utf8; [Console]::OutputEncoding = $utf8;
-                $start = [Diagnostics.ProcessStartInfo]::new();
-                $start.FileName = $utf8.GetString([Convert]::FromBase64String('%s'));
-                $start.Arguments = $utf8.GetString([Convert]::FromBase64String('%s'));
-                $start.UseShellExecute = $false; $start.CreateNoWindow = $true;
-                $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true;
-                $start.StandardOutputEncoding = $utf8; $start.StandardErrorEncoding = $utf8;
-                $client = [Diagnostics.Process]::Start($start);
-                $output = $client.StandardOutput.ReadToEndAsync(); $errors = $client.StandardError.ReadToEndAsync();
-                $body = $utf8.GetBytes([Console]::In.ReadToEnd());
-                $stdin = $client.StandardInput.BaseStream;
-                $sent = $stdin.WriteAsync($body, 0, $body.Length);
-                if (!$sent.Wait([Math]::Max(1, %d - [int]$clock.ElapsedMilliseconds))) { throw 'Hook input deadline'; }
-                $stdin.Close();
-                if (!$client.WaitForExit([Math]::Max(1, %d - [int]$clock.ElapsedMilliseconds))) { throw 'Hook result deadline'; }
-                $answer = $output.GetAwaiter().GetResult();
-                if ($client.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($answer)) { throw 'Hook result missing'; }
-                [Console]::Out.Write($answer); [Console]::Error.Write($errors.GetAwaiter().GetResult());
-            } catch {
-                [Console]::Out.Write((@{ decision = 'deny'; reason = 'The Sennard hook could not process this subagent result. Use Sennard peer messaging.' } | ConvertTo-Json -Compress));
-            } finally {
-                if ($null -ne $client) {
-                    try { if (!$client.HasExited) { $client.Kill(); } } finally { $client.Dispose(); }
-                }
-            };
-            exit 0
-            """;
-
     /** The events the adapter takes, by the name the host gives them. */
     enum Event implements HostEventName {
         SESSION_START("SessionStart"), SESSION_END("SessionEnd"), BEFORE_AGENT("BeforeAgent"), AFTER_AGENT("AfterAgent"), BEFORE_MODEL("BeforeModel"),
@@ -143,13 +106,11 @@ public final class GeminiHookAdapter implements HostHookAdapter {
         return switch (event) {
             case SESSION_START -> new HostEvent.SessionStarted(context, startKind(HookJson.text(input.source())));
             case SESSION_END -> new HostEvent.SessionEnded(context, HookJson.text(input.reason()));
-            case BEFORE_AGENT -> new HostEvent.UserPromptSubmitted(context, HookJson.text(input.prompt()), true);
+            case BEFORE_AGENT -> new HostEvent.UserPromptSubmitted(context, HookJson.text(input.prompt()), HostEvent.PromptOrigin.USER, true);
             case AFTER_AGENT -> new HostEvent.TurnEnded(context, Boolean.TRUE.equals(input.stopHookActive()), true);
             case BEFORE_MODEL -> new HostEvent.ModelCallStarting(context);
             case BEFORE_TOOL -> new HostEvent.ToolRequested(context, tool(input));
-            case AFTER_TOOL -> INVOKE_AGENT.equals(input.toolName()) && input.mcpContext() == null
-                    ? new HostEvent.NativePeerResult(context)
-                    : afterTool(context, input);
+            case AFTER_TOOL -> afterTool(context, input);
             case PRE_COMPRESS -> new HostEvent.CompactionStarting(context);
         };
     }
@@ -177,7 +138,11 @@ public final class GeminiHookAdapter implements HostHookAdapter {
         };
     }
 
-    /** {@code tool_response} is {@code llmContent}, {@code returnDisplay} and an optional {@code error}; text added after the tool reaches the model, so each is a step boundary. */
+    /**
+     * {@code tool_response} is {@code llmContent}, {@code returnDisplay} and an optional {@code error}; text added after the tool reaches the model, so each is a step boundary. A
+     * subagent's result ({@code invoke_agent}) is an ordinary tool result: the host turns a deny here into "Tool result blocked" in place of the result
+     * (packages/core/src/core/coreToolHookTriggers.ts), and the parent would lose what the subagent returned.
+     */
     private static HostEvent afterTool(HostContext context, GeminiHookInput input) {
         GeminiHookInput.ToolResponse response = input.toolResponse();
         JsonNode error = response == null ? null : response.error();
@@ -218,7 +183,6 @@ public final class GeminiHookAdapter implements HostHookAdapter {
             case HookVerdict.ContinueTurn turn -> event == Event.AFTER_AGENT ? continueAgent(turn.instruction()) : notDeliverable();
             case HookVerdict.TerminateTurn turn -> event == Event.AFTER_AGENT ? GeminiHookOutput.terminate(turn.reason()) : notDeliverable();
             case HookVerdict.Refuse refuse -> event == Event.BEFORE_TOOL || event == Event.BEFORE_AGENT
-                    || (event == Event.AFTER_TOOL && read instanceof HostEvent.NativePeerResult)
                     ? GeminiHookOutput.deny(refuse.reason()) : notDeliverable();
         };
     }
@@ -257,40 +221,10 @@ public final class GeminiHookAdapter implements HostHookAdapter {
             };
             int timeout = event == Event.SESSION_START ? HookClientCall.SESSION_START_LIMIT_SECONDS * 1000 : HOOK_TIMEOUT_MILLISECONDS;
             HookDefinition.Command handler = new HookDefinition.Command("sennard-" + event.hostName(), installation.hookCommandLine(sent.arguments()), null, timeout, null, null, null);
-            List<HookDefinition.Entry> entries = hooks.computeIfAbsent(event.hostName(), key -> new ArrayList<>());
-            if (event == Event.AFTER_TOOL) {
-                entries.add(HookDefinition.Entry.of("^(?!" + INVOKE_AGENT + "$).*$", handler));
-                HookClientCall result = HookClientCall.of(HOST.label(), event.hostName(), FailureAnswer.DENY_RESULT);
-                HookDefinition.Command resultHandler = new HookDefinition.Command("sennard-native-peer-result",
-                        nativeResultCommand(installation, result), null, timeout, null, null, null);
-                entries.add(HookDefinition.Entry.of("^" + INVOKE_AGENT + "$", resultHandler));
-            } else {
-                entries.add(HookDefinition.Entry.of("*", handler));
-            }
+            hooks.computeIfAbsent(event.hostName(), key -> new ArrayList<>()).add(HookDefinition.Entry.of("*", handler));
         }
         return List.of(new HostRegistrationFile.WholeFile(HOOKS_FILE, mapper.valueToTree(new HookDefinition.ByEvent(hooks))),
                 new HostRegistrationFile.Member(MANIFEST_FILE, MCP_SERVERS_POINTER, mapper.valueToTree(HookDefinition.sennardServer(installation, HOST.label()).mcpServers())));
-    }
-
-    /**
-     * Gemini runs command hooks through PowerShell on Windows. Explicitly connect the three streams so a successful shell exit without a client decision cannot release a child result.
-     * Encode the paths and native argument string to keep PowerShell quoting and Gemini's command substitutions out of the installed program words.
-     */
-    private static String nativeResultCommand(HookInstallation installation, HookClientCall result) {
-        if (installation.platform() != HookInstallation.Platform.WINDOWS) {
-            return installation.hookCommandLine(result.arguments());
-        }
-        // The ordinary hook registrations above have already required words with no embedded quotes.
-        String arguments = installation.hookArguments(result.arguments()).stream()
-                .map(word -> "\"" + word.replaceFirst("(\\\\+)$", "$1$1") + "\"")
-                .collect(Collectors.joining(" "));
-        int deadline = HOOK_TIMEOUT_MILLISECONDS - 1000;
-        return WINDOWS_RESULT_HOOK.formatted(encoded(installation.hookExecutable()), encoded(arguments), deadline, deadline)
-                .lines().map(String::strip).collect(Collectors.joining(" "));
-    }
-
-    private static String encoded(String value) {
-        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
     /** Only the hook definition is shipped: the manifest has no {@code mcpServers} member until an installation registers the relay. */

@@ -4,7 +4,6 @@
 
 package io.github.jaeseongs95.sennard.server.hook.host;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,9 +36,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public final class CodexHookAdapter implements HostHookAdapter, SessionIdSchemaAdapter<CodexHookInput> {
     private static final HostId HOST = CodexHost.ID;
-    /** The plugin's hook definition and its MCP registration ({@code .mcp.json}, the Sennard relay as a stdio server) at the root of the package. */
-    private static final Path HOOKS_FILE = Path.of("hooks", "hooks.json");
-    private static final Path MCP_FILE = Path.of(".mcp.json");
     /** The MCP server the plugin registers and its tool that takes the hook. */
     static final String MCP_SERVER = HookDefinition.MCP_SERVER;
     static final String MCP_TOOL = "codex_hook";
@@ -168,25 +164,22 @@ public final class CodexHookAdapter implements HostHookAdapter, SessionIdSchemaA
         Map<String, List<HookDefinition.Entry>> events = new LinkedHashMap<>();
         HookClientCall start = HookClientCall.of(HOST.label(), SessionIdEvent.SESSION_START.hostName(), FailureAnswer.GUIDANCE_STDOUT).bindingHost()
                 .startingServer(HookClientCall.START_SERVER_SECONDS);
-        entriesOf(events, SessionIdEvent.SESSION_START).add(HookDefinition.Entry.of(null, command(installation, start, HookClientCall.SESSION_START_LIMIT_SECONDS, true)));
+        HookDefinition.append(events, SessionIdEvent.SESSION_START,
+                HookDefinition.Entry.of(null, command(installation, start, HookClientCall.SESSION_START_LIMIT_SECONDS, true)));
         for (Hook hook : HOOKS) {
-            entriesOf(events, hook.event()).add(HookDefinition.Entry.of(hook.matcher(), hook.isCommand() ? eventCommand(installation, hook) : mcpTool(hook)));
+            HookDefinition.append(events, hook.event(),
+                    HookDefinition.Entry.of(hook.matcher(), hook.isCommand() ? eventCommand(installation, hook) : mcpTool(hook)));
         }
         // Codex gives this event one second (three at most): the hook client's request waits one, and the host's limit is its maximum.
         HookClientCall end = HookClientCall.of(HOST.label(), SessionIdEvent.SESSION_END.hostName(), FailureAnswer.FAIL).withTimeout(1);
-        entriesOf(events, SessionIdEvent.SESSION_END).add(HookDefinition.Entry.of(null, command(installation, end, 3, false)));
-        return List.of(new HostRegistrationFile.WholeFile(HOOKS_FILE, mapper().valueToTree(new HookDefinition.ByEvent(events))),
-                new HostRegistrationFile.WholeFile(MCP_FILE, mapper().valueToTree(HookDefinition.sennardServer(installation, HOST.label()))));
+        HookDefinition.append(events, SessionIdEvent.SESSION_END, HookDefinition.Entry.of(null, command(installation, end, 3, false)));
+        return List.copyOf(HookDefinition.eventRegistrationFiles(mapper(), new HookDefinition.ByEvent(events),
+                HookDefinition.sennardServer(installation, HOST.label())));
     }
 
     @Override
     public List<HostRegistrationFile.WholeFile> shippedFiles() {
-        return List.of(new HostRegistrationFile.WholeFile(HOOKS_FILE, mapper().valueToTree(HookDefinition.noHooks())),
-                new HostRegistrationFile.WholeFile(MCP_FILE, mapper().valueToTree(HookDefinition.noServers())));
-    }
-
-    private static List<HookDefinition.Entry> entriesOf(Map<String, List<HookDefinition.Entry>> events, SessionIdEvent event) {
-        return events.computeIfAbsent(event.hostName(), key -> new ArrayList<>());
+        return HookDefinition.eventRegistrationFiles(mapper(), HookDefinition.noHooks(), HookDefinition.noServers());
     }
 
     /** The command form: Codex runs the string through the shell of its choice, so the program's path is the one thing that may need quotes. */

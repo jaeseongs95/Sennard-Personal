@@ -585,6 +585,8 @@ public final class Installer {
             if (Files.exists(target)) {
                 throw new UnavailableException(UnavailableCode.INSTALL_FAILED, SennardException.args("what", "folderExists", "folder", target));
             }
+            // The extraction gets the folder as an absolute path in its command line, which the code page of the system may not be able to write even when a relative root is.
+            environment.checked(root.toAbsolutePath().normalize());
             release.extractInto(temporary, version, environment.java().path(), environment.commands(), environment.environment());
             InstalledVersion.recordRuntime(temporary, version);
             Files.createFile(temporary.resolve(VersionRetirement.UNEXPOSED));

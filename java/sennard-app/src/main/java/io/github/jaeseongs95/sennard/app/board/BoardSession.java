@@ -22,18 +22,19 @@ import org.springframework.data.relational.core.mapping.Table;
  */
 @Table(schema = "sennard", value = "board_sessions")
 public record BoardSession(@Id @Embedded(onEmpty = Embedded.OnEmpty.USE_NULL) BoardSessionKey key, String cwd, String summary, Instant summaryAt, Instant lastPromptAt,
-        Instant seenAt, String role, @Version Long version) {
+        Instant seenAt, String role, String userTitle, Instant userTitleObservedAt, @Version Long version) {
 
     /** A session seen for the first time. */
     public static BoardSession first(BoardSessionKey key, Instant seenAt) {
-        return new BoardSession(key, null, null, null, null, seenAt, null, null);
+        return new BoardSession(key, null, null, null, null, seenAt, null, null, null, null);
     }
 
     public BoardSession seen(String cwd, Instant promptAt, Instant seenAt) {
-        return new BoardSession(key, cwd != null ? cwd : this.cwd, summary, summaryAt, promptAt != null ? promptAt : lastPromptAt, seenAt, role, version);
+        return new BoardSession(key, cwd != null ? cwd : this.cwd, summary, summaryAt, promptAt != null ? promptAt : lastPromptAt, seenAt, role,
+                userTitle, userTitleObservedAt, version);
     }
 
     public BoardSession summarized(String summary, Instant now, String role) {
-        return new BoardSession(key, cwd, summary, now, lastPromptAt, now, role != null ? role : this.role, version);
+        return new BoardSession(key, cwd, summary, now, lastPromptAt, now, role != null ? role : this.role, userTitle, userTitleObservedAt, version);
     }
 }

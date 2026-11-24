@@ -33,6 +33,7 @@ import org.springframework.core.io.ClassPathResource;
  * l8  the page keeps nothing in the browser (the origin changes with the port, and the PC is the user's)
  * l10 the header has the language switch (see theHeaderHasALanguageSwitchThatKeepsWhatTheUserBegan)
  * l9  the passkey screen shows the one passkey and the way back when it is lost; it adds and deletes none
+ * l11 a present user title goes before the existing summary as a text node; an absent title adds no element
  * </pre>
  */
 class AdminPageLayoutTest {
@@ -164,6 +165,16 @@ class AdminPageLayoutTest {
         assertTrue(row.contains("aria-hidden"), "the mark is for the eye; the words carry the meaning");
     }
 
+    @Test
+    void aSessionCardAddsTheUserTitleAsTextOnlyWhenPresent() {
+        String card = function("sessionCard", "sessionLine");
+        Matcher title = Pattern.compile("s\\.userTitle\\s*\\?\\s*h\\([^,]+,\\s*(?:\\{[^}]*\\}|null),\\s*s\\.userTitle\\s*\\)\\s*:\\s*null")
+                .matcher(card);
+        assertTrue(title.find(), "a present title is a child of the DOM helper and absence adds no element");
+        assertTrue(title.start() < card.indexOf("'doing'"), "the title precedes the existing summary");
+        assertTrue(function("h", "fmtTime").contains("document.createTextNode(String(c))"), "the DOM helper appends user text literally");
+    }
+
     /** l10  the header has the language switch: both names, the current one shown, buttons a keyboard reaches; a change asks before it takes unsaved edits and never races the refresh. */
     @Test
     void theHeaderHasALanguageSwitchThatKeepsWhatTheUserBegan() {
@@ -207,6 +218,34 @@ class AdminPageLayoutTest {
             assertFalse(PAGE.contains(store), "the page's address (the port) changes at every start, so what a browser stored is gone: " + store);
         }
         assertFalse(PAGE.contains("admin.page.bands.notMine") || PAGE.contains("admin.page.bands.missing"), "no warning that rests on a record of this browser");
+    }
+
+    @Test
+    void sessionBindingSearchUsesTheSelectedScopeBeforeShowingResults() {
+        String view = function("viewBindings", "sessionCard");
+        assertTrue(view.contains("workSearch('bindings-query'"), "bindings reuse the search field with keyboard and IME handling");
+        assertTrue(view.indexOf(".filter(pick)") < view.indexOf("matchesBindingSearch("), "search applies within the selected scope");
+        assertTrue(view.indexOf("matchesBindingSearch(") < view.indexOf(".slice(0, S.b.limit)"), "search covers rows beyond the first page");
+        assertTrue(view.contains("'admin.page.bindings.noMatches'") && view.contains("'bindings-reset'"), "a search with no results can be cleared");
+    }
+
+    @Test
+    void workflowManagementFiltersWorkflowAndLatestRunStatesSeparately() {
+        String view = function("viewRoots", "gMax");
+        assertTrue(view.contains("workSelect('roots-state'") && view.contains("workSelect('roots-run-state'"), "both states have independent controls");
+        assertTrue(view.contains("r.state === rr.state") && view.contains("latestRunState(r) === rr.runState"), "both filters contribute to the match");
+        assertTrue(view.contains("rt('empty')") && view.contains("rt('noMatches')"), "empty data and filtered results are distinguished");
+        assertTrue(function("releaseRoot", "confirmBlock").contains("expectedRevision: r.revision"), "release signs the checked revision");
+    }
+
+    @Test
+    void blockedWorkflowPlansHaveTheirOwnNavigationAndKeepSignedUnblocking() {
+        assertTrue(PAGE.contains("{ key: 'blocked-plans', label: t('admin.page.nav.blockedPlans') }"), "blocked plans have a navigation item");
+        assertTrue(function("renderMain", "viewApprovals").contains("'blocked-plans': viewBlockedPlans"), "the menu routes to the blocked-plans view");
+        assertFalse(function("viewGeneral", "viewAttachmentStorage").contains("viewBlockedPlans"), "the list is removed from general settings");
+        String view = function("viewBlockedPlans", "viewDatabase");
+        assertTrue(view.contains("head('blocked-plans-title'") && view.contains("message('empty')"), "the screen has a main heading and an empty state");
+        assertTrue(view.contains("op: 'WORKFLOW_PLAN_UNBLOCK'") && view.contains("recordId"), "unblocking signs the current plan record");
     }
 
     @Test

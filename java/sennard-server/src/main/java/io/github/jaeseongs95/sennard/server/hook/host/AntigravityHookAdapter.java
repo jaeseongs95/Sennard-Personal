@@ -22,7 +22,6 @@ import io.github.jaeseongs95.sennard.server.hook.HookInstallation;
 import io.github.jaeseongs95.sennard.server.hook.HookOutput;
 import io.github.jaeseongs95.sennard.server.hook.HookRejected;
 import io.github.jaeseongs95.sennard.server.hook.HookRejection;
-import io.github.jaeseongs95.sennard.server.hook.HookStopNotice;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict.ContextBlock;
 import io.github.jaeseongs95.sennard.server.hook.HostContext;
@@ -33,8 +32,6 @@ import io.github.jaeseongs95.sennard.server.hook.HostHookAdapter;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostRegistrationFile;
 import io.github.jaeseongs95.sennard.server.hook.ToolCall;
-import io.github.jaeseongs95.sennard.server.message.MessageRef;
-import io.github.jaeseongs95.sennard.server.message.Messages;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -61,23 +58,19 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
 
     private final JsonMapper mapper;
     private final Function<String, SessionActor> hookActor;
-    private final HookStopNotice notices;
-    private final Messages messages;
 
     public AntigravityHookAdapter(JsonMapper mapper) {
-        this(mapper, ignored -> AntigravityCallerAdapter.unclassifiedHook(), null, null);
+        this(mapper, ignored -> AntigravityCallerAdapter.unclassifiedHook());
     }
 
     @Autowired
-    public AntigravityHookAdapter(JsonMapper mapper, AntigravityCallerAdapter callers, HookStopNotice notices, Messages messages) {
-        this(mapper, callers::currentHookActor, notices, messages);
+    public AntigravityHookAdapter(JsonMapper mapper, AntigravityCallerAdapter callers) {
+        this(mapper, callers::currentHookActor);
     }
 
-    private AntigravityHookAdapter(JsonMapper mapper, Function<String, SessionActor> hookActor, HookStopNotice notices, Messages messages) {
+    private AntigravityHookAdapter(JsonMapper mapper, Function<String, SessionActor> hookActor) {
         this.mapper = mapper;
         this.hookActor = hookActor;
-        this.notices = notices;
-        this.messages = messages;
     }
 
     @Override
@@ -104,11 +97,7 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
             case PRE_TOOL_USE -> new HostEvent.ToolRequested(context, tool(input));
             // PostToolUse carries no tool output and an empty error even when the command failed; the next model call is the step boundary.
             case POST_TOOL_USE -> new HostEvent.ToolFinished(context, finishedTool(input), null, HookJson.present(input.error()).isPresent(), false);
-            case STOP -> {
-                boolean closed = nonContinuable(input);
-                // A stop this host closes for good also counts as already continued, so that the other domains stay quiet as before; continuable is the fact the one-time question needs.
-                yield new HostEvent.TurnEnded(context, closed, !closed);
-            }
+            case STOP -> new HostEvent.TurnEnded(context, false, !nonContinuable(input));
         };
     }
 
@@ -117,7 +106,7 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
             return new HostEvent.ModelCallStarting(context);
         }
         return context.actor().rootEstablished() && input.lastUserInput() != null
-                ? new HostEvent.UserPromptSubmitted(context, input.lastUserInput(), true)
+                ? new HostEvent.UserPromptSubmitted(context, input.lastUserInput(), HostEvent.PromptOrigin.USER, true)
                 : new HostEvent.TurnStarted(context, context.actor().basis() == Basis.PROVISIONAL ? input.lastUserInput() : null, true);
     }
 
@@ -174,11 +163,12 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
     }
 
     @Override
+    public boolean defersStopReason() {
+        return true;
+    }
+
+    @Override
     public HookOutput respond(String eventName, HostEvent read, HookVerdict verdict) {
-        if (notices != null && (read instanceof HostEvent.UserPromptSubmitted
-                || read instanceof HostEvent.TurnStarted started && started.provisionalInput() != null)) {
-            verdict = withStopNotice(read, verdict);
-        }
         return switch (verdict) {
             case HookVerdict.Proceed ignored -> read instanceof HostEvent.ToolRequested ? AntigravityHookOutput.ALLOW : AntigravityHookOutput.NOTHING;
             case HookVerdict.Refuse refuse when read instanceof HostEvent.ToolRequested -> AntigravityHookOutput.decision("deny", refuse.reason());
@@ -188,33 +178,12 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
             case HookVerdict.ContinueTurn ignored when read instanceof HostEvent.TurnEnded ended && !ended.continuable() -> AntigravityHookOutput.NOTHING;
             case HookVerdict.ContinueTurn turn -> AntigravityHookOutput.decision("continue", turn.instruction());
             // Stop can let the loop end but can only deliver its reason when it asks the host to continue.
-            case HookVerdict.TerminateTurn stopped -> {
-                if (notices != null) {
-                    notices.rememberStop(HOST, read.context().sessionId(), stopped.reason());
-                }
-                yield AntigravityHookOutput.NOTHING;
-            }
+            case HookVerdict.TerminateTurn ignored -> AntigravityHookOutput.NOTHING;
             case HookVerdict.AddContext context when read instanceof HostEvent.TurnEnded -> AntigravityHookOutput.decision("continue", context.blocks().getFirst().text());
             // Injected steps reach the model only from the invocation boundaries, not from a finished tool.
             case HookVerdict.AddContext ignored when read instanceof HostEvent.ToolFinished -> throw new HookRejected(HookRejection.HOOK_VERDICT_NOT_DELIVERABLE);
             case HookVerdict.AddContext context -> injectSteps(context.blocks());
         };
-    }
-
-    private HookVerdict withStopNotice(HostEvent read, HookVerdict verdict) {
-        if (!(verdict instanceof HookVerdict.Proceed || verdict instanceof HookVerdict.AddContext)) {
-            return verdict;
-        }
-        String reason = notices.takeStopNotice(HOST, read.context().sessionId());
-        if (reason == null) {
-            return verdict;
-        }
-        List<ContextBlock> blocks = new ArrayList<>();
-        blocks.add(new ContextBlock(messages.render(MessageRef.of("hooks.workflowGate.deferredStop", "reason", reason)), true));
-        if (verdict instanceof HookVerdict.AddContext context) {
-            blocks.addAll(context.blocks());
-        }
-        return new HookVerdict.AddContext(blocks);
     }
 
     /**
@@ -247,14 +216,14 @@ public final class AntigravityHookAdapter implements HostHookAdapter {
                 List.of(HookDefinition.Entry.of("*", handler(installation, continuity)),
                         HookDefinition.Entry.of(AntigravityWorkFacts.NATIVE_PEER_SEND.pattern(), handler(installation, nativePeer))),
                 List.of(HookDefinition.Entry.of("*", handler(installation, HookClientCall.of(HOST.label(), AntigravityEvent.POST_TOOL_USE.hostName(), FailureAnswer.FAIL)))));
-        return List.of(new HostRegistrationFile.WholeFile(HOOKS_FILE, mapper.valueToTree(new HookDefinition.AntigravityFile(lifecycle, boundary))),
-                new HostRegistrationFile.WholeFile(MCP_FILE, mapper.valueToTree(HookDefinition.sennardServer(installation, HOST.label()))));
+        return List.copyOf(HookDefinition.wholeRegistrationFiles(mapper, HOOKS_FILE, mapper.valueToTree(new HookDefinition.AntigravityFile(lifecycle, boundary)),
+                MCP_FILE, HookDefinition.sennardServer(installation, HOST.label())));
     }
 
     /** What the package ships: no hook (an empty object, the file has no member to switch off) and no MCP server. */
     @Override
     public List<HostRegistrationFile.WholeFile> shippedFiles() {
-        return List.of(new HostRegistrationFile.WholeFile(HOOKS_FILE, mapper.createObjectNode()), new HostRegistrationFile.WholeFile(MCP_FILE, mapper.valueToTree(HookDefinition.noServers())));
+        return HookDefinition.wholeRegistrationFiles(mapper, HOOKS_FILE, mapper.createObjectNode(), MCP_FILE, HookDefinition.noServers());
     }
 
     /**

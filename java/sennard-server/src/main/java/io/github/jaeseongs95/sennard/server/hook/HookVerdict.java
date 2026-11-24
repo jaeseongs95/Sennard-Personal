@@ -27,7 +27,7 @@ public sealed interface HookVerdict {
         }
     }
 
-    /** A tool, prompt or native peer result is refused at its delivery boundary. */
+    /** A tool or a prompt is refused at its delivery boundary. */
     record Refuse(String reason) implements HookVerdict {
     }
 
@@ -52,7 +52,7 @@ public sealed interface HookVerdict {
         return switch (this) {
             case Proceed ignored -> true;
             case AddContext ignored -> !(event instanceof SessionEnded);
-            case Refuse ignored -> event instanceof ToolRequested || event instanceof UserPromptSubmitted || event instanceof HostEvent.NativePeerResult;
+            case Refuse ignored -> event instanceof ToolRequested || event instanceof UserPromptSubmitted;
             case ContinueTurn ignored -> event instanceof TurnEnded || event instanceof HostEvent.SubagentEnded;
             case TerminateTurn ignored -> event instanceof TurnEnded || event instanceof HostEvent.SubagentEnded;
         };

@@ -4,15 +4,25 @@
 
 package io.github.jaeseongs95.sennard.server.messaging;
 
+import java.time.Instant;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.github.jaeseongs95.sennard.app.board.BoardService;
 import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol;
+import io.github.jaeseongs95.sennard.server.diagnostics.SafeFailure;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectReader;
+import tools.jackson.databind.json.JsonMapper;
 
 /** An accepted worker receives its own reservation marker or launch control. */
 @RestController
@@ -20,10 +30,43 @@ public class NativeWakeController {
     private static final System.Logger LOG = System.getLogger(NativeWakeController.class.getName());
     private final NativeWakeRelay relay;
     private final IdleWakeService wake;
+    private final BoardService board;
+    private final ObjectReader titleReader;
 
-    public NativeWakeController(NativeWakeRelay relay, IdleWakeService wake) {
+    public NativeWakeController(NativeWakeRelay relay, IdleWakeService wake, BoardService board, JsonMapper mapper) {
         this.relay = relay;
         this.wake = wake;
+        this.board = board;
+        titleReader = mapper.readerFor(NativeWakeProtocol.SessionTitle.class).with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    }
+
+    @PostMapping(path = NativeWakeProtocol.SESSION_TITLE, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Void> sessionTitle(@RequestHeader(NativeWakeProtocol.KEY) String key, @RequestBody byte[] body) {
+        NativeWakeRelay.Channel channel = relay.find(key);
+        if (channel == null) {
+            return ResponseEntity.status(HttpStatus.GONE).build();
+        }
+        if (body.length > NativeWakeProtocol.INPUT_LIMIT) {
+            return ResponseEntity.badRequest().build();
+        }
+        NativeWakeProtocol.SessionTitle title;
+        try {
+            title = titleReader.readValue(body);
+        } catch (JacksonException invalid) {
+            if (LOG.isLoggable(System.Logger.Level.DEBUG)) {
+                LOG.log(System.Logger.Level.DEBUG, "The local worker returned an invalid session title.", SafeFailure.capture(invalid));
+            }
+            return ResponseEntity.badRequest().build();
+        }
+        if (title == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (!channel.actorCurrent()) {
+            return ResponseEntity.status(HttpStatus.GONE).build();
+        }
+        board.observeTitle(channel.host(), channel.session(), title.title(), Instant.ofEpochMilli(title.observedAtMillis()));
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping(NativeWakeProtocol.POLL)

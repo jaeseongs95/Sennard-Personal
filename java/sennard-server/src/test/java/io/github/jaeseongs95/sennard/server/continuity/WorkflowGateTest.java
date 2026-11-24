@@ -5,33 +5,59 @@
 package io.github.jaeseongs95.sennard.server.continuity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 
-import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore;
 import io.github.jaeseongs95.sennard.server.message.MessageRef;
 import io.github.jaeseongs95.sennard.server.workflow.ConvergenceLimits;
+import io.github.jaeseongs95.sennard.server.workflow.ConvergenceRoot;
+import io.github.jaeseongs95.sennard.server.workflow.WorkflowDocuments;
 import io.github.jaeseongs95.sennard.server.workflow.WorkflowEvents;
+import io.github.jaeseongs95.sennard.server.workflow.WorkflowReceipt;
+import io.github.jaeseongs95.sennard.service.store.RootState;
+import io.github.jaeseongs95.sennard.service.store.RunState;
+import io.github.jaeseongs95.sennard.service.store.modules.ContinuityStore;
 import tools.jackson.databind.json.JsonMapper;
 
 class WorkflowGateTest {
     @Test
     void unreadableSelectionKeepsTheExistingFallback() {
-        StopReads reads = new StopReads(Read.UNAVAILABLE);
-        WorkflowGate gate = new WorkflowGate(reads, null, null, null, () -> new ConvergenceLimits(5, 2));
+        StopStore store = new StopStore();
+        store.failAttribution = true;
+        WorkflowGate gate = new WorkflowGate(service(store), null, null, null, () -> new ConvergenceLimits(5, 2));
 
-        WorkflowGate.StopCheck result = gate.stopCheck("session", "child", true);
+        WorkflowGate.StopCheck result = gate.stopCheck("session", null, true);
         assertTrue(result.guidance().isEmpty());
         assertNull(result.terminationReason());
-        assertEquals(0, reads.claims);
-        assertEquals(0, reads.countReads);
+        assertTrue(store.events.isEmpty());
+        assertEquals(0, store.countReads);
+    }
+
+    @Test
+    void aKnownEmptyGateOmitsTheFinalWarningButUsesTheConfiguredBudget() {
+        StopStore store = new StopStore();
+        WorkflowGate gate = new WorkflowGate(service(store), null, null, null, () -> new ConvergenceLimits(2, 5));
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            WorkflowGate.StopCheck check = gate.stopCheck("session", null, true);
+            assertEquals(List.of("hooks.workflowGate.stop"), check.guidance().stream().map(MessageRef::key).toList());
+            assertNull(check.terminationReason());
+            assertFalse(check.offersResume());
+        }
+        WorkflowGate.StopCheck exhausted = gate.stopCheck("session", null, true);
+        assertTrue(exhausted.guidance().isEmpty());
+        assertEquals(MessageRef.of("hooks.workflowGate.stopExhausted"), exhausted.terminationReason());
+        assertEquals(exhausted, gate.stopCheck("session", null, true));
+        assertEquals(List.of(WorkflowEvents.STOP_BLOCKED, WorkflowEvents.STOP_BLOCKED, WorkflowEvents.STOP_EXHAUSTED), store.events);
     }
 
     @Test
@@ -51,6 +77,7 @@ class WorkflowGateTest {
     @Test
     void aPhaseAttributionFailurePreservesTheSelectionRecheck() {
         StopStore store = new StopStore();
+        store.open = true;
         ContinuityService continuity = service(store);
         WorkflowGate gate = new WorkflowGate(continuity, null, null, null, () -> new ConvergenceLimits(2, 5));
 
@@ -71,6 +98,7 @@ class WorkflowGateTest {
     @Test
     void theGateUsesTheConfiguredBudgetAboveEight() {
         StopStore store = new StopStore();
+        store.open = true;
         WorkflowGate gate = new WorkflowGate(service(store), null, null, null, () -> new ConvergenceLimits(9, 2));
 
         for (int attempt = 1; attempt <= 9; attempt++) {
@@ -83,32 +111,50 @@ class WorkflowGateTest {
     }
 
     @Test
-    void onlyAMissingSelectionConsumesTheInputBudget() {
-        StopReads served = new StopReads(Read.SERVED);
-        WorkflowGate servedGate = new WorkflowGate(served, null, null, null, () -> new ConvergenceLimits(2, 5));
+    void anAlreadySelectedRequestSkipsTheGateCountAndBudget() {
+        StopStore store = new StopStore();
+        store.selected = true;
+        WorkflowGate servedGate = new WorkflowGate(service(store), null, null, null, () -> new ConvergenceLimits(2, 5));
         WorkflowGate.StopCheck answer = servedGate.stopCheck("session", null, true);
         assertTrue(answer.guidance().isEmpty());
         assertNull(answer.terminationReason());
-        assertEquals(0, served.claims);
+        assertTrue(store.events.isEmpty());
+        assertEquals(0, store.countReads);
+    }
 
-        StopReads unserved = new StopReads(Read.UNSERVED);
-        WorkflowGate unservedGate = new WorkflowGate(unserved, null, null, null, () -> new ConvergenceLimits(2, 5));
-        assertEquals(List.of("hooks.workflowGate.stop"),
+    @Test
+    void anUnreadableGateCountStillUsesTheConfiguredBudget() {
+        StopStore store = new StopStore();
+        store.failCount = true;
+        WorkflowGate unservedGate = new WorkflowGate(service(store), null, null, null, () -> new ConvergenceLimits(2, 5));
+        assertEquals(List.of("hooks.workflowGate.stopUnavailable"),
                 unservedGate.stopCheck("session", null, true).guidance().stream().map(MessageRef::key).toList());
-        assertEquals(List.of("hooks.workflowGate.stop", "hooks.workflowGate.stopLastRecheck"),
+        assertEquals(List.of("hooks.workflowGate.stopUnavailable", "hooks.workflowGate.stopLastRecheck"),
                 unservedGate.stopCheck("session", null, true).guidance().stream().map(MessageRef::key).toList());
         assertEquals("hooks.workflowGate.stopExhausted", unservedGate.stopCheck("session", null, true).terminationReason().key());
-        assertEquals(3, unserved.claims);
-        assertEquals(2, unserved.countReads);
+        assertEquals(List.of(WorkflowEvents.STOP_BLOCKED, WorkflowEvents.STOP_BLOCKED, WorkflowEvents.STOP_EXHAUSTED), store.events);
     }
 
     private static ContinuityService service(StopStore store) {
-        return new ContinuityService(store, null, null, null, null, Clock.systemUTC(), null, null, null, null, null, null);
+        WorkflowDocuments documents = new WorkflowDocuments(null, null) {
+            @Override
+            public Read readCurrent(String rootId) {
+                var root = new ConvergenceRoot("1.0.0", rootId, null, 0, RootState.OPEN, 1, null, null, null, null, null, null, null, null, List.of(),
+                        Instant.EPOCH, Instant.EPOCH, List.of(), null);
+                var receipt = new WorkflowReceipt("1.0.0", "run", 0, RunState.RUNNING, null, List.of(), List.of(), List.of(), null, List.of(), null);
+                return new Readable(root, receipt, List.of(), List.of(), List.of());
+            }
+        };
+        return new ContinuityService(store, null, null, null, null, Clock.systemUTC(), null, null, null, null, documents, null);
     }
 
     private static final class StopStore extends ContinuityStore {
         private final List<String> events = new ArrayList<>();
         private boolean failAttribution;
+        private boolean failCount;
+        private boolean open;
+        private boolean selected;
+        private int countReads;
 
         StopStore() {
             super(null, new JsonMapper(), null, null);
@@ -149,12 +195,19 @@ class WorkflowGateTest {
 
         @Override
         public long countObservationsAnyEpochAfter(String correlation, String event, long afterId) {
+            if (selected && event.equals(WorkflowEvents.turnSelected(afterId))) {
+                return 1;
+            }
             return events.stream().filter(event::equals).count();
         }
 
         @Override
         public List<String> boundRoots(String correlation, long epoch) {
-            return List.of();
+            countReads++;
+            if (failCount) {
+                throw new DataAccessResourceFailureException("Gate count failed");
+            }
+            return open ? List.of("root") : List.of();
         }
 
         @Override
@@ -163,37 +216,4 @@ class WorkflowGateTest {
         }
     }
 
-    private enum Read { SERVED, UNSERVED, UNAVAILABLE }
-
-    /** Isolates the workflow-attribution read and keeps the limit observable at the gate boundary. */
-    private static final class StopReads extends ContinuityService {
-        private final Read read;
-        private int attributionReads;
-        private int claims;
-        private int countReads;
-
-        StopReads(Read read) {
-            super(null, null, null, null, null, null, null, null, null, null, null, null);
-            this.read = read;
-        }
-
-        @Override
-        public StopSelection checkStopSelection(String rawSessionId, String actor, int limit) {
-            attributionReads++;
-            return switch (read) {
-                case SERVED -> StopSelection.SELECTED;
-                case UNSERVED -> {
-                    claims++;
-                    yield claims < limit ? StopSelection.RECHECK : claims == limit ? StopSelection.LAST_RECHECK : StopSelection.EXHAUSTED;
-                }
-                case UNAVAILABLE -> throw new DataAccessResourceFailureException("Attribution read failed");
-            };
-        }
-
-        @Override
-        public OpenInstanceCount openInstanceCount(String rawSessionId) {
-            countReads++;
-            return new OpenInstanceCount(1, List.of());
-        }
-    }
 }

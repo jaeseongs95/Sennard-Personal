@@ -57,9 +57,13 @@ final class AntigravityWorkFacts implements HostWorkFacts {
         return "Bash".equals(name) || "PowerShell".equals(name);
     }
 
+    /** The recipient still has to be resolved in the sender's observed session tree. */
     @Override
-    public boolean sendsNativePeerMessage(ToolCall tool) {
-        return tool.name() != null && NATIVE_PEER_SEND.matcher(tool.name()).matches();
+    public Optional<NativeSend> nativeSend(ToolCall tool) {
+        if (tool.name() == null || !NATIVE_PEER_SEND.matcher(tool.name()).matches()) {
+            return Optional.empty();
+        }
+        return Optional.of(new NativeSend(HookJson.firstPresentOrNull(tool.input(), "Recipient"), false, false));
     }
 
     @Override

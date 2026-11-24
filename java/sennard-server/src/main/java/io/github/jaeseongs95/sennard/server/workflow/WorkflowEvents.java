@@ -18,8 +18,11 @@ public final class WorkflowEvents {
     /** {@code workflow-attributed:<actorHash>:<rootId>}: the request in progress is handled by this instance, for this actor (an instance opened or resumed since the last prompt). */
     public static final String ATTRIBUTED_PREFIX = "workflow-attributed:";
 
-    /** The user's prompt that opened the turn in progress: what an attribution has to follow to count for the turn. */
+    /** The input that opened the current request: what an attribution has to follow to serve it. */
     public static final String TURN_START = "workflow-turn:start";
+
+    /** Read access carried into a later user input of the same turn. Ends with the inquiry. */
+    public static final String INHERITED_INQUIRY_PREFIX = "workflow-inquiry-read:";
 
     /** A turn end the workflow gate continued: counted per prompt, so that the question has a limit. */
     public static final String STOP_BLOCKED = "workflow-gate:stop-blocked";
@@ -59,6 +62,11 @@ public final class WorkflowEvents {
     /** The prefix of the attributions of one actor. */
     public static String attributedPrefix(String actorHash) {
         return ATTRIBUTED_PREFIX + actorHash + ":";
+    }
+
+    /** A workflow served this input. This survives automatic epoch settlement and only counts at Stop. */
+    public static String turnSelected(long turnStart) {
+        return "workflow-turn:selected:" + turnStart;
     }
 
     public static String transitionPrefix(String actorHash, long turnStart) {

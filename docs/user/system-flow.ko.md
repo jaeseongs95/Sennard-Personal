@@ -2,15 +2,17 @@
 
 # Sennard 전체 흐름도
 
-이 문서는 Sennard 1.3.0의 요청 처리, 호스트 세션 수명, workflow 상태 전이, 세션 간 메시지 전달 과정을 보여 줍니다. 호스트 훅은 이벤트를 로컬 Sennard 서버에 전달합니다. 에이전트는 서버의 MCP 도구로 관문을 선택하고 작업을 기록합니다.
+이 문서는 Sennard 1.5.0 설계에 따른 요청 처리, 호스트 세션 수명, workflow 상태 전이, 세션 간 메시지 전달 과정을 보여 줍니다. 호스트 훅은 이벤트를 로컬 Sennard 서버에 전달합니다. 에이전트는 서버의 MCP 도구로 관문을 선택하고 작업을 기록합니다.
 
 ## 사용자 요청 처리
 
 ```mermaid
 flowchart TD
-    request["사용자가 요청을 보냄"] --> select["에이전트가 첫 단계에서 관문을 반드시 선택"]
+    request["사용자 메시지 또는 호스트가 넣은 입력"] --> record["요청을 식별하고 재점검 횟수를 0으로 시작"]
+    record --> select["요청을 처리할 절차를 선택하거나 이어서 진행"]
     select -->|기존 workflow가 맞음| reuse["기존 workflow를 이어서 진행"]
     select -->|새 답변 또는 조사| inquiry["INQUIRY 선택"]
+    select -->|INQUIRY가 열린 턴의 사용자 메시지| inherit["INQUIRY 읽기 권한 상속"] --> work
     select -->|그 밖의 작업| entry["선택한 관문에 입장"]
     inquiry --> entry
     entry --> guidance["스킬 대상표와 접수 안내를 받음"]
@@ -22,16 +24,22 @@ flowchart TD
     check -->|예| tool["도구 실행"] --> work
     check -->|아니요| refused["호출을 거부하고 필요한 조치를 안내"] --> work
     work -->|새 입력이 들어옴| request
-    work -->|에이전트가 멈추려 함| stopKind{"어떤 작업을 멈추는가?"}
-    stopKind -->|INQUIRY| stop["처리 종료"]
+    work -->|SubagentStop| childStop["부모 워크플로 권한으로 판단. 별도 재점검 없음"]
+    work -->|에이전트가 멈추려 함| continued{"호스트가 이 Stop을 이미 이어 갔는가?"}
+    select -.->|절차를 선택하기 전에 Stop| continued
+    continued -->|예| skip["이 Stop 건너뜀"]
+    continued -->|아니요| stopKind{"요청의 처리 기록은 무엇을 보여 주는가?"}
+    stopKind -->|INQUIRY| stop["턴 종료. 이 턴에서 연 INQUIRY 닫기"]
+    stopKind -->|절차 선택 필요| inputStop
     stopKind -->|점검 대상 workflow| workflowCheck{"Workflow 점검을 통과했는가?"}
+    stopKind -->|그 밖의 처리 완료| stop
     workflowCheck -->|예| stop
     workflowCheck -->|아니요| workflowStop{"호스트가 이 Stop에서 계속 진행할 수 있는가?"}
     workflowStop -->|아니요, 재점검 한도 0회| blocked
     workflowStop -->|예| workflowLimit{"Workflow에 재점검 횟수가 남았는가?"}
     workflowLimit -->|예| correct["통과하지 못한 점검을 해결하라고 안내"] --> work
     workflowLimit -->|아니요| blocked["Run을 BLOCKED로 바꾸고 계획 해시 기록"]
-    select -.->|관문을 고르지 않고 멈추려 함| inputStop{"호스트가 이 Stop에서 계속 진행할 수 있는가?"}
+    inputStop{"호스트가 이 Stop에서 계속 진행할 수 있는가?"}
     inputStop -->|아니요, 재점검 한도 0회| inputExhausted
     inputStop -->|예| inputLimit{"이 입력에 재점검 횟수가 남았는가?"}
     inputLimit -->|예| rethink["방향을 다시 생각하고 관문을 선택하라고 안내"]
@@ -41,21 +49,26 @@ flowchart TD
     blocked --> exhausted
     exhausted -->|Claude Code 또는 Codex| forced["처리를 즉시 중단하고 사유를 표시"]
     exhausted -->|Antigravity| delayed["멈춤을 허용하고 위반을 기록한 뒤 다음 입력 때 알림"]
-    forced --> available["이미 보낸 답변을 남기고 세션 사용 유지"]
-    delayed --> available
+    forced --> stop
+    delayed --> stop
+    stop --> available["이미 보낸 답변을 남기고 세션 사용 유지"]
 ```
 
 답변이나 조사에는 조사 관문(INQUIRY)을 선택합니다. 답변만 하는 요청도 여기에 해당합니다. 변경, 실행, 상태 전이는 각각 해당 관문을 선택합니다. 제품 파일을 편집하려면 해당 파일을 변경 계획에 넣은 CHANGE workflow가 필요합니다. 서버는 EXECUTION을 `OPERATION`으로 기록합니다. 절차별 진입 도구는 [사용하기](usage.ko.md#workflow-종류와-관문)를 참고하십시오.
 
 관문 입장 응답에서 스킬 대상표와 접수 안내를 받습니다. JEV는 켠 경우에 조언을 제공하며, 최종 스킬은 에이전트가 선택합니다.
 
-Sennard의 작업 단위는 workflow입니다. 새 입력이 들어오면 에이전트가 기존 workflow를 이어서 진행할지 새로 열지 판단합니다. 에이전트가 멈추려 할 때 호스트의 Stop 계열 훅이 점검을 실행합니다.
+`UserPromptSubmit`마다 요청을 식별합니다. 입력은 요청을 전달하는 이벤트이고, 턴은 호스트가 응답을 시작할 때부터 끝낼 때까지입니다. 같은 턴에 들어온 새 입력도 해당 요청을 식별합니다. 서브에이전트 완료 알림처럼 호스트가 넣은 입력도 요청입니다. 알림과 관련된 기존 워크플로를 재개하면 해당 요청을 처리한 것으로 기록합니다. INQUIRY가 열린 턴 도중 들어온 사용자 메시지는 해당 INQUIRY의 읽기 권한을 이어받습니다. 제품 파일을 바꾸려면 별도의 CHANGE 워크플로가 필요합니다.
+
+Sennard는 워크플로 시작·재개·확정된 전이·종료를 그 절차가 처리한 요청에 결부합니다. Stop은 해당 입력과 연결된 요청의 처리 기록으로 판단합니다. 이미 처리된 요청은 새 절차를 고르지 않고 끝낼 수 있습니다. 호스트가 이미 이어 간 Stop은 건너뜁니다. 재점검이 적용되고 이어 갈 워크플로가 있으면 훅은 기존 run을 알려 주고 `resume_workflow`를 안내합니다.
+
+서버는 세션 트리에서 INQUIRY를 하나만 열도록 허용합니다. 이미 열린 INQUIRY가 있으면 새 시작을 거절하고 재개할 run을 알려 줍니다. 서버는 INQUIRY를 연 요청의 턴이 끝날 때 해당 INQUIRY를 `PASSED`로 닫습니다. 서브에이전트의 도구 호출과 `SubagentStop`은 부모 세션의 워크플로 권한으로 판단하며, `SubagentStop`에는 별도 재점검을 적용하지 않습니다.
 
 점검을 통과하지 못한 workflow의 재점검 횟수는 호스트가 계속 진행할 수 있는 Stop에서만 늘어납니다. 계속 진행할 수 있는 Stop에서는 관리자 페이지의 현재 epoch당 시도 횟수 설정을 재점검 한도로 적용합니다. 호스트가 이 Stop에서 계속 진행할 수 없으면 한도는 0회입니다. 재점검 횟수가 남지 않은 상태에서 점검을 통과하지 못하면 서버가 계획의 SHA-256 해시를 기록하고 해당 run을 `BLOCKED`로 바꿉니다. 이 run은 조회만 할 수 있습니다. 재개, 단계 결과 기록, 종결, 계획 수정은 거절됩니다. 한도를 다 쓰기 전에 에이전트가 `abort_workflow`로 닫으면, workflow가 점검을 한 번이라도 통과하지 못한 경우에만 계획 해시를 기록합니다. INQUIRY는 workflow 점검 집계에서 제외되므로 workflow 한도 소진, 점검에 따른 사용 불가 처리, 계획 해시 기록이 없습니다.
 
 서버는 같은 작업 폴더에서 workflow 종류와 SHA-256 해시가 거절 대상 계획과 일치하면 세션이나 호스트가 달라도 등록이나 계획 제출을 거절합니다. 응답은 거절 사유와 처음 사용 불가가 된 workflow를 알려 줍니다. 거절 시 다른 workflow의 상태는 그대로입니다. 내용을 바꿔 해시가 달라진 계획은 제출할 수 있습니다. 해시 거절은 사용자가 관리자 페이지에서 해제할 수 있습니다. 에이전트는 해제할 수 없으며 자동으로 만료되지 않습니다.
 
-에이전트가 관문을 고르지 않고 멈추려 할 때, 호스트가 계속 진행할 수 있는 Stop이고 재점검 횟수가 남아 있으면 입력별 횟수를 한 번 늘립니다. 이때 훅은 방향을 다시 생각하고 관문을 고르라고 안내합니다. 호스트가 Stop에서 계속 진행할 수 없으면 서버는 재점검 한도를 0회로 적용합니다. 한도에 도달하면 서버는 해당 입력에 `STOP_EXHAUSTED`를 기록하고 턴이 끝납니다. 이 점검에서 workflow를 `BLOCKED`로 바꾸는 기준은 그 workflow의 재점검 한도입니다.
+에이전트가 관문을 고르지 않고 멈추려 할 때, 호스트가 계속 진행할 수 있는 Stop이고 재점검 횟수가 남아 있으면 입력별 횟수를 한 번 늘립니다. 이때 훅은 방향을 다시 생각하고 관문을 고르라고 안내합니다. 새 요청마다 재점검 횟수를 0으로 초기화합니다. 호스트가 Stop에서 계속 진행할 수 없으면 서버는 재점검 한도를 0회로 적용합니다. 한도가 0회일 때는 마지막 재점검 문구를 표시하지 않습니다. 한도에 도달하면 서버는 해당 입력에 `STOP_EXHAUSTED`를 기록하고 턴이 끝납니다. 이 점검에서 workflow를 `BLOCKED`로 바꾸는 기준은 그 workflow의 재점검 한도입니다.
 
 어느 한도든 다 쓰면 Claude Code와 Codex는 처리를 즉시 중단하고 사유를 표시합니다. Antigravity는 그 자리에서 위반을 표시하지 않고 에이전트가 멈추도록 허용합니다. 서버는 위반을 기록하고, workflow 한도였다면 해당 run을 `BLOCKED`로 바꿉니다. 알림은 다음 입력이 들어올 때 표시합니다. 이미 보낸 답변은 남고 세션은 다음 요청을 받을 수 있습니다.
 

@@ -585,7 +585,10 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
     @Transactional
     public void clear(String rawSessionId) {
         String now = now();
-        store.rotateEpoch(store.ensureTask(correlate(rawSessionId), now).taskCorrelation(), now, null);
+        String c = store.ensureTask(correlate(rawSessionId), now).taskCorrelation();
+        store.readTaskForUpdate(c);
+        Task cleared = store.rotateEpoch(c, now, null);
+        store.recordObservation(c, cleared.currentEpoch(), WorkflowEvents.TURN_START, null, true, now);
     }
 
     @Transactional
@@ -662,12 +665,11 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
      * Records the prompt, gives the checkpoint cue and names a previous turn that ended with no record.
      */
     @Transactional
-    public List<MessageRef> onPromptSubmitted(String rawSessionId, boolean checksTurnWork, String rootActor) {
+    public List<MessageRef> onPromptSubmitted(String rawSessionId, boolean checksTurnWork, String rootActor, boolean inheritsRead) {
         if (checksTurnWork) {
             startTurnWork(rawSessionId);
         }
-        // The prompt opens the turn the workflow gate counts: an instance the agent takes after it (opens or resumes) is what the request is handled by.
-        startTurn(rawSessionId);
+        startRequest(rawSessionId, inheritsRead);
         return joined(checkpointCue(session(rawSessionId), false), turnChecks.promptSubmitted(rawSessionId, rootActor));
     }
 
@@ -680,7 +682,7 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
     public PhaseCheck onTurnEnded(String rawSessionId, String rootActor, boolean alreadyContinued, boolean continuable, boolean checksTurnWork) {
         List<MessageRef> work = continuable && !alreadyContinued && checksTurnWork && !paused(rawSessionId) ? turnWorkCheck(rawSessionId) : null;
         List<MessageRef> save = turnChecks.turnEnded(rawSessionId, rootActor, alreadyContinued, continuable);
-        PhaseCheck phase = phaseCheck(rawSessionId, alreadyContinued, null);
+        PhaseCheck phase = alreadyContinued ? PhaseCheck.NONE : phaseCheck(rawSessionId, !continuable, null);
         return new PhaseCheck(joined(joined(phase.guidance(), work), save), phase.violations());
     }
 
@@ -911,15 +913,19 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
      * counts every instance of the session taken in the turn (an instance a subagent opened too, which the session's agent may work on); a subagent counts only its own, so an instance
      * the session's agent opened is no instance a subagent can work in.
      */
-    public record Attribution(Map<String, WorkflowKind> instances) {
+    public record Attribution(Map<String, WorkflowKind> instances, boolean inheritedRead) {
         static final Attribution NONE = new Attribution(Map.of());
+
+        public Attribution(Map<String, WorkflowKind> instances) {
+            this(instances, false);
+        }
 
         public Attribution {
             instances = Map.copyOf(instances);
         }
 
         public boolean any() {
-            return !instances.isEmpty();
+            return inheritedRead || !instances.isEmpty();
         }
 
         public Set<WorkflowKind> kinds() {
@@ -928,7 +934,7 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
 
         /** Whether some instance taken for the request has a kind whose process allows the action. */
         public boolean allows(WorkflowKind.Action action) {
-            return instances.values().stream().anyMatch(kind -> kind.allows(action));
+            return (inheritedRead && action == WorkflowKind.Action.READ) || instances.values().stream().anyMatch(kind -> kind.allows(action));
         }
 
         boolean allowsEditsIn(String rootId) {
@@ -948,7 +954,7 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
     public record OpenInstances(List<OpenInstance> instances, List<MessageRef> unavailable) {
     }
 
-    public record OpenInstanceCount(int count, List<MessageRef> unavailable) {
+    public record OpenInstanceCount(int count, boolean hasRunning, List<MessageRef> unavailable) {
     }
 
     private static final int OPEN_INSTANCES_SHOWN = 20;
@@ -1065,11 +1071,21 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
         return found.isEmpty() ? Attribution.NONE : new Attribution(found);
     }
 
-    /** A prompt opens a turn: the instances taken before it no longer stand for the request. */
-    @Transactional
-    public void startTurn(String rawSessionId) {
+    /** Each input starts a request. A user input while an inquiry is still open can use its read access. */
+    private void startRequest(String rawSessionId, boolean inheritsRead) {
         Task task = store.readTaskForUpdate(session(rawSessionId).taskCorrelation());
-        store.recordObservation(task.taskCorrelation(), task.currentEpoch(), WorkflowEvents.TURN_START, null, true, now());
+        String correlation = task.taskCorrelation();
+        long epoch = task.currentEpoch();
+        String now = now();
+        List<String> inquiries = inheritsRead ? runningInquiries(task) : List.of();
+        store.recordObservation(correlation, epoch, WorkflowEvents.TURN_START, null, true, now);
+        if (!inquiries.isEmpty()) {
+            long request = lastTurnStart(correlation);
+            for (String rootId : inquiries) {
+                store.recordObservation(correlation, epoch, WorkflowEvents.INHERITED_INQUIRY_PREFIX + rootId, null, true, now);
+            }
+            store.recordObservation(correlation, epoch, WorkflowEvents.turnSelected(request), null, true, now);
+        }
     }
 
     /**
@@ -1097,42 +1113,52 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
             return new AttributionCheck(Attribution.NONE, List.of());
         }
         Attribution taken = attributionOf(task, actor);
-        if (!taken.any()) {
+        String inheritedPrefix = WorkflowEvents.INHERITED_INQUIRY_PREFIX;
+        Set<String> inherited = actor != null ? Set.of() : store.observationEventsAfter(task.taskCorrelation(), task.currentEpoch(), inheritedPrefix,
+                lastTurnStart(task.taskCorrelation())).stream().map(event -> event.substring(inheritedPrefix.length())).collect(Collectors.toSet());
+        if (!taken.any() && inherited.isEmpty()) {
             return new AttributionCheck(taken, List.of());
         }
         Map<String, WorkflowKind> serving = new LinkedHashMap<>();
         List<Unavailable> unavailable = new ArrayList<>();
+        boolean inheritedRead = false;
         for (String rootId : store.boundRoots(task.taskCorrelation(), task.currentEpoch())) {
             WorkflowKind kind = taken.instances().get(rootId);
-            if (kind == null) {
+            boolean inheritsFromRoot = inherited.contains(rootId);
+            if (kind == null && !inheritsFromRoot) {
                 continue;
             }
             switch (documents.readCurrent(rootId)) {
                 case Readable read -> {
                     if (read.latestRun() != null && read.latestRun().state() == RunState.RUNNING) {
-                        serving.put(rootId, kind);
+                        if (kind != null) {
+                            serving.put(rootId, kind);
+                        }
+                        inheritedRead |= inheritsFromRoot;
                     }
                 }
                 case Unavailable problem -> unavailable.add(problem);
             }
         }
-        return new AttributionCheck(serving.isEmpty() ? Attribution.NONE : new Attribution(serving), List.copyOf(unavailable));
+        return new AttributionCheck(new Attribution(serving, inheritedRead), List.copyOf(unavailable));
     }
 
     /** The actual number of open instances, without the prompt list's display limit. */
     @Transactional(readOnly = true)
-    public OpenInstanceCount openInstanceCount(String rawSessionId) {
+    public OpenInstanceCount openInstanceCount(String rawSessionId, String actor) {
         Task task = store.readTask(correlate(rawSessionId));
         if (task == null) {
-            return new OpenInstanceCount(0, List.of());
+            return new OpenInstanceCount(0, false, List.of());
         }
         Activity activity = workflowActivity(task, Owner.ANY, false);
-        return new OpenInstanceCount(activity.runs().size(), activity.unavailable().stream().map(this::workflowUnavailable).toList());
+        boolean hasRunning = activity.runs().stream().anyMatch(run -> run.receipt().state() == RunState.RUNNING
+                && (actor == null || openedByChild(task, run.rootId(), actor)));
+        return new OpenInstanceCount(activity.runs().size(), hasRunning, activity.unavailable().stream().map(this::workflowUnavailable).toList());
     }
 
     @Transactional(readOnly = true)
     public List<MessageRef> currentWorkflowProblems(String rawSessionId) {
-        return openInstanceCount(rawSessionId).unavailable();
+        return openInstanceCount(rawSessionId, null).unavailable();
     }
 
     /** The open instances of the session, up to a limit, for the prompt to show. */
@@ -1153,24 +1179,18 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
         return new OpenInstances(open, activity.unavailable().stream().map(this::workflowUnavailable).toList());
     }
 
-    /**
-     * The open instances the session's own agent opened for this request whose kind closes when the turn ends: what the server closes at the main agent's turn end. An instance a subagent
-     * opened is independent of the main agent's turns and is closed at the end of that subagent ({@link #subagentEndInstances}).
-     */
+    /** The tree's running inquiry closes with the root's turn, even if a later input inherited its reads. */
     @Transactional(readOnly = true)
     public List<String> turnEndInstances(String rawSessionId) {
         Task task = store.readTask(correlate(rawSessionId));
-        if (task == null) {
-            return List.of();
-        }
-        return attribution(rawSessionId, null).instances().entrySet().stream().filter(entry -> entry.getValue().closing() == WorkflowKind.Closing.TURN_END)
-                .map(Map.Entry::getKey).filter(rootId -> !store.hasObservation(task.taskCorrelation(), task.currentEpoch(), PHASE_CHILD_ROOT_EVENT + rootId)).toList();
+        return task == null ? List.of() : runningInquiries(task);
     }
 
-    /** The open instances this subagent took whose kind closes when the turn ends: what the server closes at the end of the subagent. */
-    @Transactional(readOnly = true)
-    public List<String> subagentEndInstances(String rawSessionId, String actor) {
-        return attribution(rawSessionId, actor).instances().entrySet().stream().filter(entry -> entry.getValue().closing() == WorkflowKind.Closing.TURN_END).map(Map.Entry::getKey).toList();
+    private List<String> runningInquiries(Task task) {
+        return store.boundRoots(task.taskCorrelation(), task.currentEpoch()).stream()
+                .filter(rootId -> kindOf(task.taskCorrelation(), task.currentEpoch(), rootId).closing() == WorkflowKind.Closing.TURN_END)
+                .filter(rootId -> documents.readCurrent(rootId) instanceof Readable read && read.latestRun() != null && read.latestRun().state() == RunState.RUNNING)
+                .toList();
     }
 
     public enum StopSelection { SELECTED, RECHECK, LAST_RECHECK, EXHAUSTED, UNAVAILABLE }
@@ -1188,6 +1208,9 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
         String exhausted = actorEvent(WorkflowEvents.STOP_EXHAUSTED, actor);
         if (store.countObservationsAnyEpochAfter(c, exhausted, requestStart) != 0) {
             return StopSelection.EXHAUSTED;
+        }
+        if (actor == null && store.countObservationsAnyEpochAfter(c, WorkflowEvents.turnSelected(requestStart), requestStart) != 0) {
+            return StopSelection.SELECTED;
         }
         String transition = WorkflowEvents.transitionPrefix(actor == null ? null : hashOpaque("actor", actor), requestStart);
         if (attributionOf(task, actor).any() || !store.observationEventsAfter(c, task.currentEpoch(), transition, requestStart).isEmpty()) {
@@ -1353,13 +1376,17 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
         }
     }
 
+    private boolean openedByChild(Task task, String rootId, String actor) {
+        return store.hasObservation(task.taskCorrelation(), task.currentEpoch(), PHASE_ROOT_ACTOR_EVENT + hashOpaque("actor", actor) + ":" + rootId);
+    }
+
     private Activity workflowActivity(Task task, Owner owner, boolean diagnoseHistory) {
         List<ActiveRun> active = new ArrayList<>();
         List<Unavailable> unavailable = new ArrayList<>();
         for (String rootId : store.boundRoots(task.taskCorrelation(), task.currentEpoch())) {
             if (!owner.any()) {
                 boolean other = owner.actor() == null ? store.hasObservation(task.taskCorrelation(), task.currentEpoch(), PHASE_CHILD_ROOT_EVENT + rootId)
-                        : !store.hasObservation(task.taskCorrelation(), task.currentEpoch(), PHASE_ROOT_ACTOR_EVENT + hashOpaque("actor", owner.actor()) + ":" + rootId);
+                        : !openedByChild(task, rootId, owner.actor());
                 if (other) {
                     continue;
                 }
@@ -1432,7 +1459,7 @@ public class ContinuityService implements HookRetryState, HookStopNotice {
         List<MessageRef> unreadableWorkflows = List.of();
         try {
             // Historical damage is reported at the prompt and on restore. Stop checks the current workflows.
-            Activity read = workflowActivity(task, Owner.of(actor), false);
+            Activity read = workflowActivity(task, actor == null ? Owner.ANY : Owner.of(actor), false);
             activity = read.runs();
             unreadableWorkflows = read.unavailable().stream().map(this::workflowUnavailable).toList();
         } catch (DataAccessException | IllegalStateException failure) {

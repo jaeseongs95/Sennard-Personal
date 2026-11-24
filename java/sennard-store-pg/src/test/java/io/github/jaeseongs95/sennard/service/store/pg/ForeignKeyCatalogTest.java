@@ -51,13 +51,13 @@ class ForeignKeyCatalogTest {
      * have {@code root_id} in their primary key for the referenced one) and sennard.continuity_tasks.</li>
      * <li>{@code call_id} (1): sennard.skill_calls (the key of sennard.call_admission).</li>
      * <li>{@code role_id} (1): sennard.role_context_history (the key of sennard.role_contexts).</li>
-     * <li>{@code run_id} (1): sennard.workflow_runs (the key of sennard.workflow_attempt_links).</li>
+     * <li>{@code run_id} (2): sennard.workflow_runs (the key of sennard.workflow_attempt_links) and sennard.execution (the key of both; an execution names the workflow run it belongs to as text and has no foreign key by design: the record of a program is kept as it was, whatever becomes of the run's own rows).</li>
      * <li>{@code message_id} (1): sennard.prepared_messages (the key of sennard.messages, which has the foreign key to the draft).</li>
      * <li>{@code attachment_id} (3): sennard.attachment_file and sennard.attachment_storage (each is a primary key column of the other; an attachment has no foreign key by design: the three tables are inserted and never changed) and sennard.upload_staging (the key of both).</li>
      * </ul>
      * skill_calls.skill_id matches workflow_run_skills.skill_id by name only (V22); skills are files, not rows, so there is no key to refer to.
      */
-    private static final int CEILING = 19;
+    private static final int CEILING = 20;
     private static final Map<String, String> NON_REFERENCES = Map.of(
             "sennard.convergence_roots.workspace_id",
             "The root's workspace identifier does not point to a blocked plan. The plan's workspace key is a hash of the physical path.",

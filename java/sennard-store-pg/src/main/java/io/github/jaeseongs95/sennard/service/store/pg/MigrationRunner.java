@@ -8,8 +8,11 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.util.List;
+import java.util.Optional;
 
+import io.github.jaeseongs95.sennard.domain.Digests;
 import io.github.jaeseongs95.sennard.service.migration.HistoryMigrator;
+import io.github.jaeseongs95.sennard.service.migration.HistoryMigrator.TimestampBinding;
 import io.github.jaeseongs95.sennard.service.migration.MigrationCode;
 import io.github.jaeseongs95.sennard.service.migration.MigrationException;
 import io.github.jaeseongs95.sennard.service.migration.MigrationScript;
@@ -25,6 +28,12 @@ import io.github.jaeseongs95.sennard.service.store.StoreException.Effect;
  * phases, each with its folder in the jar and its table, and the check of the database's encoding before any script runs.
  */
 final class MigrationRunner {
+    private static final long STOP_CHECKS_VERSION = 27;
+    private static final String STOP_CHECKS_FILE = "V27__workflow_stop_checks.sql";
+    private static final String STOP_CHECKS_DIGEST = "5b75669d3a4d9ff82ba8be6c81d008f763c3450fdf036f9f56fc7ba637c05493";
+    private static final String LOCK_INSERT = "INSERT INTO sennard.workflow_metadata (meta_key, value, updated_at) "
+            + "VALUES ('blocked-plan-write-lock', '1', ";
+
     /** The two kinds of migration: expand scripts run at every start, contract scripts by an explicit command. Each has its folder in the jar and its history table. */
     enum Phase {
         EXPAND("db/expand", "expand_history"), CONTRACT("db/contract", "contract_history");
@@ -71,12 +80,30 @@ final class MigrationRunner {
             connection.setAutoCommit(false);
             // Text is UTF-8 from end to end, and a script holds Korean text (the glossary): a database in another encoding is refused here, before a script fails half way with an encoding error.
             DataSourceFactory.verifyEncoding(connection);
+            if (phase == Phase.EXPAND) {
+                return migrator.run(connection, phase.target(), scripts, MigrationRunner::stopChecksTimestamp);
+            }
             return migrator.run(connection, phase.target(), scripts);
         } catch (SQLException failure) {
             throw StoreErrors.map(failure, false);
         } catch (MigrationException failure) {
             throw storeFailure(failure);
         }
+    }
+
+    /** The released expand V27 keeps its original bytes and digest. Only a pending execution binds the lock row's UTC time. */
+    private static Optional<TimestampBinding> stopChecksTimestamp(MigrationScript script) {
+        boolean expectedVersion = script.version() == STOP_CHECKS_VERSION;
+        boolean expectedFile = script.hasFileName(STOP_CHECKS_FILE);
+        if (!expectedVersion && !expectedFile) {
+            return Optional.empty();
+        }
+        if (!expectedVersion || !expectedFile
+                || !STOP_CHECKS_DIGEST.equals(script.digest()) || !STOP_CHECKS_DIGEST.equals(Digests.sha256Hex(script.bytes()))
+                || !script.loadedFrom("db/expand/modules/" + STOP_CHECKS_FILE)) {
+            throw new MigrationException(MigrationCode.CHANGED, "The pending expand migration " + STOP_CHECKS_FILE + " does not match the released script.");
+        }
+        return Optional.of(new TimestampBinding(LOCK_INSERT + "CURRENT_TIMESTAMP);", LOCK_INSERT + "?)"));
     }
 
     private static StoreException storeFailure(MigrationException failure) {

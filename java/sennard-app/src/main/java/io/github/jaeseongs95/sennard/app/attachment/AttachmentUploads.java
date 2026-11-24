@@ -49,6 +49,8 @@ public class AttachmentUploads {
     }
 
     /**
+     * A completed retry returns its original IDs before checking disk space.
+     *
      * Two begins of the same author with the same operationKey that both find no upload insert at the same moment, and the store lets one of them through: the other one's insert is
      * the duplicate of the (owner, operation key) unique key, which the services' translation makes a {@link ConflictCode#DUPLICATE} conflict. That is the only unique key a begin can
      * meet (the other two are an id and a storage key of 128 random bits). The loser is answered with the use case's defined error, ARTIFACT_BUSY (retryable: the begin sent again
@@ -56,6 +58,10 @@ public class AttachmentUploads {
      * entrance, after the use case's transaction has ended.
      */
     public AttachmentService.Begun begin(String owner, AttachmentService.BeginRequest request) {
+        var completed = service.replayCompletedBegin(owner, request);
+        if (completed.isPresent()) {
+            return completed.orElseThrow();
+        }
         long declared = 0;
         for (AttachmentService.BeginFile file : request.files()) {
             // A sum that would overflow saturates: a size that large is refused by the disk, and by the use case's limits after it.

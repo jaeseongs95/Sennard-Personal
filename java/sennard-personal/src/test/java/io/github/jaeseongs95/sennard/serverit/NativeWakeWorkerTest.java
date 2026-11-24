@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
 
@@ -42,14 +43,14 @@ public final class NativeWakeWorkerTest {
     @Test
     void registeredProviderReceivesTheSessionReadByItsHostAdapter() throws IOException {
         Map<String, String> environment = Map.of("TEST_FOURTH_HOST_WAKE", "enabled");
-        assertEquals(0, NativeWakeWorker.run(new String[]{"native-wake-worker", HOST.label(), "SessionStart"}, framedHook(), environment));
+        assertEquals(0, NativeWakeWorker.run(new String[]{"native-wake-worker", HOST.label(), "SessionStart"}, framedHook(), environment, Clock.systemUTC()));
         assertEquals("fixture-worker-session", targetSession);
         assertEquals(environment, localEnvironment);
     }
 
     @Test
     void unregisteredHostDoesNotRunAProvider() throws IOException {
-        assertEquals(2, NativeWakeWorker.run(new String[]{"native-wake-worker", "no-test-provider", "SessionStart"}, framedHook(), Map.of()));
+        assertEquals(2, NativeWakeWorker.run(new String[]{"native-wake-worker", "no-test-provider", "SessionStart"}, framedHook(), Map.of(), Clock.systemUTC()));
         assertNull(targetSession);
     }
 

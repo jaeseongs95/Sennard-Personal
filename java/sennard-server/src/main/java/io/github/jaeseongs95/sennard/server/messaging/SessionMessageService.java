@@ -35,10 +35,10 @@ import io.github.jaeseongs95.sennard.app.operation.Receipted;
 import io.github.jaeseongs95.sennard.domain.Digests;
 import io.github.jaeseongs95.sennard.domain.Timestamps;
 import io.github.jaeseongs95.sennard.domain.error.SennardException;
+import io.github.jaeseongs95.sennard.domain.error.BindingCode;
+import io.github.jaeseongs95.sennard.domain.error.BindingException;
 import io.github.jaeseongs95.sennard.domain.error.ConflictException;
 import io.github.jaeseongs95.sennard.domain.error.ConflictCode;
-import io.github.jaeseongs95.sennard.domain.error.InputCode;
-import io.github.jaeseongs95.sennard.domain.error.InvalidInputException;
 import io.github.jaeseongs95.sennard.domain.error.NotFoundCode;
 import io.github.jaeseongs95.sennard.domain.error.NotFoundException;
 import io.github.jaeseongs95.sennard.domain.error.UnavailableCode;
@@ -215,13 +215,12 @@ public class SessionMessageService {
     }
 
     public PreparedView prepare(PeerAddress sender, String targetHost, String targetSessionId, String targetActorId, String body, Integer ttlSeconds, OperationKey operation) {
-        String targetRef = sessions.findRef(targetHost, targetSessionId).orElseThrow(() -> new NotFoundException(NotFoundCode.SESSION_NOT_FOUND));
-        PeerAddress target;
-        try {
-            target = targetActorId == null ? PeerAddress.session(targetRef) : new PeerAddress(targetRef, targetActorId);
-        } catch (IllegalArgumentException invalid) {
-            throw new InvalidInputException(InputCode.CONTRACT_MISMATCH, SennardException.args("name", "prepare_session_message"), SennardException.args("field", "targetActorId"));
+        if (targetActorId != null) {
+            throw new BindingException(BindingCode.PEER_MAIN_SESSION_REQUIRED);
         }
+        String targetRef = sessions.findRef(targetHost, targetSessionId).orElseThrow(() -> new NotFoundException(NotFoundCode.SESSION_NOT_FOUND));
+        PeerAddress target = PeerAddress.session(targetRef);
+        requireMainPeerTarget(sender, target);
         Prepared prepared = messaging.prepare(sender, target, body, ttlSeconds, operation);
         return new PreparedView(prepared.messageId(), Timestamps.format(prepared.preparedAt()), Timestamps.format(prepared.expiresAt()));
     }
@@ -234,7 +233,8 @@ public class SessionMessageService {
         Receipted<SendResult> receipted;
         try {
             // The answer, the advisory autoWake in it, is made inside the transaction of the send and kept in the receipt, so a request that comes again with its key is answered with the first answer as it was given.
-            receipted = messaging.send(sender, senderHost, messageId, operation, SendResult.class, sent -> sendAnswer(sender, sent));
+            receipted = messaging.send(sender, senderHost, messageId, operation, SendResult.class, sent -> sendAnswer(sender, sent),
+                    target -> requireMainPeerTarget(sender, target));
         } catch (SennardException | DataAccessException | TransactionException failure) {
             throw refusal(failure);
         }
@@ -252,12 +252,20 @@ public class SessionMessageService {
                 target.map(this::autoWake).orElseGet(this::noTargetWake));
     }
 
+    private void requireMainPeerTarget(PeerAddress sender, PeerAddress target) {
+        if (!sender.actorId().isEmpty() || !target.actorId().isEmpty() || sender.sessionRef().equals(target.sessionRef())
+                || !sessions.isRegisteredMain(sender.sessionRef()) || !sessions.isRegisteredMain(target.sessionRef())) {
+            throw new BindingException(BindingCode.PEER_MAIN_SESSION_REQUIRED);
+        }
+    }
+
     /**
      * What the sender is told when a send did not happen: a capacity refusal as it is; the conflict of the operationKey as it is; a refusal of the queue's rules as {@code SEND_REJECTED} with the reason's sentence
      * (the sender retries only the known ID); a failure of the store or anything unforeseen as {@code SEND_FAILED} (the outcome may be unknown).
      */
     private RuntimeException refusal(RuntimeException failure) {
         return switch (failure) {
+            case BindingException binding when binding.code() == BindingCode.PEER_MAIN_SESSION_REQUIRED -> binding;
             case UnavailableException capacity when CAPACITY.contains(capacity.code()) -> capacity;
             // The conflicts of the operationKey are the caller's to see as they are (REQUEST_CONFLICT with the reason, the second one retryable), not a rejection of the send by the queue.
             case ConflictException keyConflict when keyConflict.isOperationKey() -> keyConflict;
@@ -357,15 +365,6 @@ public class SessionMessageService {
         return delivered;
     }
 
-    /** Claims for an observed child and records the receipts in the same transaction. */
-    @Transactional
-    public List<Delivered> claimActor(String host, String rootSessionId, PeerAddress target) {
-        if (target.actorId().isEmpty()) {
-            throw new IllegalArgumentException("A child peer address is required");
-        }
-        return messaging.claim(target, HOOK_CLAIM).stream().map(message -> withReceipt(host, rootSessionId, message)).toList();
-    }
-
     /** Messages and source receipts precede the reservation CAS, the same lock order as ordinary claims and acknowledgements. */
     @Transactional
     public List<Delivered> claimWakeInput(HostContext context, String nonce) {
@@ -376,7 +375,7 @@ public class SessionMessageService {
         IdleWakeService.Input target = verified.orElseThrow();
         List<Delivered> delivered = target.address().actorId().isEmpty()
                 ? takeWithReceipts(target.host(), target.sessionId(), target.address().sessionRef(), Boundary.WAKE)
-                : claimActor(target.host(), target.sessionId(), target.address());
+                : List.of();
         if (idleWake.consume(context, nonce).filter(target::equals).isEmpty()) {
             throw new ConflictException(ConflictCode.NATIVE_WAKE_CLAIM_CHANGED);
         }
@@ -475,10 +474,13 @@ public class SessionMessageService {
 
     /** Advisory only: whether a wake hook of the target is being held now. */
     private AutoWake autoWake(Target target) {
+        if (target.actorId() != null || sessions.isChild(target.host(), target.sessionId())) {
+            return noTargetWake();
+        }
         String now = Timestamps.format(clock.instant());
-        boolean waiting = target.actorId() == null && waiting(target);
+        boolean waiting = waiting(target);
         if (!waiting) {
-            Optional<IdleWakeService.Advisory> nativeWake = idleWake.outlook(target.host(), target.sessionId(), target.actorId());
+            Optional<IdleWakeService.Advisory> nativeWake = idleWake.outlook(target.host(), target.sessionId());
             if (nativeWake.isPresent()) {
                 IdleWakeService.Advisory advisory = nativeWake.orElseThrow();
                 return new AutoWake(advisory.state(), advisory.reason(), now, now, NO_AUTHORITY);

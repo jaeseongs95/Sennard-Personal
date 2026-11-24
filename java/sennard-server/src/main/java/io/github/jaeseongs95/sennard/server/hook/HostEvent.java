@@ -15,13 +15,12 @@ public sealed interface HostEvent {
         return switch (this) {
             case SessionStarted event -> new SessionStarted(replacement, event.kind(), event.restoresContext());
             case SessionEnded event -> new SessionEnded(replacement, event.reason());
-            case UserPromptSubmitted event -> new UserPromptSubmitted(replacement, event.prompt(), event.restoresContext());
+            case UserPromptSubmitted event -> new UserPromptSubmitted(replacement, event.prompt(), event.origin(), event.restoresContext());
             case TurnStarted event -> new TurnStarted(replacement, event.provisionalInput(), event.restoresContext());
             case ModelCallStarting event -> new ModelCallStarting(replacement);
             case ModelCallFinished event -> new ModelCallFinished(replacement, event.carriesContext());
             case ToolRequested event -> new ToolRequested(replacement, event.tool());
             case ToolFinished event -> new ToolFinished(replacement, event.tool(), event.resultTail(), event.reportedFailure(), event.stepBoundary());
-            case NativePeerResult event -> new NativePeerResult(replacement);
             case TurnEnded event -> new TurnEnded(replacement, event.alreadyContinued(), event.continuable());
             case SubagentStarted event -> new SubagentStarted(replacement);
             case SubagentEnded event -> new SubagentEnded(replacement, event.alreadyContinued());
@@ -42,10 +41,29 @@ public sealed interface HostEvent {
     record SessionEnded(HostContext context, String reason) implements HostEvent {
     }
 
-    /** A user prompt opens a turn. */
-    record UserPromptSubmitted(HostContext context, String prompt, boolean restoresContext) implements HostEvent {
+    /**
+     * Who wrote the text of a prompt, as the host says it in the hook's own input. A host that does not say is {@link #USER}: it is the host's fact, never read from the text, which a user can
+     * paste.
+     */
+    enum PromptOrigin {
+        /** The person (or a program acting for them, such as an SDK client) typed it: it is a new request. */
+        USER,
+        /** The host made it, such as a notice that a background task finished: it continues the request already served and is not a new one. */
+        HOST
+    }
+
+    /**
+     * A prompt opens a turn.
+     *
+     * @param origin who wrote it; only a {@link PromptOrigin#USER} prompt is a request of the user ({@link #startsRequest})
+     */
+    record UserPromptSubmitted(HostContext context, String prompt, PromptOrigin origin, boolean restoresContext) implements HostEvent {
         public UserPromptSubmitted(HostContext context, String prompt) {
-            this(context, prompt, false);
+            this(context, prompt, PromptOrigin.USER, false);
+        }
+
+        public UserPromptSubmitted(HostContext context, String prompt, PromptOrigin origin) {
+            this(context, prompt, origin, false);
         }
     }
 
@@ -67,6 +85,20 @@ public sealed interface HostEvent {
 
     default boolean startsTurn() {
         return this instanceof UserPromptSubmitted || this instanceof TurnStarted;
+    }
+
+    /** Text reported at a turn-start boundary, or null when the hook has no input text. */
+    default String turnInputText() {
+        return switch (this) {
+            case UserPromptSubmitted input -> input.prompt();
+            case TurnStarted started -> started.provisionalInput();
+            default -> null;
+        };
+    }
+
+    /** A request starts at any prompt boundary, including host notifications. */
+    default boolean startsRequest() {
+        return startsTurn();
     }
 
     /** Whether this boundary calls for restoring the current full context. */
@@ -99,10 +131,6 @@ public sealed interface HostEvent {
      * @param stepBoundary whether context returned here reaches the next model call
      */
     record ToolFinished(HostContext context, ToolCall tool, String resultTail, boolean reportedFailure, boolean stepBoundary) implements HostEvent {
-    }
-
-    /** A host would send a subagent's native result to another agent. The body stays outside the server's event consumers. */
-    record NativePeerResult(HostContext context) implements HostEvent {
     }
 
     /**

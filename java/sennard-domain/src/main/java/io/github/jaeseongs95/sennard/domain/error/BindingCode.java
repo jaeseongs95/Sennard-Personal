@@ -13,6 +13,7 @@ public enum BindingCode implements ErrorCode {
     BINDING_REQUIRED("error.BINDING_REQUIRED", "BINDING_REQUIRED", true),
     /** The caller or session the call names is not valid (the host's call metadata contradicts itself, the row left for the call is another tool's). */
     BINDING_INVALID("error.BINDING_INVALID"),
+    PEER_MAIN_SESSION_REQUIRED("error.PEER_MAIN_SESSION_REQUIRED"),
 
     /** The task binding's epoch is not the current one. */
     CONTINUITY_EPOCH_STALE("continuity.binding.epochStale"),

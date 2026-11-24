@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+fail() {
+    printf '%s\n' "$*" >&2
+    exit 1
+}
+
+# Succeeds when $1 (a home directory, or a java executable) is a Java 25 or later; then $java is its executable and $properties the JVM's own answer to
+# -XshowSettings:properties, which prepare_locale reads again so that no further JVM is started for it.
+java_path() {
+    [ -n "$1" ] || return 1
+    candidate=$1
+    case $candidate in
+        '~/'*) candidate=$HOME/${candidate#\~/} ;;
+        /*) ;;
+        *) candidate=$PWD/$candidate ;;
+    esac
+    if [ -d "$candidate" ]; then
+        candidate=$candidate/bin/java
+    fi
+    [ -f "$candidate" ] && [ -x "$candidate" ] || return 1
+    properties=$("$candidate" -XshowSettings:properties -version 2>&1) || return 1
+    printf '%s\n' "$properties" | awk '$1 == "java.specification.version" && $2 == "=" && $3 ~ /^[0-9]+$/ && $3 >= 25 { found = 1 } END { exit !found }' || return 1
+    java=$candidate
+}
+
+java_on_path() {
+    remaining=${PATH:-}:
+    while [ -n "$remaining" ]; do
+        directory=${remaining%%:*}
+        remaining=${remaining#*:}
+        java_path "${directory:-.}/java" && return 0
+    done
+    return 1
+}
+
+# The encoding the JVM uses for file names (sun.jnu.encoding) in the -XshowSettings:properties answer $1.
+jnu_encoding() {
+    printf '%s\n' "$1" | awk '$1 == "sun.jnu.encoding" && $2 == "=" { value = $3 } END { print value }'
+}
+
+# That answer again, from the JVM of $java in the current environment (the environment is what is being tried).
+jvm_properties() {
+    "$java" -XshowSettings:properties -version 2>&1
+}
+
+# A JVM started with an ASCII locale (none, C or POSIX) cannot open a jar whose path has other letters. Only then the narrowest variable that makes the JVM
+# answer UTF-8 is set, from a few candidate names; whether a name exists is decided by the JVM's answer, not assumed. A locale chosen by the user is not touched.
+prepare_locale() {
+    case $(jnu_encoding "$properties") in
+        ANSI_X3.4-1968 | US-ASCII | ASCII) ;;
+        *) return 0 ;;
+    esac
+    for name in C.UTF-8 C.utf8 en_US.UTF-8; do
+        if [ "$(LC_CTYPE=$name; export LC_CTYPE; jnu_encoding "$(jvm_properties)")" = UTF-8 ]; then
+            LC_CTYPE=$name
+            export LC_CTYPE
+            return 0
+        fi
+        if [ "$(LC_ALL=$name; export LC_ALL; jnu_encoding "$(jvm_properties)")" = UTF-8 ]; then
+            LC_ALL=$name
+            export LC_ALL
+            return 0
+        fi
+    done
+    case $jar in
+        *[!\ -~]*) printf '%s\n' "No UTF-8 locale was found, so Java may not be able to open the files in this folder: $script_dir" >&2 ;;
+    esac
+    return 0
+}
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
+jar=$script_dir/@SENNARD_RELEASE_JAR@
+[ -f "$jar" ] || fail "Put @SENNARD_RELEASE_JAR@ next to setup.sh."
+
+state_dir=${SENNARD_STATE_DIR:-$HOME/.sennard}
+preference=$state_dir/setup-java-path
+if java_path "${JAVA_HOME:-}" || java_on_path ||
+    { [ -f "$preference" ] && IFS= read -r saved < "$preference" && java_path "$saved"; }; then
+    prepare_locale
+    exec "$java" -jar "$jar" setup
+fi
+
+while :; do
+    printf 'Enter the Java 25+ home directory or java executable (Enter to cancel): ' >&2
+    IFS= read -r entered || exit 1
+    [ -n "$entered" ] || exit 1
+    case $entered in
+        \"*\") entered=${entered#\"}; entered=${entered%\"} ;;
+    esac
+    java_path "$entered" && break
+    printf 'That path does not provide Java 25 or later.\n' >&2
+done
+
+(
+    umask 077
+    mkdir -p -- "$state_dir" &&
+    [ ! -d "$preference" ] &&
+    temporary=$(mktemp "$state_dir/.setup-java-path.XXXXXX") || exit 1
+    trap 'rm -f -- "$temporary"' 0
+    trap 'exit 1' HUP INT TERM
+    printf '%s\n' "$java" > "$temporary" && mv -f -- "$temporary" "$preference"
+) || fail "Could not save the Java path in $state_dir."
+
+prepare_locale
+exec "$java" -jar "$jar" setup

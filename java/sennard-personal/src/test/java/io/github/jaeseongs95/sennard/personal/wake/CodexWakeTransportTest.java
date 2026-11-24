@@ -123,23 +123,78 @@ class CodexWakeTransportTest {
         Path executable = candidate(Files.createDirectory(platformPackage.resolve("bin")));
         AtomicReference<ToolProcess.Request> observed = new AtomicReference<>();
         var adapter = adapter(request -> { observed.set(request); return new ToolProcess.Finished(0, new byte[0]); });
-        var ready = assertInstanceOf(WakeTransport.Availability.Ready.class, adapter.connect(enabled(), TARGET));
+        Map<String, String> expectedEnvironment = Map.of("CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(),
+                "CODEX_HOME", "fixture-home", "Path", "fixture-path");
+        var exposed = new java.util.HashMap<>(expectedEnvironment);
+        exposed.put("SENNARD_CODEX_QUEUE_WAKE", "1");
+        exposed.put("UNRELATED_SETTING", "fixture-value");
+        var ready = assertInstanceOf(WakeTransport.Availability.Ready.class, adapter.connect(exposed, TARGET));
+        exposed.put("CODEX_HOME", "later-home");
         assertInstanceOf(WakeTransport.Outcome.Submitted.class, ready.connection().wake("thread-a", "marker-a"));
         assertEquals(List.of(executable.toString(), "queue", "--thread", "thread-a", "--message", "marker-a"), observed.get().command());
+        assertEquals(ToolProcess.Stderr.MERGE, observed.get().stderr());
+        assertEquals(java.time.Duration.ofSeconds(10), observed.get().timeout());
         assertFalse(observed.get().inheritEnvironment());
         assertEquals(65536, observed.get().maxOutputBytes());
-        assertFalse(observed.get().environment().containsKey("SENNARD_CODEX_QUEUE_WAKE"));
+        assertEquals(expectedEnvironment, observed.get().environment());
     }
 
     @Test
-    void timeoutAndNonzeroStayUnknownAndMissingExecutableIsNotLaunched() throws Exception {
+    void processResultsPreserveUncertainReasonsAndMissingExecutableIsNotLaunched() throws Exception {
         candidate();
-        var timed = assertInstanceOf(WakeTransport.Availability.Ready.class, adapter(request -> new ToolProcess.TimedOut()).connect(enabled(), TARGET));
-        assertInstanceOf(WakeTransport.Outcome.Unknown.class, timed.connection().wake("thread-a", "m"));
-        var failed = assertInstanceOf(WakeTransport.Availability.Ready.class, adapter(request -> new ToolProcess.Finished(1, new byte[0])).connect(enabled(), TARGET));
-        assertInstanceOf(WakeTransport.Outcome.Unknown.class, failed.connection().wake("thread-a", "m"));
+        Map<ToolProcess.Outcome, String> failures = Map.of(new ToolProcess.TimedOut(), "TIMED_OUT",
+                new ToolProcess.Overflowed(), "OUTPUT_LIMIT", new ToolProcess.Finished(1, new byte[0]), "CLI_NONZERO");
+        for (var entry : failures.entrySet()) {
+            var ready = assertInstanceOf(WakeTransport.Availability.Ready.class,
+                    adapter(request -> entry.getKey()).connect(enabled(), TARGET));
+            assertEquals(new WakeTransport.Outcome.Unknown(entry.getValue()), ready.connection().wake("thread-a", "m"));
+        }
         Files.delete(temporary.resolve("codex.exe"));
         assertInstanceOf(WakeTransport.Availability.Missing.class, adapter(request -> { throw new AssertionError("not launched"); }).connect(enabled(), TARGET));
+    }
+
+    @Test
+    void pathCandidatesRequireTheLocalNativeFormatForQueueAndManagedLaunch() throws Exception {
+        Path executable = candidate();
+        var adapter = adapter(request -> { throw new AssertionError("connect never launches"); });
+        Map<String, String> environment = Map.of("PATH", temporary.toString(), "SENNARD_CODEX_QUEUE_WAKE", "1");
+        var managedTarget = new WakeTransport.Target(TARGET.hostSessionId(), temporary.toString());
+        assertInstanceOf(WakeTransport.Availability.Ready.class, adapter.connect(environment, TARGET));
+        assertTrue(adapter.managedLauncher(environment, managedTarget).isPresent());
+        Files.write(executable, NativeLauncherFixture.foreignHeader());
+        assertAll(
+                () -> assertEquals(new WakeTransport.Availability.Missing("NATIVE_EXECUTABLE_MISSING"), adapter.connect(environment, TARGET)),
+                () -> assertTrue(adapter.managedLauncher(environment, managedTarget).isEmpty()));
+        for (String header : List.of("4d5a0000", "23212f62", "00000000")) {
+            Files.write(executable, java.util.HexFormat.of().parseHex(header));
+            assertEquals(new WakeTransport.Availability.Missing("NATIVE_EXECUTABLE_MISSING"), adapter.connect(environment, TARGET), header);
+        }
+    }
+
+    @Test
+    void managedRootCountsOnlyLocalCandidatesAndNeverFallsBackToPath() throws Exception {
+        Path root = Files.createDirectory(temporary.resolve("managed"));
+        Path localDir = Files.createDirectory(root.resolve("local"));
+        Path foreignDir = Files.createDirectory(root.resolve("foreign"));
+        Path local = candidate(localDir);
+        NativeLauncherFixture.executable(foreignDir.resolve(local.getFileName()), NativeLauncherFixture.foreignHeader());
+        Path deeperThanLimit = Files.createDirectories(root.resolve("1/2/3/4/5/6/7/8"));
+        candidate(deeperThanLimit);
+        candidate();
+        var adapter = adapter(request -> { throw new AssertionError("discovery never launches"); });
+        var environment = Map.of("PATH", temporary.toString(), "CODEX_MANAGED_PACKAGE_ROOT", root.toString());
+        var managedTarget = new WakeTransport.Target(TARGET.hostSessionId(), temporary.toString());
+        assertInstanceOf(WakeTransport.Availability.Ready.class, adapter.connect(environment, TARGET));
+        assertTrue(adapter.managedLauncher(environment, managedTarget).isPresent());
+
+        Path second = candidate(root);
+        assertEquals(new WakeTransport.Availability.Missing("NATIVE_EXECUTABLE_MISSING"), adapter.connect(environment, TARGET));
+        assertTrue(adapter.managedLauncher(environment, managedTarget).isEmpty());
+
+        Files.delete(second);
+        Files.delete(local);
+        assertEquals(new WakeTransport.Availability.Missing("NATIVE_EXECUTABLE_MISSING"), adapter.connect(environment, TARGET));
+        assertTrue(adapter.managedLauncher(environment, managedTarget).isEmpty());
     }
 
     @Test
@@ -193,13 +248,34 @@ class CodexWakeTransportTest {
     @Test
     void publicProcessFailurePhasePreservesSendCertainty() throws Exception {
         candidate();
+        Map<WakeProcess.Phase, WakeTransport.Outcome> expected = Map.of(
+                WakeProcess.Phase.STARTED, new WakeTransport.Outcome.Unknown("IO_AFTER_START"),
+                WakeProcess.Phase.NOT_STARTED, new WakeTransport.Outcome.NotSent("START_FAILED"));
         for (WakeProcess.Phase phase : WakeProcess.Phase.values()) {
             var connection = assertInstanceOf(WakeTransport.Availability.Ready.class, adapter(request -> {
                 throw new WakeProcess.Failure(phase, new java.io.IOException("synthetic-token"));
             }).connect(enabled(), TARGET)).connection();
-            var result = connection.wake("thread-a", "marker");
-            assertTrue(phase == WakeProcess.Phase.STARTED
-                    ? result instanceof WakeTransport.Outcome.Unknown : result instanceof WakeTransport.Outcome.NotSent);
+            assertEquals(expected.get(phase), connection.wake("thread-a", "marker"));
+        }
+        var preparation = assertInstanceOf(WakeTransport.Availability.Ready.class, adapter(request -> {
+            throw new java.io.IOException("synthetic-token");
+        }).connect(enabled(), TARGET)).connection();
+        assertEquals(new WakeTransport.Outcome.NotSent("START_PREPARATION_FAILED"), preparation.wake("thread-a", "marker"));
+    }
+
+    @Test
+    void anInterruptedSendStillCallsTheCodexProcessBoundaryAndRestoresInterrupt() throws Exception {
+        candidate();
+        var connection = assertInstanceOf(WakeTransport.Availability.Ready.class, adapter(request -> {
+            assertTrue(Thread.interrupted());
+            throw new InterruptedException("synthetic-token");
+        }).connect(enabled(), TARGET)).connection();
+        try {
+            Thread.currentThread().interrupt();
+            assertEquals(new WakeTransport.Outcome.Unknown("CANCELLED"), connection.wake("thread-a", "marker"));
+            assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
         }
     }
 
@@ -220,9 +296,7 @@ class CodexWakeTransportTest {
     }
 
     private Path candidate(Path folder) throws Exception {
-        Path path = Files.write(folder.resolve("codex.exe"), new byte[] {'M', 'Z', 0, 0});
-        assertTrue(path.toFile().setExecutable(true));
-        return path;
+        return NativeLauncherFixture.executable(folder.resolve("codex.exe"), NativeLauncherFixture.localHeader());
     }
     private Map<String, String> enabled() {
         return Map.of("CODEX_MANAGED_PACKAGE_ROOT", temporary.toString(), "SENNARD_CODEX_QUEUE_WAKE", "1");

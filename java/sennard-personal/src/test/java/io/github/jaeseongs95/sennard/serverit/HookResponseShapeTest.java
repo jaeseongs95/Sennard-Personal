@@ -37,7 +37,7 @@ class HookResponseShapeTest {
     private static final ToolCall TOOL = new ToolCall(null, "t", null, JsonNodeFactory.instance.objectNode());
     private static final HostEvent TOOL_REQUESTED = new HostEvent.ToolRequested(CONTEXT, TOOL);
     private static final HostEvent TOOL_FINISHED = new HostEvent.ToolFinished(CONTEXT, TOOL, null, false, false);
-    private static final HostEvent PROMPT = new HostEvent.UserPromptSubmitted(CONTEXT, "p");
+    private static final HostEvent PROMPT = new HostEvent.UserPromptSubmitted(CONTEXT, "p", HostEvent.PromptOrigin.USER);
     private static final HostEvent TURN_ENDED = new HostEvent.TurnEnded(CONTEXT, false, true);
     private static final HostEvent SESSION_START = new HostEvent.SessionStarted(CONTEXT, HostEvent.StartKind.STARTUP);
     private static final HookVerdict.Proceed PROCEED = new HookVerdict.Proceed();

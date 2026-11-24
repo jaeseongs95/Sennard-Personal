@@ -41,6 +41,7 @@ import io.github.jaeseongs95.sennard.server.hook.HostRegistrationFile;
 import io.github.jaeseongs95.sennard.server.hook.host.AntigravityHost;
 import io.github.jaeseongs95.sennard.server.hook.host.ClaudeHost;
 import io.github.jaeseongs95.sennard.server.hook.host.CodexHost;
+import io.github.jaeseongs95.sennard.server.hook.host.GeminiHookAdapter;
 import io.github.jaeseongs95.sennard.server.hook.host.GeminiHost;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -622,6 +623,30 @@ class HostFilesTest {
         assertFalse(Files.exists(extension.resolve("gemini-extension.json")), "a manifest is the host's: Sennard does not make one");
         assertTrue(report.contains("left " + extension.resolve("gemini-extension.json") + ": there is no file of the host to put /mcpServers in"), report.toString());
         assertEquals(gemini.hooksContent(installation(java())), read(extension.resolve("hooks/hooks.json")));
+    }
+
+    /**
+     * The version that shipped before this one wrote a second {@code AfterTool} entry for Gemini's subagent result ({@code invoke_agent}) whose command ended in
+     * {@code --on-failure=deny-result}. The hook client of this version has no such answer and refuses the word (HookClientArguments: UNKNOWN_VALUE, exit 2, the code of a block in
+     * the hook client's contract), so an extension that still held the entry would block every subagent result. Writing the definitions again replaces the whole file (the definition is a
+     * {@link HostRegistrationFile.WholeFile}, compared whole), so the old entry is gone with it, with the real Gemini adapter's definition.
+     */
+    @Test
+    void aGeminiExtensionThatHoldsThePreviousVersionsResultHookIsWrittenOverWithThisVersionsDefinition() throws IOException {
+        Path extension = geminiExtension("{\"name\":\"sennard\",\"version\":\"6.0.0\"}");
+        Path hooksFile = extension.resolve("hooks/hooks.json");
+        write(hooksFile, "{\"hooks\":{\"AfterTool\":[{\"matcher\":\"^(?!invoke_agent$).*$\",\"hooks\":[{\"name\":\"sennard-AfterTool\",\"type\":\"command\",\"command\":\"java hook gemini AfterTool\",\"timeout\":10000}]},"
+                + "{\"matcher\":\"^invoke_agent$\",\"hooks\":[{\"name\":\"sennard-native-peer-result\",\"type\":\"command\",\"command\":\"java hook gemini AfterTool --on-failure=deny-result\",\"timeout\":10000}]}]}}");
+        assertTrue(Files.readString(hooksFile, StandardCharsets.UTF_8).contains("--on-failure=deny-result"));
+        GeminiHookAdapter real = new GeminiHookAdapter(JSON);
+        HookInstallation installation = installation(java());
+
+        List<String> report = new HostFiles(List.of(new GeminiPackageLocation(JSON)), "6.0.0", HOOKS_COMMAND, JSON).place(List.of(real), environment(), installation, generated()).report();
+
+        assertTrue(report.contains("wrote " + hooksFile), report.toString());
+        assertFalse(Files.readString(hooksFile, StandardCharsets.UTF_8).contains("deny-result"), "the previous version's answer is gone");
+        assertEquals(real.registrationFiles(installation).getFirst().content(), read(hooksFile), "the file is this version's definition, whole");
+        assertEquals(1, read(hooksFile).path("hooks").path("AfterTool").size(), "one AfterTool entry: a subagent's result has none of its own");
     }
 
     @Test

@@ -6,9 +6,7 @@ package io.github.jaeseongs95.sennard.server.continuity;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -26,6 +24,7 @@ import io.github.jaeseongs95.sennard.server.hook.HostEvent;
 import io.github.jaeseongs95.sennard.server.hook.HostEventHandler.HookCall;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts;
+import io.github.jaeseongs95.sennard.server.hook.HostWorkFactsRegistry;
 import io.github.jaeseongs95.sennard.server.mcp.HostCallerAdapter;
 import io.github.jaeseongs95.sennard.server.session.HookDomain;
 import io.github.jaeseongs95.sennard.server.message.MessageRef;
@@ -49,14 +48,14 @@ public class SharedContextHookHandler implements HookDomain {
 
     private final ContextLayerService layers;
     private final Messages messages;
-    private final Map<HostId, HostWorkFacts> facts;
+    private final HostWorkFactsRegistry facts;
     /** The hosts whose hooks do not say which conversations are subagents, so nothing in a hook tells whose child a conversation is ({@link HostCallerAdapter#hooksMarkSubagents()}). */
     private final Set<HostId> hostsNamingNoParent;
 
-    public SharedContextHookHandler(ContextLayerService layers, Messages messages, List<HostWorkFacts> facts, List<HostCallerAdapter> callers) {
+    public SharedContextHookHandler(ContextLayerService layers, Messages messages, HostWorkFactsRegistry facts, List<HostCallerAdapter> callers) {
         this.layers = layers;
         this.messages = messages;
-        this.facts = facts.stream().collect(Collectors.toUnmodifiableMap(HostWorkFacts::host, Function.identity()));
+        this.facts = facts;
         this.hostsNamingNoParent = callers.stream().filter(caller -> !caller.hooksMarkSubagents()).map(HostCallerAdapter::host).collect(Collectors.toUnmodifiableSet());
     }
 
@@ -72,7 +71,7 @@ public class SharedContextHookHandler implements HookDomain {
             return PROCEED;
         }
         String text = layerText(sessionHost, event.context().sessionId(), target, hostsNamingNoParent.contains(event.context().hostLabel()));
-        HostWorkFacts host = facts.getOrDefault(event.context().hostLabel(), HostWorkFacts.NONE);
+        HostWorkFacts host = facts.forHost(event.context().hostLabel());
         boolean ephemeral = event.startsTurn() && host.restoresAtTurnStart();
         return text == null ? PROCEED : new HookVerdict.AddContext(List.of(new HookVerdict.ContextBlock(text, ephemeral)));
     }

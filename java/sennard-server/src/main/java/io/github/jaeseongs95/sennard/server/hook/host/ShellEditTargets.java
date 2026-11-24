@@ -123,7 +123,21 @@ final class ShellEditTargets {
     private static final String DOUBLE_QUOTE_ESCAPED = "$`\"\\\n";
     private static final Set<String> DENO_RUNS =Set.of("run", "task");
     /** The git commands whose effect on the working tree is the difference of two states of the repository, which the command text does not name. */
-    private static final Set<String> GIT_REWRITES_TREE = Set.of("pull", "merge", "cherry-pick", "rebase", "switch");
+    private static final Set<String> GIT_REWRITES_TREE = Set.of("pull", "merge", "cherry-pick", "rebase");
+    /**
+     * The global options of git 2.55 (what {@code git --help} lists and what its command-line parser reads before the subcommand, each tried against the installed git), by how git reads their value.
+     * The ones that take it as the next argument are not the subcommand, whatever the word that follows. {@code -C} and {@code -c} take no {@code =} form; the others take both.
+     */
+    private static final Set<String> GIT_GLOBAL_VALUE_APART = Set.of("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source");
+    private static final Set<String> GIT_GLOBAL_VALUE_AFTER_EQUALS = Set.of("--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source", "--exec-path", "--list-cmds");
+    private static final Set<String> GIT_GLOBAL_FLAGS = Set.of("-p", "--paginate", "-P", "--no-pager", "--no-replace-objects", "--no-lazy-fetch", "--no-optional-locks", "--no-advice", "--bare",
+            "--literal-pathspecs", "--no-literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--html-path", "--man-path", "--info-path", "--exec-path");
+    /** Where git reads one of these in the place of the subcommand, it runs {@code version} or {@code help}, which write no file. */
+    private static final Set<String> GIT_VERSION_OR_HELP = Set.of("-v", "--version", "-h", "--help");
+    private static final String GIT_SWITCH_CREATE_ATTACHED = "--create=";
+    /** What ends a simple command in every dialect that has the token; a bracket or brace ends it only as the shell's grammar says, and the next token may be one of its arguments. */
+    private static final Set<String> COMMAND_SEPARATORS = Set.of(";", "\n", "|", "&", "&&", "||");
+    private static final Pattern PLAIN_BRANCH_NAME = Pattern.compile("[A-Za-z0-9._/+][A-Za-z0-9._/+-]*");
     private static final Set<String> GIT_STASH_RESTORES = Set.of("pop", "apply");
     private static final Set<String> PREFIXES = Set.of("sudo", "doas", "env", "command", "builtin", "exec", "nohup", "nice", "time", "timeout", "stdbuf");
     private static final Set<String> KEYWORDS = Set.of("if", "then", "else", "elif", "do", "while", "until", "!", "{", "}");
@@ -349,6 +363,82 @@ final class ShellEditTargets {
         return new Operands(options, values, rest);
     }
 
+    /**
+     * Whether the arguments of this {@code git switch} are exactly a branch created at the commit already checked out, which leaves the working tree as it is: the name given with {@code -c} or
+     * {@code --create} (apart, or attached as {@code -cNAME} and {@code --create=NAME}) and nothing else, or {@code HEAD} after it as the start point. The name is a plain literal
+     * ({@link #PLAIN_BRANCH_NAME}), and every word is one: no other option, no other order, no other start point ({@code @} is PowerShell's splatting as much as git's alias of
+     * {@code HEAD}). Anything else is read as rewriting the tree from the repository state, which the command text does not name, because git's reading of an option it takes
+     * (an abbreviation, {@code -C}, {@code --track}, {@code --detach}) or of a word the shell hands it differently is not this observation's to predict.
+     */
+    private static boolean switchOnlyCreatesBranchAtHead(List<Token> args) {
+        if (args.isEmpty() || !args.stream().allMatch(token -> token.word() && token.literal())) {
+            return false;
+        }
+        String first = args.get(0).value();
+        int used = 1;
+        String name;
+        if ("-c".equals(first) || "--create".equals(first)) {
+            if (args.size() < 2) {
+                return false;
+            }
+            name = args.get(1).value();
+            used = 2;
+        } else if (first.startsWith(GIT_SWITCH_CREATE_ATTACHED)) {
+            name = first.substring(GIT_SWITCH_CREATE_ATTACHED.length());
+        } else if (first.startsWith("-c")) {
+            name = first.substring(2);
+        } else {
+            return false;
+        }
+        return PLAIN_BRANCH_NAME.matcher(name).matches() && (args.size() == used || (args.size() == used + 1 && "HEAD".equals(args.get(used).value())));
+    }
+
+    /**
+     * What stands before the subcommand of a git command line: the global options read as git reads them, and where the subcommand is.
+     *
+     * @param options the global options and the values of those that took one, in the form {@link Operands} gives them
+     * @param subcommand the index of the subcommand, or -1 when git has none to run here (no word, or it runs {@code version} or {@code help})
+     */
+    private record GitGlobals(Operands options, int subcommand) {
+    }
+
+    /**
+     * Reads the words before the subcommand of git as git's command-line parser does. Null when one of them is not one it knows, or is not a literal word: where the subcommand is cannot
+     * be said then, so the command is not read further.
+     */
+    private static GitGlobals gitGlobals(List<Token> args) {
+        List<String> options = new ArrayList<>();
+        Map<String, Token> values = new HashMap<>();
+        int index = 0;
+        for (; index < args.size(); index++) {
+            Token token = args.get(index);
+            if (!token.word() || !token.literal()) {
+                return null;
+            }
+            String value = token.value();
+            if (value.length() < 2 || value.charAt(0) != '-') {
+                break;
+            }
+            if (GIT_VERSION_OR_HELP.contains(value)) {
+                return new GitGlobals(new Operands(options, values, List.of()), -1);
+            }
+            int equals = value.indexOf('=');
+            String name = equals < 0 ? value : value.substring(0, equals);
+            if (equals >= 0 && GIT_GLOBAL_VALUE_AFTER_EQUALS.contains(name)) {
+                values.put(name, Token.word(value.substring(equals + 1)));
+            } else if (equals < 0 && GIT_GLOBAL_VALUE_APART.contains(name)) {
+                if (index + 1 >= args.size()) {
+                    return null;
+                }
+                values.put(name, args.get(++index));
+            } else if (equals >= 0 || !GIT_GLOBAL_FLAGS.contains(name)) {
+                return null;
+            }
+            options.add(name);
+        }
+        return new GitGlobals(new Operands(options, values, List.of()), index < args.size() ? index : -1);
+    }
+
     private record PsParameters(List<Map.Entry<String, List<Token>>> named, List<List<Token>> positional) {
     }
 
@@ -475,7 +565,7 @@ final class ShellEditTargets {
                     current.add(token);
                     continue;
                 }
-                simpleCommand(current);
+                simpleCommand(current, COMMAND_SEPARATORS.contains(token.value()));
                 current = new ArrayList<>();
                 if (dialect == Dialect.POSIX && "(".equals(token.value())) {
                     saved.push(cwd == null ? "\0" : cwd);
@@ -485,7 +575,7 @@ final class ShellEditTargets {
                     cwd = "\0".equals(restored) ? null : restored;
                 }
             }
-            simpleCommand(current);
+            simpleCommand(current, true);
         }
 
         private void addPath(Token token, boolean wildcards) {
@@ -740,9 +830,11 @@ final class ShellEditTargets {
         /**
          * The writes of a program every shell has (the file commands, the interpreters, git, the shells themselves).
          *
+         * @param whole the command is the whole of what the shell runs as one command: it ended at a separator every shell has, nothing stood before it (an environment variable, a
+         *            wrapper program) and no {@code --%} is in it; a git subcommand whose effect is told only from the words given to it needs this
          * @return whether the program is one this observation knows; a program it does not know that was started by a path is read as a script file run
          */
-        private boolean nativeCommand(String name, List<Token> args, String stdin) {
+        private boolean nativeCommand(String name, List<Token> args, String stdin, boolean whole) {
             switch (name) {
                 case "tee", "rm", "unlink", "shred", "touch", "truncate" -> {
                     operands(args, FILE_VALUED.getOrDefault(name, Set.of())).rest().forEach(token -> addPath(token, false));
@@ -820,14 +912,19 @@ final class ShellEditTargets {
                     return true;
                 }
                 case "git" -> {
-                    Operands all = operands(args, Set.of("-C", "-c", "--git-dir", "--work-tree", "--namespace"));
-                    if (all.rest().isEmpty()) {
+                    GitGlobals globals = gitGlobals(args);
+                    if (globals == null) {
+                        // An option git has none of, or a word the shell fills in: which word is the subcommand, and what it does, is not read.
+                        unread();
+                        return true;
+                    }
+                    if (globals.subcommand() < 0) {
                         return true;
                     }
                     // The paths a git command names are relative to the directory -C gives it, not to the shell's.
                     String outerDirectory = cwd;
-                    gitDirectory(all);
-                    int start = args.indexOf(all.rest().get(0));
+                    gitDirectory(globals.options());
+                    int start = globals.subcommand();
                     String sub = args.get(start).value();
                     List<Token> subArgs = args.subList(start + 1, args.size());
                     Operands parsed = operands(subArgs, Set.of());
@@ -835,7 +932,7 @@ final class ShellEditTargets {
                     if ("apply".equals(sub) && parsed.options().stream().noneMatch(readOnlyApply::contains)) {
                         unread();
                     } else if ("mv".equals(sub)) {
-                        nativeCommand("mv", subArgs, null);
+                        nativeCommand("mv", subArgs, null, false);
                     } else if ("rm".equals(sub) && !parsed.options().contains("--cached")) {
                         parsed.rest().forEach(token -> addPath(token, false));
                     } else if ("restore".equals(sub) && (parsed.options().stream().noneMatch(option -> "--staged".equals(option) || "-S".equals(option))
@@ -853,6 +950,11 @@ final class ShellEditTargets {
                             subArgs.subList(separator + 1, subArgs.size()).forEach(token -> addPath(token, false));
                         } else if (!parsed.rest().isEmpty()) {
                             // A branch or commit given with no path list: the files the checkout rewrites are the difference of two trees, which no command text names.
+                            unread();
+                        }
+                    } else if ("switch".equals(sub)) {
+                        // Only the bare command qualifies: no global option (git -C x switch ... is read in another folder, and any option may change what git does) before the subcommand.
+                        if (!(whole && start == 0 && switchOnlyCreatesBranchAtHead(subArgs))) {
                             unread();
                         }
                     } else if (GIT_REWRITES_TREE.contains(sub) || ("reset".equals(sub) && parsed.options().contains("--hard"))
@@ -1039,7 +1141,12 @@ final class ShellEditTargets {
             return true;
         }
 
-        private void simpleCommand(List<Token> given) {
+        /**
+         * @param separated the command ended at a separator every shell has (or at the end of the input), not at a bracket or brace that may be an argument of it in another shell
+         */
+        private void simpleCommand(List<Token> given, boolean separated) {
+            // PowerShell's --% hands the rest of the line to the program as it stands, a ; included, which then no longer ends the command.
+            boolean whole = separated && given.stream().noneMatch(token -> token.word() && "--%".equals(token.value()));
             List<Token> args = new ArrayList<>();
             String stdin = null;
             for (int index = 0; index < given.size(); index++) {
@@ -1066,11 +1173,18 @@ final class ShellEditTargets {
                 }
                 Token current = args.get(index);
                 String lower = current.value().toLowerCase(Locale.ROOT);
-                if (dialect == Dialect.POSIX && (KEYWORDS.contains(current.value()) || ENVIRONMENT_ASSIGNMENT.matcher(current.value()).matches())) {
+                if (dialect == Dialect.POSIX && KEYWORDS.contains(current.value())) {
+                    index++;
+                    continue;
+                }
+                if (dialect == Dialect.POSIX && ENVIRONMENT_ASSIGNMENT.matcher(current.value()).matches()) {
+                    // An environment variable of the command (GIT_CONFIG_COUNT, GIT_DIR) changes what git does, which its words do not say.
+                    whole = false;
                     index++;
                     continue;
                 }
                 if (PREFIXES.contains(lower) || "xargs".equals(lower)) {
+                    whole = false;
                     if ("xargs".equals(lower)) {
                         args.add(STDIN_WORD);
                     }
@@ -1096,9 +1210,9 @@ final class ShellEditTargets {
             } else if (dialect == Dialect.POWERSHELL && POWERSHELL_IO_CALL.matcher(command.value()).matches()) {
                 unread();
             } else if (dialect == Dialect.CMD && "call".equals(name)) {
-                simpleCommand(new ArrayList<>(rest));
+                simpleCommand(new ArrayList<>(rest), separated);
             } else if (!(dialect == Dialect.CMD && cmdBuiltin(name, rest)) && (dialect != Dialect.POWERSHELL || !powershellCommand(name, rest))) {
-                if (!nativeCommand(name, rest, stdin)) {
+                if (!nativeCommand(name, rest, stdin, whole)) {
                     // A program this observation does not know, started by a path or as a batch file: a script whose writes are not read.
                     runsScriptFile(startedByPath(command.value()) || (dialect == Dialect.CMD && CMD_SCRIPT_NAME.matcher(command.value()).matches()));
                 }
@@ -1125,7 +1239,8 @@ final class ShellEditTargets {
                     if (!inner.contains(STDIN_WORD)) {
                         inner.add(STDIN_WORD);
                     }
-                    simpleCommand(inner);
+                    // The command of -exec ends at find's own ; or +, which is no separator of the shell.
+                    simpleCommand(inner, false);
                 }
             }
         }

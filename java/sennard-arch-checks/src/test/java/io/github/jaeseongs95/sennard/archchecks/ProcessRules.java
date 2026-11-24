@@ -40,8 +40,13 @@ final class ProcessRules {
     static final Set<String> ALLOWED_TYPES = Set.of(
             // The one place an OS tool is run with a deadline and an output limit.
             "io.github.jaeseongs95.sennard.protocol.ToolProcess",
-            // The child of a test-engineering run: bounded in number, output, environment and life.
-            "io.github.jaeseongs95.sennard.personal.LocalProcessRunner");
+            // The programs of executions (the port ProcessRunner of sennard-server): started here (ProcessBuilder), bounded in number, output and life. The watch of one execution
+            // (LocalExecution), the pipes of its output (ProcessOutput) and the finder of the processes a server before this one left running (LocalOrphanProcesses) hold no handle of the
+            // process API and are not on the list: they ask ProcessTree.
+            "io.github.jaeseongs95.sennard.personal.LocalProcessRunner",
+            // One process and the tree beneath it: found by its id (ProcessHandle.of) and listed (descendants), and the one place that ends such a tree, for the runner and for the finder
+            // of the processes a server before this one left running.
+            "io.github.jaeseongs95.sennard.personal.ProcessTree");
 
     private static final Set<String> WATCHED_TYPES = Set.of("java.lang.ProcessBuilder", "java.lang.ProcessHandle");
 

@@ -29,7 +29,8 @@ class ProcessRulesTest {
         List<Path> directories = Stream.of(System.getProperty("sennard.arch.classes").split(",")).map(Path::of).filter(Files::isDirectory).toList();
         assertTrue(directories.size() >= 8, "the compiled classes of the product's modules are read: " + directories);
         JavaClasses classes = new ClassFileImporter().importPaths(directories);
-        assertTrue(classes.contain("io.github.jaeseongs95.sennard.personal.LocalProcessRunner") && classes.contain("io.github.jaeseongs95.sennard.protocol.ToolProcess"), "the listed classes are among those read");
+        assertTrue(classes.contain("io.github.jaeseongs95.sennard.personal.LocalProcessRunner") && classes.contain("io.github.jaeseongs95.sennard.personal.ProcessTree")
+                && classes.contain("io.github.jaeseongs95.sennard.protocol.ToolProcess"), "the listed classes are among those read");
         List<String> found = ProcessRules.violations(classes);
         assertEquals(List.of(), found, () -> found.stream().collect(Collectors.joining("\n    ", "\n    ", "")));
         // A place on the list that no class uses any more is a list gone stale: every entry must be a package or class of the product that uses the API.
@@ -52,7 +53,11 @@ class ProcessRulesTest {
         assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.personal.cli.SennardCli"), "the commands of the CLI no longer use the process API, and the installer is what does");
         assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.service.store.embedded.PgServer"), "the embedded database's server is gone");
         assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.personal.LocalProcessRunnerHelper"), "a longer name is another class");
-        assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.personal.RunEnvironment"));
+        assertTrue(ProcessRules.allowed("io.github.jaeseongs95.sennard.personal.ProcessTree"));
+        assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.personal.LocalOrphanProcesses"), "the finder of the processes a server before left running asks ProcessTree and holds no handle of its own");
+        assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.personal.LocalExecution"), "the watch of an execution and the pipes of its output are not places that start or reach a process");
+        assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.personal.ProcessOutput"));
+        assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.server.execution.ExecutionTracker"), "the policy that asks for an execution does not start one: it asks the port");
         assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.server.skills.EngineeringPractices"));
         assertFalse(ProcessRules.allowed("io.github.jaeseongs95.sennard.personal.installer.Other"), "install is a package, not a prefix of other names");
     }

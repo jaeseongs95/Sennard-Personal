@@ -37,6 +37,20 @@ public final class CodexAppServerProbe {
                     case "initialize" -> send(stdout, mapper, Map.of("id", id, "result", Map.of()));
                     case "initialized" -> {
                     }
+                    case "thread/read" -> {
+                        if (behavior.equals("internal-error")) {
+                            send(stdout, mapper, Map.of("id", id, "error", Map.of("code", -32603, "message", "native error details")));
+                            continue;
+                        }
+                        String thread = behavior.equals("wrong-thread") ? "different" : params.path("threadId").asString();
+                        var metadata = mapper.createObjectNode().put("id", thread);
+                        switch (behavior) {
+                            case "untitled-thread" -> metadata.putNull("name");
+                            case "malformed-title" -> metadata.put("name", 42);
+                            default -> metadata.put("name", "Chosen title");
+                        }
+                        send(stdout, mapper, Map.of("id", id, "result", Map.of("thread", metadata)));
+                    }
                     case "model/list" -> {
                         var chosen = Map.of("model", "chosen-model", "supportedReasoningEfforts", List.of(Map.of("reasoningEffort",
                                 behavior.equals("unlisted-effort") ? "other-effort" : "chosen-effort")));

@@ -5,33 +5,24 @@
 package io.github.jaeseongs95.sennard.server.messaging;
 
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.context.MessageSource;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
-import io.github.jaeseongs95.sennard.domain.messaging.PeerAddress;
-import io.github.jaeseongs95.sennard.server.context.ChildSessionRoots;
 import io.github.jaeseongs95.sennard.server.continuity.SubagentRoster;
-import io.github.jaeseongs95.sennard.server.diagnostics.SafeFailure;
 import io.github.jaeseongs95.sennard.server.hook.HookModule;
 import io.github.jaeseongs95.sennard.server.hook.HookVerdict;
 import io.github.jaeseongs95.sennard.server.hook.HostContext;
-import io.github.jaeseongs95.sennard.server.hook.HostContext.Basis;
-import io.github.jaeseongs95.sennard.server.hook.HostContext.Role;
 import io.github.jaeseongs95.sennard.server.hook.HostEvent;
 import io.github.jaeseongs95.sennard.server.hook.HostEventHandler.HookCall;
-import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts;
+import io.github.jaeseongs95.sennard.server.hook.HostWorkFactsRegistry;
 import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts.Injection;
+import io.github.jaeseongs95.sennard.server.hook.ToolCall;
+import io.github.jaeseongs95.sennard.server.message.MessageRef;
+import io.github.jaeseongs95.sennard.server.message.Messages;
 import io.github.jaeseongs95.sennard.server.messaging.SessionMessageService.Boundary;
 import io.github.jaeseongs95.sennard.server.messaging.SessionMessageService.Delivered;
 import io.github.jaeseongs95.sennard.server.session.HookDomain;
@@ -41,50 +32,42 @@ import io.github.jaeseongs95.sennard.service.identity.SessionRegistry;
 @Component
 @Order(20)
 public class MessagingHookHandler implements HookDomain {
-    private static final Logger LOG = LoggerFactory.getLogger(MessagingHookHandler.class);
     private static final HookVerdict PROCEED = new HookVerdict.Proceed();
 
     private final SessionMessageService messages;
     private final SessionRegistry sessions;
-    private final ChildSessionRoots childRoots;
     private final PeerEnvelope envelope;
-    private final MessageSource catalog;
-    private final Map<HostId, HostWorkFacts> facts;
+    private final Messages texts;
+    private final HostWorkFactsRegistry facts;
     private final WakeWaiters waiters;
-    private final SubagentRoster subagents;
+    private final SubagentRoster roster;
 
-    public MessagingHookHandler(SessionMessageService messages, SessionRegistry sessions, ChildSessionRoots childRoots, PeerEnvelope envelope, MessageSource catalog,
-            List<HostWorkFacts> facts, WakeWaiters waiters, SubagentRoster subagents) {
+    public MessagingHookHandler(SessionMessageService messages, SessionRegistry sessions, PeerEnvelope envelope, Messages texts,
+            HostWorkFactsRegistry facts, WakeWaiters waiters, SubagentRoster roster) {
+        this.roster = roster;
         this.waiters = waiters;
-        this.subagents = subagents;
         this.messages = messages;
         this.sessions = sessions;
-        this.childRoots = childRoots;
         this.envelope = envelope;
-        this.catalog = catalog;
-        this.facts = facts.stream().collect(Collectors.toUnmodifiableMap(HostWorkFacts::host, Function.identity()));
+        this.texts = texts;
+        this.facts = facts;
     }
 
     @Override
     public HookVerdict onEvent(HookCall call) {
         HostEvent event = call.event();
         HostContext context = event.context();
-        HostWorkFacts host = facts.getOrDefault(context.hostLabel(), HostWorkFacts.NONE);
-        if (!call.isForAnotherThan(HookModule.NATIVE_PEER) && event instanceof HostEvent.ToolRequested request && host.sendsNativePeerMessage(request.tool())) {
-            if (host.nativeRecipient(request.tool()).filter(recipient -> recipient.parent()
-                    ? context.actor().role() == Role.CHILD && context.actor().basis() == Basis.OBSERVED
-                    : subagents.contains(context, recipient.address())).isPresent()) {
-                return PROCEED;
+        HostWorkFacts host = facts.forHost(context.hostLabel());
+        if (!call.isForAnotherThan(HookModule.NATIVE_PEER) && event instanceof HostEvent.ToolRequested request) {
+            Optional<HostWorkFacts.NativeSend> send = host.nativeSend(request.tool());
+            if (send.isPresent()) {
+                return nativeSend(context, send.orElseThrow(), request.tool());
             }
-            return new HookVerdict.Refuse(catalog.getMessage("peer.send.useSennard", null, Locale.ENGLISH));
         }
         if (call.isForAnotherThan(HookModule.PEER_WAIT)) {
             return PROCEED;
         }
         String sessionHost = context.hostLabel().sessionHost();
-        if (context.actor().role() == Role.CHILD && context.actor().basis() == Basis.OBSERVED) {
-            return atChildBoundary(event, host, sessionHost);
-        }
         if (!context.actor().rootEstablished()) {
             return PROCEED;
         }
@@ -99,43 +82,14 @@ public class MessagingHookHandler implements HookDomain {
         return ref.map(target -> atBoundary(event, host, sessionHost, target)).orElse(PROCEED);
     }
 
-    private HookVerdict atChildBoundary(HostEvent event, HostWorkFacts host, String sessionHost) {
-        boolean continueTurn = switch (event) {
-            case HostEvent.SubagentEnded ended -> !ended.alreadyContinued() && host.injections().contains(Injection.TURN_END);
-            case HostEvent.TurnEnded ended -> ended.continuable() && !ended.alreadyContinued()
-                    && (host.restoresAtTurnStart() || host.injections().contains(Injection.TURN_END));
-            default -> false;
+    private HookVerdict nativeSend(HostContext context, HostWorkFacts.NativeSend send, ToolCall tool) {
+        return switch (roster.nativeRoute(context, send)) {
+            case SAME_SESSION -> PROCEED;
+            case FROM_MAIN -> new HookVerdict.Refuse(texts.render(send.recipient() == null
+                    ? MessageRef.of("peer.send.refusedUnaddressed", "tool", tool.name())
+                    : MessageRef.of("peer.send.refused", "tool", tool.name(), "to", MessageRef.of("peer.send.toRecipient", "recipient", send.recipient()))));
+            case UNVERIFIED -> new HookVerdict.Refuse(texts.render(MessageRef.of("peer.send.sameSessionOnly")));
         };
-        boolean addContext = switch (event) {
-            case HostEvent.SubagentStarted ignored -> host.injections().contains(Injection.TOOL_BOUNDARY) && !host.restoresAtTurnStart();
-            case HostEvent.ToolFinished tool -> tool.stepBoundary() && host.injections().contains(Injection.TOOL_BOUNDARY);
-            case HostEvent.ModelCallFinished model -> model.carriesContext() && host.restoresAtTurnStart();
-            case HostEvent.TurnStarted ignored -> host.restoresAtTurnStart();
-            case HostEvent.ModelCallStarting ignored -> host.restoresAtTurnStart();
-            default -> false;
-        };
-        if (!continueTurn && !addContext) {
-            return PROCEED;
-        }
-        HostContext context = event.context();
-        String actorId = context.actor().agentKey();
-        if (actorId == null || actorId.isBlank()) {
-            return PROCEED;
-        }
-        // A host with a distinct child conversation uses that conversation as its actor id. Its hook needs the observed link to the root.
-        Optional<String> root = context.sessionId().equals(actorId) ? childRoots.rootOf(sessionHost, context.sessionId()) : Optional.of(context.sessionId());
-        Optional<String> ref = root.flatMap(sessionId -> sessions.findRef(sessionHost, sessionId));
-        if (ref.isEmpty()) {
-            return PROCEED;
-        }
-        PeerAddress address;
-        try {
-            address = new PeerAddress(ref.orElseThrow(), actorId);
-        } catch (IllegalArgumentException invalid) {
-            LOG.debug("PEER_CHILD_ADDRESS_INVALID", SafeFailure.capture(invalid));
-            return PROCEED;
-        }
-        return give(messages.claimActor(sessionHost, root.orElseThrow(), address), continueTurn);
     }
 
     /**
@@ -143,7 +97,7 @@ public class MessagingHookHandler implements HookDomain {
      * running a host's wake CLI, which is not moved here. Until then every wait is the bounded one.
      */
     private HookVerdict peerWait(HostWorkFacts host, HostEvent.ToolRequested request) {
-        return host.peerWait(request.tool()).<HookVerdict>map(wait -> context(catalog.getMessage("peer.wait.boundedGuidance", null, Locale.ENGLISH))).orElse(PROCEED);
+        return host.peerWait(request.tool()).<HookVerdict>map(wait -> context(texts.render(MessageRef.of("peer.wait.boundedGuidance")))).orElse(PROCEED);
     }
 
     private HookVerdict atBoundary(HostEvent event, HostWorkFacts host, String sessionHost, String targetRef) {
@@ -160,8 +114,8 @@ public class MessagingHookHandler implements HookDomain {
             case HostEvent.ModelCallFinished ignored when host.restoresAtTurnStart() -> claimAndGive(sessionHost, sessionId, targetRef, Boundary.TOOL, false);
             case HostEvent.ToolFinished ignored when !host.restoresAtTurnStart() && injections.contains(Injection.TOOL_BOUNDARY) ->
                 claimAndGive(sessionHost, sessionId, targetRef, Boundary.TOOL, false);
-            // A turn already continued gets no second continuation: a stream of messages cannot extend one turn without end.
-            case HostEvent.TurnEnded ended when ended.alreadyContinued() -> {
+            // A terminal turn or a turn already continued cannot receive another continuation.
+            case HostEvent.TurnEnded ended when !ended.continuable() || ended.alreadyContinued() -> {
                 messages.clearDeferred(targetRef);
                 yield PROCEED;
             }

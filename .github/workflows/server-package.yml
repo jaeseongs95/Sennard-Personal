@@ -1,13 +1,13 @@
 name: Server package
 
-# Builds the one release jar (:sennard-personal:releaseJar), checks its name against the tag and the version, and attaches the jar and its checksum to the release once the
-# checks have passed. workflow_dispatch with a tag rebuilds and replaces the assets of that release; without a tag it builds the selected ref and leaves the jar as a build
+# Builds the one release jar (:sennard-personal:releaseJar), checks its name against the tag and the version, and attaches the jar, its checksum and the setup launchers
+# (setup.cmd, setup.sh) to the release once the checks have passed. workflow_dispatch with a tag rebuilds and replaces the assets of that release; without a tag it builds the selected ref and leaves the jar as a build
 # artifact only.
 # Why one runner and no OS matrix: the release is a single jar and the JVM absorbs the difference between operating systems, so the jar a Linux runner builds is the jar every OS
 # runs, and a runner per OS or CPU would only build the same file again. The build is reproducible (fixed timestamps and file order), and when a release is published the sha256 of
 # this jar is compared with the sha256 of the jar built on the maintainer's computer: a difference stops the release.
 # The jobs that build and check hold a read-only token and call only ./gradlew: the name and checksum checks are Gradle tasks (java/sennard-repo-tools), in Java. They hand the jar
-# and its checksum over as a workflow artifact. The only job that can write to the release checks out nothing and runs no code of the repository: it downloads the artifact and
+# and its checksum and launchers over as a workflow artifact. The only job that can write to the release checks out nothing and runs no code of the repository: it downloads the artifact and
 # uploads it with the GitHub CLI of the runner (the structure rule ci-run-not-gradlew). ./gradlew is the CI standard, the one external program the build needs to start.
 on:
   release:
@@ -49,15 +49,16 @@ jobs:
         working-directory: java
         run: ./gradlew --no-daemon --console=plain :sennard-personal:releaseJar
       # The name the README promises: sennard-<version>.jar. The tag must be v<version>, the version the build stamps.
-      - name: Check the name and write the checksum
+      # It also writes the setup launchers (setup.cmd, setup.sh) from release/*.template beside the jar.
+      - name: Check the name, write the checksum and the setup launchers
         shell: bash
         working-directory: java
         run: ./gradlew --no-daemon --console=plain :sennard-repo-tools:checkReleaseArchive -Ptool="--tag $TAG --dir java/sennard-personal/build/release"
-      - name: Upload the jar and its checksum
+      - name: Upload the jar, its checksum and the setup launchers
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sennard-jar
-          # The folder holds the jar and its checksum file and nothing else (checkReleaseArchive).
+          # The folder holds the jar, its checksum file and the two setup launchers, and nothing else (checkReleaseArchive).
           path: java/sennard-personal/build/release
           if-no-files-found: error
           compression-level: 0
@@ -80,12 +81,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
-      - name: Download the jar and its checksum
+      - name: Download the jar, its checksum and the setup launchers
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sennard-jar
           path: assets
-      - name: Check the jar against its checksum
+      - name: Check the jar against its checksum and the launchers against their templates
         shell: bash
         working-directory: java
         run: ./gradlew --no-daemon --console=plain :sennard-repo-tools:checkReleaseChecksums -Ptool="--dir assets"
@@ -99,12 +100,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download the jar and its checksum
+      - name: Download the jar, its checksum and the setup launchers
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sennard-jar
           path: assets
-      - name: Attach the jar and its checksum
+      - name: Attach the jar, its checksum and the setup launchers
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

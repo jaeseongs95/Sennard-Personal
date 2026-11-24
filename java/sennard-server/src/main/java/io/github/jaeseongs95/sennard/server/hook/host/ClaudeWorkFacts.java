@@ -25,7 +25,10 @@ import io.github.jaeseongs95.sennard.server.hook.ToolCall;
 final class ClaudeWorkFacts implements HostWorkFacts {
     static final Set<String> EDIT_TOOLS = Set.of("Edit", "Write", "MultiEdit", "NotebookEdit");
     static final Pattern NATIVE_PEER_SEND = Pattern.compile("^(SendMessage|SubagentHandback)$");
-    private static final String PARENT_ADDRESS = "main";
+    private static final Pattern SEND_MESSAGE = Pattern.compile("^SendMessage$");
+    /** The {@code to} of a {@code SendMessage} that names the main agent, the one that started a subagent. */
+    private static final String PARENT = "main";
+    private static final Pattern STARTS_SUBAGENT = Pattern.compile("^Agent$");
     private static final Pattern PLUGIN_SKILL = Pattern.compile("^sennard:([a-z0-9][a-z0-9-]*)$");
 
     private final Path configDirectory;
@@ -64,33 +67,34 @@ final class ClaudeWorkFacts implements HostWorkFacts {
         return "Bash".equals(tool.name()) || "PowerShell".equals(tool.name());
     }
 
+    /**
+     * {@code SendMessage} names its recipient in {@code to}: the id the host gave a subagent, the name its {@code Agent} call gave it, or {@link #PARENT} for the main agent that started
+     * the sender. {@code SubagentHandback}: nothing in this repository says what the tool takes or whom it reaches, so it states nothing and only a recorded recipient could pass.
+     */
+    @Override
+    public Optional<NativeSend> nativeSend(ToolCall tool) {
+        if (tool.name() == null || !NATIVE_PEER_SEND.matcher(tool.name()).matches()) {
+            return Optional.empty();
+        }
+        if (!SEND_MESSAGE.matcher(tool.name()).matches()) {
+            return Optional.of(NativeSend.unstated());
+        }
+        String to = HookJson.firstPresentOrNull(tool.input(), "to");
+        return Optional.of(new NativeSend(to, PARENT.equals(to), false));
+    }
+
+    /** The {@code Agent} tool starts a subagent that can be sent to by the {@code name} it was given (its id is the one its start hook names, recorded from there). */
+    @Override
+    public Set<String> subagentAddresses(ToolCall tool, String result) {
+        if (tool.name() == null || !STARTS_SUBAGENT.matcher(tool.name()).matches()) {
+            return Set.of();
+        }
+        return HookJson.present(tool.input(), "name").map(Set::of).orElse(Set.of());
+    }
+
     @Override
     public boolean runsToolScript(ToolCall tool) {
         return "REPL".equals(tool.name());
-    }
-
-    @Override
-    public boolean sendsNativePeerMessage(ToolCall tool) {
-        return tool.name() != null && NATIVE_PEER_SEND.matcher(tool.name()).matches();
-    }
-
-    @Override
-    public Optional<NativeRecipient> nativeRecipient(ToolCall tool) {
-        if (!"SendMessage".equals(tool.name())) {
-            return Optional.empty();
-        }
-        return HookJson.present(tool.input(), "to").map(address -> new NativeRecipient(address, PARENT_ADDRESS.equals(address)));
-    }
-
-    @Override
-    public Set<String> subagentAddresses(HostEvent event) {
-        return switch (event) {
-            case HostEvent.SubagentStarted started ->
-                HookJson.present(started.context().actor().agentKey()).map(Set::of).orElse(Set.of());
-            case HostEvent.ToolFinished finished when !finished.reportedFailure() && "Agent".equals(finished.tool().name()) ->
-                HookJson.present(finished.tool().input(), "name").map(Set::of).orElse(Set.of());
-            default -> Set.of();
-        };
     }
 
     @Override

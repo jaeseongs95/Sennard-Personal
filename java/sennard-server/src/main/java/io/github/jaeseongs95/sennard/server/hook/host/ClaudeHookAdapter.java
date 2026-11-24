@@ -4,8 +4,6 @@
 
 package io.github.jaeseongs95.sennard.server.hook.host;
 
-import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +16,7 @@ import io.github.jaeseongs95.sennard.hookclient.HookClientCall.FailureAnswer;
 import io.github.jaeseongs95.sennard.server.hook.HookInstallation;
 import io.github.jaeseongs95.sennard.server.hook.HostContext.Basis;
 import io.github.jaeseongs95.sennard.server.hook.HostContext.SessionActor;
+import io.github.jaeseongs95.sennard.server.hook.HostEvent;
 import io.github.jaeseongs95.sennard.server.hook.HostHookAdapter;
 import io.github.jaeseongs95.sennard.server.hook.HostId;
 import io.github.jaeseongs95.sennard.server.hook.HostRegistrationFile;
@@ -40,9 +39,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public final class ClaudeHookAdapter implements HostHookAdapter, SessionIdSchemaAdapter<ClaudeHookInput> {
     private static final HostId HOST = ClaudeHost.ID;
-    /** The plugin's hook definition and its MCP registration (Claude Code reads {@code .mcp.json} at the root of a plugin). */
-    private static final Path HOOKS_FILE = Path.of("hooks", "hooks.json");
-    private static final Path MCP_FILE = Path.of(".mcp.json");
     private static final Set<String> CONTENT_TOOLS = Set.of("Read", "Grep", "Glob", "NotebookRead", "WebFetch", "WebSearch");
     private static final String SENNARD_TOOLS = "^mcp__plugin_sennard_sennard__.+$";
     private static final String NOT_SENNARD_TOOL = "^(?!mcp__plugin_sennard_sennard__).+$";
@@ -121,6 +117,17 @@ public final class ClaudeHookAdapter implements HostHookAdapter, SessionIdSchema
         };
     }
 
+    /**
+     * A prompt event carries {@code source} (code.claude.com/docs/en/hooks): {@code user}, {@code sdk}, {@code system} (the turns the host injects itself: a background task's finished
+     * notice, a peer or channel message, an automatic continuation), {@code loop_wakeup}, {@code schedule_wakeup} and {@code poll_event}; a payload may leave it out. Only {@code system} is
+     * the host's own text. The others, and a payload without it, stay the user's: a loop or a schedule runs the user's own prompt again, and a host that did not say who wrote it is not
+     * assumed to have written it itself.
+     */
+    @Override
+    public HostEvent.PromptOrigin promptOrigin(ClaudeHookInput input) {
+        return "system".equals(HookJson.text(input.source())) ? HostEvent.PromptOrigin.HOST : HostEvent.PromptOrigin.USER;
+    }
+
     @Override
     public String effort(ClaudeHookInput input) {
         return input.effort() == null ? null : HookJson.presentOrNull(input.effort().level());
@@ -143,22 +150,21 @@ public final class ClaudeHookAdapter implements HostHookAdapter, SessionIdSchema
         // The session start tells the server which process the host is, starts the server when none is running, and shows the guidance on stderr (exit 2: shown to the user, blocks nothing) when the server is down.
         HookClientCall start = HookClientCall.of(HOST.label(), SessionIdEvent.SESSION_START.hostName(), FailureAnswer.GUIDANCE_STDERR).bindingHost()
                 .startingServer(HookClientCall.START_SERVER_SECONDS);
-        List<HookDefinition.Entry> sessionStart = entriesOf(events, SessionIdEvent.SESSION_START);
-        sessionStart.add(HookDefinition.Entry.of(null, command(installation, start, HookClientCall.SESSION_START_LIMIT_SECONDS, null, null)));
-        sessionStart.add(HookDefinition.Entry.of(null, wake(installation, SessionIdEvent.SESSION_START)));
+        HookDefinition.append(events, SessionIdEvent.SESSION_START,
+                HookDefinition.Entry.of(null, command(installation, start, HookClientCall.SESSION_START_LIMIT_SECONDS, null, null)));
+        HookDefinition.append(events, SessionIdEvent.SESSION_START, HookDefinition.Entry.of(null, wake(installation, SessionIdEvent.SESSION_START)));
         for (Hook hook : HOOKS) {
-            entriesOf(events, hook.event()).add(HookDefinition.Entry.of(hook.matcher(), eventHook(installation, hook)));
+            HookDefinition.append(events, hook.event(), HookDefinition.Entry.of(hook.matcher(), eventHook(installation, hook)));
         }
         // A wake hook ends when it wakes the session, so the end of every turn starts the next one (the session is idle from there).
-        entriesOf(events, SessionIdEvent.STOP).add(HookDefinition.Entry.of(null, wake(installation, SessionIdEvent.STOP)));
-        return List.of(new HostRegistrationFile.WholeFile(HOOKS_FILE, mapper().valueToTree(new HookDefinition.ByEvent(events))),
-                new HostRegistrationFile.WholeFile(MCP_FILE, mapper().valueToTree(HookDefinition.sennardServer(installation, HOST.label()))));
+        HookDefinition.append(events, SessionIdEvent.STOP, HookDefinition.Entry.of(null, wake(installation, SessionIdEvent.STOP)));
+        return List.copyOf(HookDefinition.eventRegistrationFiles(mapper(), new HookDefinition.ByEvent(events),
+                HookDefinition.sennardServer(installation, HOST.label())));
     }
 
     @Override
     public List<HostRegistrationFile.WholeFile> shippedFiles() {
-        return List.of(new HostRegistrationFile.WholeFile(HOOKS_FILE, mapper().valueToTree(HookDefinition.noHooks())),
-                new HostRegistrationFile.WholeFile(MCP_FILE, mapper().valueToTree(HookDefinition.noServers())));
+        return HookDefinition.eventRegistrationFiles(mapper(), HookDefinition.noHooks(), HookDefinition.noServers());
     }
 
     /**
@@ -169,10 +175,6 @@ public final class ClaudeHookAdapter implements HostHookAdapter, SessionIdSchema
         FailureAnswer failure = hook.blocksOnFailure() ? FailureAnswer.BLOCK_STDERR : FailureAnswer.FAIL;
         HookClientCall call = HookClientCall.of(HOST.label(), hook.event().hostName(), failure).withTimeout(hook.hostTimeout() - 1);
         return command(installation, hook.module() == null ? call : call.inModule(hook.module()), hook.hostTimeout(), null, hook.blocksOnFailure() ? "block" : null);
-    }
-
-    private static List<HookDefinition.Entry> entriesOf(Map<String, List<HookDefinition.Entry>> events, SessionIdEvent event) {
-        return events.computeIfAbsent(event.hostName(), key -> new ArrayList<>());
     }
 
     /**

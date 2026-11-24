@@ -4,6 +4,7 @@
 
 package io.github.jaeseongs95.sennard.personal.install;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +19,14 @@ public interface Commands {
 
     /** {@link #run(List, Map, Duration)} with these bytes on the launcher's standard input; an implementation that has no way to feed it ignores them. */
     default Result run(List<String> argv, Map<String, String> environment, byte[] input, Duration timeout) {
+        return run(argv, environment, timeout);
+    }
+
+    /**
+     * {@link #run(List, Map, Duration)} in {@code directory} as the launcher's working folder; an implementation that has no way to start it elsewhere ignores it, as it ignores
+     * input. A program whose arguments cannot carry a path (the Windows {@code java} launcher reads them in the code page) is given its file by name and its folder here.
+     */
+    default Result run(List<String> argv, Path directory, Map<String, String> environment, Duration timeout) {
         return run(argv, environment, timeout);
     }
 

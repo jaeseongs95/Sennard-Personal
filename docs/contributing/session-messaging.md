@@ -10,6 +10,10 @@ This document summarizes the contract for session message ID issuance, retries, 
 - `autoWake` reports the current wait hook or native path readiness, including disabled, missing prerequisites, active recipient and outstanding attempts. It never reports delivery or ACK. `status.wake` remains `null`.
 - `prepare_session_message` for a target that the server does not know is rejected with `NOT_FOUND` (`details.reasonCode=SESSION_NOT_FOUND`) without being queued. A violation of the body length, NUL, or TTL range is `INVALID_INPUT`, and `details.reasonCode` is the violated rule (`MESSAGE_BODY_SIZE`, `MESSAGE_BODY_NUL`, `MESSAGE_TTL_RANGE`).
 
+A Sennard PEER message requires a confirmed main session at each endpoint. A child cannot send or receive a Sennard PEER message. A parent and the child it started use the host’s own tools for communication inside the [session tree](architecture.md#session-unit).
+
+Antigravity can use native messaging when host observations resolve both endpoints to the same [session tree](architecture.md#session-unit). A native route is unavailable when the installed host supplies insufficient binding evidence for either endpoint.
+
 ## Message IDs and Retries
 
 A new message is prepared with `prepare_session_message`, and only the returned `messageId` is passed to `send_session_message`. Preparation fixes the sender, target, body, and TTL, and does not affect the receiving queue, the peer relationship, or wake-up. The server issues the ID and keeps it in the store. The caller cannot create an ID or change the content at send time.
@@ -27,9 +31,9 @@ stateDiagram-v2
     Removed --> Removed: send with an old ID is rejected
 ```
 
-Call `prepare_session_message` with `schemaVersion: "1.0.0"`, `targetHost`, `targetSessionId`, `body`, and optional `ttlSeconds`. Omit `targetActorId` to address the root. To address a child, use its observed actor ID in `targetActorId` and the root session ID in `targetSessionId`. Then call `send_session_message` with the returned `messageId`. The server binds the sender to the observed caller. A child has its own address within the root session. The target's `actorId` is included in status responses for child messages. Peer envelopes include the `actorId` for each child party.
+Call `prepare_session_message` with `schemaVersion: "1.0.0"`, `targetHost`, `targetSessionId`, `body`, and optional `ttlSeconds`. Pass the returned `messageId` to `send_session_message`. The server resolves both addresses using the [Session Unit](architecture.md#session-unit). Supplying `targetActorId` is refused.
 
-Prepare fixes both addresses. Send, status and recall checks use the stored addresses, and only the addressed recipient can claim the body and acknowledge its receipt. A root or sibling cannot acknowledge a child's receipt. The write operation key is scoped to the caller's peer address. Send rejects an unissued ID, a different sender, or extra body, target or TTL fields before writing to the queue.
+Prepare fixes both addresses. Send, status and recall checks use the stored addresses. Only the addressed recipient can claim the body and acknowledge its receipt. The caller’s session address scopes the write operation key. Send rejects an unissued ID, a different sender, or extra body, target or TTL fields before writing to the queue.
 
 The `expiresAt` of the prepare response is when the unsent draft expires (10 minutes after `preparedAt`, whatever `ttlSeconds` says). `ttlSeconds` counts from the first send, and the `expiresAt` of the send response is the message's own expiry (the time of the send plus the TTL).
 
@@ -82,7 +86,7 @@ Database constraints reject a claim of a new attempt without a receipt and a con
 
 A host without hooks sends through the MCP tools. Prepare with `prepare_session_message`, keep the `messageId` of the response, and pass it unchanged to `send_session_message`. If a body, target, TTL, or arbitrary ID is put in send, it is rejected with an error and has no delivery effect. Bodies and secrets are not put in process arguments.
 
-An explicit server-issued session reference in the hookless path addresses the root. Child addressing on the caller side requires host observation. Isolated tests cover child delivery at supported Codex, Claude Code and Antigravity hook boundaries. Enforcement over the host's internal agent inputs requires host support. In Codex, for example, the input dispatcher applies `UserPromptSubmit` to `UserInput` and handles `InterAgentCommunication` separately. Claude Code can report background notifications as prompt submissions, so that event alone does not establish that a person entered the text. See the [Codex input dispatcher](https://github.com/openai/codex/blob/main/codex-rs/core/src/hook_runtime.rs).
+An explicit server-issued session reference in the hookless path addresses the session described in [Session Unit](architecture.md#session-unit). Host support determines which internal agent inputs the server can observe. For example, the [Codex input dispatcher](https://github.com/openai/codex/blob/main/codex-rs/core/src/hook_runtime.rs) applies `UserPromptSubmit` to `UserInput` and handles `InterAgentCommunication` separately. Claude Code can report background notifications as prompt submissions, so that event alone does not establish that a person entered the text.
 
 ## Waking Idle Sessions
 
@@ -98,11 +102,38 @@ An advisory `autoWake` is attached to the result of `send_session_message` and t
 
 The worker reports only a fixed status for root wake. `unsupported` with `no-idle-wake` means wake is disabled. `degraded` with `wake-prerequisite-missing` means the worker reported missing prerequisites. `no-live-relay` with `relay-lease-missing` means a binding exists without a usable worker lease, and `presence-unknown` means the server has no binding or held wait for that recipient. Other degraded reasons cover an active recipient, an outstanding attempt and retry backoff. Without a usable wake path, messages stay queued for an ordinary claim boundary.
 
-A linked managed child uses its own relay readiness. A child without a usable wake path can claim the message at its next supported hook boundary before recall or expiry.
-
 ## Database Migration and Recovery
 
 Migration V25 adds actor fields to the peer message queue and submission receipts. Existing rows receive the root address. A pre-V25 binary cannot interpret the actor fields and may treat a child row as a root row. For a rollback to a pre-V25 binary, use the matching database backup from before V25. Keep a separate V25 backup if it already contains child messages. Recover them with a V25-compatible binary.
+
+## Host Send Tools
+
+Claude Code, Codex and Antigravity have tools of their own that send a message to another agent. The `native-peer` gate (`MessagingHookHandler`) lets such a call through only when it stays inside the sender's delegation: the session that started it and the subagents that session started. Anything else is refused, whatever workflow is open, and the refusal points to the Sennard tools of this document.
+
+A call passes when one of these holds:
+
+- the host itself delivers the tool only inside the delegation (the adapter says so);
+- the sender is a subagent and the call names the agent that started it (the adapter says which notation names it). The main agent names no parent, so the same words from it pass nothing;
+- the recipient is a subagent the server recorded for the session: the start of a subagent (`SubagentStart`, its agent id) or a finished call that started one (the id the host returned, the name given at the start; `SubagentRoster`).
+
+The shape of the recipient's text decides nothing. The shared code knows no host or tool name: each host adapter (`*WorkFacts`) classifies the tools of its host and gives one `NativeSend` for a send (the recipient as the call names it, whether it names the parent, whether the host keeps the tool inside the delegation). A tool the adapter does not classify as a send, whatever its name, is not judged by this gate: the call goes on as any other tool call. A call the adapter classifies as a send but whose recipient it cannot read (the host's tool has no recipient field known here, or the call left it out) is refused unless the host keeps the tool inside the delegation.
+
+The adapter's table is that host's fact about its tools, not a shared rule. For Codex the one table (`CodexWorkFacts`) is both what the hook's `native-peer` matcher is made from and what a call is classified by. The hook's name for a Codex tool is its namespace and its name joined with nothing between (`flat_tool_name`), and an MCP tool's is `mcp__<server>__<tool>`; `spawn_agent` of version 1 alone is special-cased to its bare name.
+
+| Host | Tool | Recipient field | What is stated |
+|---|---|---|---|
+| Claude Code | `SendMessage` | `to` (agent id, name given by `Agent`, `main` for the parent) | Not kept inside by the host; `main` names the parent |
+| Claude Code | `SubagentHandback` | none known | Nothing in this repository says what it takes: refused (unconfirmed) |
+| Codex | `send_message`, `followup_task` (the hook's name is `collaborationsend_message`, `collaborationfollowup_task` under the default namespace of version 2; the bare names when no namespace is set) | `target` | The host delivers only inside the agent tree (`agent/control/api.rs`, `ensure_agent_known`; one registry per root thread); `/root` names the parent. A namespace the user sets in `features.multi_agent_v2.tool_namespace` gives a name that cannot be told from a third-party tool's, so it is not classified |
+| Codex | `multi_agent_v1send_input` | `target` (thread id) | The host does not check the tree (`ThreadManagerState::get_thread` holds every thread of the process): only a recorded recipient passes |
+| Codex | `mcp__codex_tui__send_message_to_thread`, `mcp__codex_app__send_message_to_thread`, `codex_appsend_message_to_thread` | `threadId` | The task tool of the TUI (`codex_tui`) and of the app (`codex_app`; its input is read by the same field, the source does not state it; the source does not say whether the app registers `codex_app` as an MCP server or as a dynamic tool namespace, whose hook name joins namespace and name with nothing between, so both names are classified) sends a prompt to any thread of the app server, other sessions included: only a recorded recipient passes |
+| Antigravity | `send_message` | unknown | No source states its recipient field: always refused |
+
+Not yet classified: Codex's tools that start a session (`create_thread`, `fork_thread`; the TUI's take a prompt and an optional thread id) and a cloud thread's `send_message` (the source shows it only as a delivery that a cloud producer injects, not as a tool the model calls or a name the hook sees).
+
+The refusal of a call with a named recipient (`peer.send.refused`, rendered through `Messages` in the model's locale like the other hook sentences) names the blocked tool and the recipient and says what to do: call `list_session_status` for the `targetHost` and `targetSessionId` of the other session, then `prepare_session_message`, then `send_session_message`; and, for a subagent of this session, send again with the id the host gave it or the name given at its start. The refusal of a call that names no recipient (`peer.send.refusedUnaddressed`) says only that the tool is blocked, not to send it with that tool again, and the same three Sennard tools: naming a recipient is no way out for a host tool that has none, so the sentence does not invite a retry.
+
+A subagent's result is not a message: it is the result of the tool call that started it, and no hook refuses a tool result (see `hooks.md`, Gemini CLI `AfterTool`).
 
 ## Deciding Peer Result Waits
 

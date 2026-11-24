@@ -10,6 +10,10 @@
 - `autoWake`는 대기 hook이나 native 경로의 준비 상태를 보고한다. 비활성, 사전 조건 누락, 작업 중인 수신자, 미관측 알림을 구분하며 전달이나 ACK는 보고하지 않는다. `status.wake`는 계속 `null`이다.
 - 서버가 모르는 대상의 `prepare_session_message`는 큐에 넣지 않고 `NOT_FOUND`(`details.reasonCode=SESSION_NOT_FOUND`)로 거절한다. 본문 길이·NUL·TTL 범위 위반은 `INVALID_INPUT`이고 `details.reasonCode`가 위반한 규칙(`MESSAGE_BODY_SIZE`, `MESSAGE_BODY_NUL`, `MESSAGE_TTL_RANGE`)이다.
 
+Sennard PEER 메시지는 발신과 수신 양쪽이 모두 확인된 메인 세션일 때만 보낼 수 있다. 자식은 Sennard PEER 메시지를 보내거나 받을 수 없다. 부모 에이전트와 그 에이전트가 시작한 자식은 [세션 트리](architecture.ko.md#세션-단위) 안에서 호스트 자체 도구로 통신한다.
+
+Antigravity는 호스트 관측으로 양쪽 주소가 같은 [세션 트리](architecture.ko.md#세션-단위)에 속한다고 확인한 경우 네이티브 메시징을 사용합니다. 설치본이 어느 한쪽의 결속을 확인할 증거를 제공하지 않으면 해당 네이티브 경로는 사용할 수 없습니다.
+
 ## 메시지 ID와 재시도
 
 새 메시지는 `prepare_session_message`로 준비하고 반환된 `messageId`만 `send_session_message`에 전달한다. 준비는 발신자·대상·본문·TTL을 고정하며 수신 큐·peer 관계·깨우기에 영향을 주지 않는다. ID는 서버가 발급해 저장소에 보존한다. caller가 ID를 만들거나 전송 때 내용을 바꿀 수 없다.
@@ -27,9 +31,9 @@ stateDiagram-v2
     Removed --> Removed: old ID send 거절
 ```
 
-`schemaVersion: "1.0.0"`, `targetHost`, `targetSessionId`, `body`, 선택 항목 `ttlSeconds`로 `prepare_session_message`를 호출한다. `targetActorId`를 생략하면 루트가 수신자다. 자식에게 보내려면 관측된 자식 actor ID를 `targetActorId`에, 루트 세션 ID를 `targetSessionId`에 넣는다. 반환된 `messageId`로 `send_session_message`를 호출한다. 서버는 관측된 호출자를 발신자로 결속한다. 자식은 루트 세션 안에서 별도 주소를 갖는다. 자식이 수신자인 메시지의 상태 응답에는 수신자의 `actorId`가 포함된다. peer 봉투에는 자식 발신자와 자식 수신자 각각의 `actorId`가 포함된다.
+`schemaVersion: "1.0.0"`, `targetHost`, `targetSessionId`, `body`, 선택 항목 `ttlSeconds`로 `prepare_session_message`를 호출한다. 반환된 `messageId`를 `send_session_message`에 넘긴다. 서버는 [세션 단위](architecture.ko.md#세션-단위)에 따라 양쪽 주소를 확인한다. `targetActorId`를 지정하면 거절한다.
 
-prepare에서 발신자와 수신자 주소가 확정된다. 발송·상태 조회·회수에는 저장된 주소를 사용하며, 지정된 수신자만 본문을 인수하고 영수증으로 수신을 확인할 수 있다. 루트나 형제는 자식의 영수증을 확인할 수 없다. 쓰기 요청의 작업 키는 호출자의 peer 주소별로 적용된다. 발급되지 않은 ID, 다른 발신자, send 요청에 추가된 본문·대상·TTL은 큐에 기록하기 전에 거부한다.
+prepare에서 발신자와 수신자 주소가 확정된다. 발송·상태 조회·회수에는 저장된 주소를 사용한다. 지정된 수신자만 본문을 인수하고 원래 영수증으로 처리 사실을 확인할 수 있다. 쓰기 요청의 작업 키는 호출자의 세션 주소별로 적용된다. 발급되지 않은 ID, 다른 발신자, send 요청에 추가된 본문·대상·TTL은 큐에 기록하기 전에 거절한다.
 
 prepare 응답의 `expiresAt`은 보내지 않은 draft가 만료되는 시각입니다(`ttlSeconds`와 상관없이 `preparedAt`으로부터 10분). `ttlSeconds`는 첫 send부터 세고, send 응답의 `expiresAt`이 메시지 자체의 만료(send 시각에 TTL을 더한 값)입니다.
 
@@ -84,7 +88,7 @@ ACK 전 lease 재전달은 정상이며 같은 ID·본문을 유지한다. 중�
 
 hook이 없는 호스트는 MCP 도구로 보낸다. `prepare_session_message`로 준비하고, 응답의 `messageId`를 보관해 `send_session_message`에 그대로 넘긴다. send에 body/target/TTL이나 임의 ID를 넣으면 오류로 거부되며 전달 효과가 없다. 본문과 비밀은 프로세스 인수에 넣지 않는다.
 
-훅 없이 서버가 발급한 세션 참조를 명시하면 루트 주소를 사용한다. 자식 주소로 호출하려면 호스트 관측이 필요하다. 격리 시험에서 Codex, Claude Code, Antigravity의 지원 훅 경계를 통한 자식 전달을 확인했다. 호스트 내부의 에이전트 입력까지 통제하려면 호스트의 지원이 필요하다. 예를 들어 Codex의 입력 분배기는 `UserInput`에 `UserPromptSubmit`을 적용하며 `InterAgentCommunication`은 별도 경로로 처리한다. Claude Code는 백그라운드 알림도 프롬프트 제출로 보고할 수 있으므로 해당 이벤트만으로 사람이 직접 입력했는지 판별할 수 없다. [Codex 입력 분배기 소스](https://github.com/openai/codex/blob/main/codex-rs/core/src/hook_runtime.rs)를 참고한다.
+훅 없이 서버가 발급한 세션 참조를 명시하면 [세션 단위](architecture.ko.md#세션-단위)의 주소를 사용한다. 서버에서 확인할 수 있는 호스트 내부의 에이전트 입력은 호스트의 지원에 따라 달라진다. 예를 들어 [Codex 입력 분배기](https://github.com/openai/codex/blob/main/codex-rs/core/src/hook_runtime.rs)는 `UserInput`에 `UserPromptSubmit`을 적용하고 `InterAgentCommunication`을 별도 경로로 처리한다. Claude Code는 백그라운드 알림도 프롬프트 제출로 보고할 수 있으므로 해당 이벤트만으로 사람이 직접 입력했는지 판별할 수 없다.
 
 ## 쉬는 세션 깨우기
 
@@ -100,11 +104,39 @@ hook이 없는 호스트는 MCP 도구로 보낸다. `prepare_session_message`�
 
 워커는 메인 대화의 깨우기 상태를 정해진 값으로만 보고한다. 깨우기가 꺼져 있으면 `unsupported`와 `no-idle-wake`, 워커가 사전 조건 누락을 보고하면 `degraded`와 `wake-prerequisite-missing`을 반환한다. `no-live-relay`에서 `relay-lease-missing`은 등록은 있으나 유효한 워커 연결을 쓸 수 없다는 뜻이고, `presence-unknown`은 등록이나 대기 훅이 확인되지 않았다는 뜻이다. 작업 중인 수신자, 미관측 알림, 재시도 유예도 각각의 사유와 함께 `degraded`로 보고한다. 사용할 깨우기 경로가 없으면 메시지는 일반 인수 경계까지 큐에 남는다.
 
-등록된 관리형 자식의 깨우기 준비 상태는 그 자식의 연결을 기준으로 보고한다. 깨우기 경로가 없는 자식은 회수되거나 만료되기 전까지 다음 지원 훅 경계에서 메시지를 인수할 수 있다.
 
 ## 데이터베이스 이전과 복구
 
 마이그레이션 V25는 peer 메시지 큐와 제출 영수증에 actor 열을 추가한다. 기존 행에는 루트 주소가 설정된다. V25 이전 바이너리는 actor 열을 해석할 수 없어 자식 행을 루트 행으로 처리할 수 있다. 이전 바이너리로 복구할 때는 V25 적용 전 데이터베이스 백업을 함께 사용한다. 이미 자식 메시지가 들어간 V25 데이터베이스는 별도로 보존하고, 해당 메시지는 V25와 호환되는 바이너리로 복구한다.
+
+## 호스트의 발신 도구
+
+Claude Code·Codex·Antigravity에는 다른 에이전트에게 메시지를 보내는 자체 도구가 있다. `native-peer` 게이트(`MessagingHookHandler`)는 그런 호출이 보낸 쪽의 위임 묶음(그 세션과 그 세션이 시작한 서브에이전트) 안에 머물 때만 통과시킨다. 그 밖은 어떤 workflow가 열려 있든 거절하고, 이 문서의 Sennard 도구를 안내한다.
+
+다음 중 하나이면 통과한다.
+
+- 호스트가 그 도구를 위임 묶음 안으로만 전달한다(어댑터가 그렇게 말한다).
+- 보낸 쪽이 서브에이전트이고 호출이 자기를 시작한 에이전트를 가리킨다(어댑터가 그 표기를 말한다). 메인 에이전트에게는 부모가 없으므로 같은 표기도 통과가 아니다.
+- 받는 쪽이 서버가 이 세션에 대해 기록한 서브에이전트다. 서브에이전트의 시작(`SubagentStart`의 agent id)이나 서브에이전트를 시작한 도구 호출의 끝(호스트가 돌려준 id, 시작할 때 붙인 이름. `SubagentRoster`)이 기록이다.
+
+받는 쪽 문자열의 생김새는 아무것도 정하지 않는다. 공통 코드는 호스트와 도구 이름을 모른다. 호스트 어댑터(`*WorkFacts`)가 자기 호스트의 도구를 분류하고, 발신 호출마다 `NativeSend` 하나(호출이 받는 쪽을 적은 값, 부모를 가리키는지, 호스트가 도구를 위임 묶음 안에 두는지)를 준다. 어댑터가 발신으로 분류하지 않는 도구는 이름이 무엇이든 이 게이트가 판정하지 않고, 다른 도구 호출처럼 그대로 진행한다. 어댑터가 발신으로 분류했지만 받는 쪽을 읽지 못하는 호출(호스트 도구의 받는 쪽 필드를 여기서 알지 못하거나 호출이 그 필드를 빠뜨렸다)은 호스트가 도구를 위임 묶음 안에 두는 경우가 아니면 거절한다.
+
+어댑터의 표는 그 호스트의 도구에 관한 사실이지 공통 규칙이 아니다. Codex는 표 하나(`CodexWorkFacts`)에서 hook의 `native-peer` matcher를 만들고 호출을 분류한다. Codex 도구의 hook 이름은 이름공간과 이름을 사이에 아무것도 넣지 않고 이은 것이고(`flat_tool_name`), MCP 도구는 `mcp__<server>__<tool>`이다. 버전 1의 `spawn_agent`만 예외로 맨 이름이다.
+
+| 호스트 | 도구 | 받는 쪽 필드 | 말하는 사실 |
+|---|---|---|---|
+| Claude Code | `SendMessage` | `to`(agent id, `Agent`가 준 이름, 부모는 `main`) | 호스트가 안에 두지 않음. `main`이 부모 |
+| Claude Code | `SubagentHandback` | 알려진 것 없음 | 이 저장소의 어떤 근거도 이 도구가 무엇을 받는지 말하지 않음: 거절(미확인) |
+| Codex | `send_message`, `followup_task`(hook 이름은 버전 2의 기본 이름공간에서 `collaborationsend_message`, `collaborationfollowup_task`이고, 이름공간이 없으면 맨 이름) | `target` | 호스트가 에이전트 트리 안으로만 전달(`agent/control/api.rs`의 `ensure_agent_known`, root 스레드마다 등록부 하나). `/root`가 부모. 사용자가 `features.multi_agent_v2.tool_namespace`로 정한 이름공간의 이름은 제3자 도구의 이름과 구별할 수 없어 분류하지 않음 |
+| Codex | `multi_agent_v1send_input` | `target`(스레드 id) | 호스트가 트리를 검사하지 않음(`ThreadManagerState::get_thread`가 프로세스의 모든 스레드를 가짐): 기록된 받는 쪽만 통과 |
+| Codex | `mcp__codex_tui__send_message_to_thread`, `mcp__codex_app__send_message_to_thread`, `codex_appsend_message_to_thread` | `threadId` | TUI(`codex_tui`)와 앱(`codex_app`. 입력은 소스에 없어 같은 필드로 읽음. 앱이 `codex_app`을 MCP 서버로 등록하는지 동적 도구 이름공간으로 등록하는지도 소스에 없어, 이름공간과 이름을 구분자 없이 잇는 이름까지 둘 다 분류함)의 작업 도구가 앱 서버의 어떤 스레드에도 프롬프트를 보냄(다른 세션 포함): 기록된 받는 쪽만 통과 |
+| Antigravity | `send_message` | 알 수 없음 | 받는 쪽 필드를 말하는 근거가 없음: 항상 거절 |
+
+아직 분류하지 않은 것: 세션을 새로 시작하는 Codex 도구(`create_thread`, `fork_thread`. TUI의 것은 프롬프트와 선택적 스레드 id를 받는다)와 클라우드 스레드의 `send_message`(소스에는 클라우드 쪽이 주입하는 전달로만 나오고, 모델이 부르는 도구나 hook이 보는 이름으로는 나오지 않는다).
+
+받는 쪽을 적은 호출의 거절문(`peer.send.refused`. 다른 hook 문장처럼 `Messages`가 모델의 locale로 만든다)은 막은 도구와 받는 쪽을 적고 할 일을 알려 준다. `list_session_status`로 다른 세션의 `targetHost`와 `targetSessionId`를 확인하고, `prepare_session_message`, `send_session_message` 순서로 호출한다. 이 세션이 시작한 서브에이전트에게 보내려던 것이면 호스트가 준 id나 시작할 때 붙인 이름으로 다시 보낸다. 받는 쪽을 적지 않은 호출의 거절문(`peer.send.refusedUnaddressed`)은 도구를 막았다는 것, 그 도구로 다시 보내지 말라는 것, 같은 Sennard 도구 셋만 말한다. 받는 쪽 필드가 없는 호스트 도구에는 받는 쪽을 적는 것이 해결이 아니므로 다시 시도하라는 말을 넣지 않는다.
+
+서브에이전트의 결과는 메시지가 아니라 그 서브에이전트를 시작한 도구 호출의 결과이며, 어떤 hook도 도구 결과를 거절하지 않는다(`hooks.ko.md`, Gemini CLI `AfterTool`).
 
 ## peer 결과 대기 판정
 

@@ -8,10 +8,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -52,7 +54,7 @@ import io.github.jaeseongs95.sennard.service.session.SessionKind;
  */
 @Service
 public class SessionRegistry {
-    private static final String REF_COLUMNS = "session_ref, last_generation, pepper_version, host, local_session_id, kind";
+    private static final String REF_COLUMNS = "session_ref, last_generation, pepper_version, host, local_session_id, kind, parent_ref";
     private static final String GENERATION_COLUMNS = "generation, origin, client_started_at, client_ended_at, process_key, "
             + "client_instance_id, relay_id, lease_until, ended_at, superseded_at";
     private static final String NO_DELIVERY = "{\"wakeVisibility\":\"none\",\"canWakeSilently\":false,\"idleWake\":\"none\",\"supportedInjection\":[]}";
@@ -91,7 +93,7 @@ public class SessionRegistry {
     }
 
     /** The row of {@code session_ref} as the table has it: Spring's row mapper fills the record by the column names ({@code session_ref} is {@code sessionRef}) and reads the kind's name into the constant. */
-    private record RefRow(String sessionRef, long lastGeneration, int pepperVersion, String host, String localSessionId, SessionKind kind) {
+    private record RefRow(String sessionRef, long lastGeneration, int pepperVersion, String host, String localSessionId, SessionKind kind, String parentRef) {
     }
 
     /**
@@ -148,8 +150,8 @@ public class SessionRegistry {
      */
     @Transactional
     public void markKind(String host, String hostSessionId, SessionKind kind) {
-        RefRow ref = kind == SessionKind.MAIN ? refOf(host, hostSessionId) : refOrCreate(host, hostSessionId);
-        if (ref == null || ref.kind() == kind || ref.kind() == SessionKind.CHILD) {
+        RefRow ref = kind == SessionKind.MAIN ? refOf(host, hostSessionId) : refOrCreate(host, hostSessionId, kind);
+        if (ref == null || kind == SessionKind.UNKNOWN || ref.kind() == kind || ref.kind() == SessionKind.CHILD) {
             return;
         }
         // A child stays a child: the condition is in the statement, so a mark that arrives after another one's CHILD changes nothing.
@@ -160,6 +162,65 @@ public class SessionRegistry {
     public boolean isChild(String host, String hostSessionId) {
         RefRow ref = refOf(host, hostSessionId);
         return ref != null && ref.kind() == SessionKind.CHILD;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isRegisteredMain(String sessionRef) {
+        RefRow ref = refByValue(sessionRef);
+        return ref != null && ref.kind() == SessionKind.MAIN && ref.parentRef() == null && ref.lastGeneration() > 0 && ref.localSessionId() != null;
+    }
+
+    /** The stored tree position of a known host identity, independent of the current execution actor. */
+    public record TreeMembership(String sessionRef, String parentRef, String rootRef, String rootSessionId, int depth) {
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<TreeMembership> treeMembership(String host, String hostSessionId) {
+        return findRef(host, hostSessionId).flatMap(ref -> treeMembership(host, refByValue(ref)));
+    }
+
+    private Optional<TreeMembership> treeMembership(String host, RefRow member) {
+        Set<String> visited = new HashSet<>();
+        RefRow node = member;
+        while (node != null && host.equals(node.host()) && visited.add(node.sessionRef())) {
+            if (node.parentRef() == null) {
+                if (node.kind() == SessionKind.MAIN && node.lastGeneration() > 0 && node.localSessionId() != null) {
+                    return Optional.of(new TreeMembership(member.sessionRef(), member.parentRef(), node.sessionRef(), node.localSessionId(), visited.size() - 1));
+                }
+                break;
+            }
+            Optional<ManagedRoot> managed = managedRootOfRef(node.sessionRef());
+            if (managed.isPresent() && !node.parentRef().equals(managed.orElseThrow().rootRef())) {
+                break;
+            }
+            if (managed.filter(binding -> !isLiveGeneration(binding.rootRef(), binding.rootGeneration())).isPresent()) {
+                break;
+            }
+            node = refByValue(node.parentRef());
+        }
+        return Optional.empty();
+    }
+
+    /** Records an immediate edge observed by a host. A node already confirmed as a root keeps its own identity. */
+    @Transactional
+    public boolean bindObservedChild(String host, String parentSessionId, String childSessionId) {
+        RefRow parent = refOf(host, parentSessionId);
+        if (parentSessionId.equals(childSessionId) || treeMembership(host, parent).isEmpty()) {
+            return false;
+        }
+        RefRow child = refOrCreate(host, childSessionId);
+        if (parent.sessionRef().equals(child.parentRef())) {
+            return true;
+        }
+        if (child.parentRef() != null || child.kind() == SessionKind.PRESET_AGENT) {
+            return false;
+        }
+        if (update("UPDATE sennard.session_ref SET kind = ?, parent_ref = ? WHERE session_ref = ?"
+                + " AND parent_ref IS NULL AND (kind IN (?, ?) OR (kind = ? AND last_generation = 0))",
+                SessionKind.CHILD.name(), parent.sessionRef(), child.sessionRef(), SessionKind.UNKNOWN.name(), SessionKind.CHILD.name(), SessionKind.MAIN.name()) == 1) {
+            return true;
+        }
+        return parent.sessionRef().equals(refByValue(child.sessionRef()).parentRef());
     }
 
     public record ManagedRoot(String rootRef, long rootGeneration) {
@@ -174,9 +235,9 @@ public class SessionRegistry {
             return false;
         }
         RefRow child = refOrCreate(host, childSessionId);
-        int bound = update("UPDATE sennard.session_ref SET kind = ? WHERE session_ref = ? AND kind = ? AND last_generation = 0"
+        int bound = update("UPDATE sennard.session_ref SET kind = ?, parent_ref = ? WHERE session_ref = ? AND kind = ? AND parent_ref IS NULL AND last_generation = 0"
                         + " AND EXISTS (SELECT 1" + LIVE_GENERATION_MATCH + ")",
-                SessionKind.CHILD.name(), child.sessionRef(), SessionKind.MAIN.name(), rootRef, generation, timestamp(clock()));
+                SessionKind.CHILD.name(), rootRef, child.sessionRef(), SessionKind.MAIN.name(), rootRef, generation, timestamp(clock()));
         if (bound == 0) {
             return false;
         }
@@ -187,8 +248,12 @@ public class SessionRegistry {
     /** A binding can outlive the root. An operation for the child must also check that its root generation still lives. */
     @Transactional(readOnly = true)
     public Optional<ManagedRoot> managedRootOf(String host, String childSessionId) {
-        return findRef(host, childSessionId).flatMap(childRef -> jdbc.sql("SELECT root_ref, root_generation FROM sennard.managed_child_identity WHERE child_ref = ?")
-                .params(childRef).query(ManagedRoot.class).optional());
+        return findRef(host, childSessionId).flatMap(this::managedRootOfRef);
+    }
+
+    private Optional<ManagedRoot> managedRootOfRef(String childRef) {
+        return jdbc.sql("SELECT root_ref, root_generation FROM sennard.managed_child_identity WHERE child_ref = ?")
+                .params(childRef).query(ManagedRoot.class).optional();
     }
 
     /** Resolves only the original, still-live root of a managed child, without recovering or extending a generation. */
@@ -493,6 +558,16 @@ public class SessionRegistry {
                 .params(sessionRef, generation, timestamp(clock())).query(Long.class).single() == 1;
     }
 
+    /** Resolves an existing main generation without letting a descendant renew or recover it. */
+    @Transactional(readOnly = true)
+    public Optional<Long> liveMainGeneration(String sessionRef) {
+        RefRow ref = refByValue(sessionRef);
+        if (ref == null || ref.kind() != SessionKind.MAIN || ref.parentRef() != null || ref.lastGeneration() == 0) {
+            return Optional.empty();
+        }
+        return isLiveGeneration(sessionRef, ref.lastGeneration()) ? Optional.of(ref.lastGeneration()) : Optional.empty();
+    }
+
     /** Which host session a reference stands for; {@code hostSessionId} is the host's own id of the session, null for a reference that has none. */
     public record RefIdentity(String host, String hostSessionId) {
         /** The host's own id of the session; empty for a reference that has none. */
@@ -600,6 +675,10 @@ public class SessionRegistry {
      * again by its reference after the insert, so its columns are the table's own.
      */
     private RefRow refOrCreate(String host, String hostSessionId) {
+        return refOrCreate(host, hostSessionId, SessionKind.MAIN);
+    }
+
+    private RefRow refOrCreate(String host, String hostSessionId, SessionKind kind) {
         RefRow ref = refOf(host, hostSessionId);
         if (ref != null) {
             return ref;
@@ -607,8 +686,8 @@ public class SessionRegistry {
         SessionKeys.Digest digest = keys.currentDigest(host, hostSessionId);
         LocalDateTime now = timestamp(clock());
         String sessionRef = keys.newSessionRef();
-        update("INSERT INTO sennard.session_ref (session_ref, host, host_session_digest, pepper_version, local_session_id, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                sessionRef, host, digest.value(), digest.version(), hostSessionId, now, now);
+        update("INSERT INTO sennard.session_ref (session_ref, host, host_session_digest, pepper_version, local_session_id, created_at, last_seen_at, kind)"
+                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)", sessionRef, host, digest.value(), digest.version(), hostSessionId, now, now, kind.name());
         return refByValue(sessionRef);
     }
 

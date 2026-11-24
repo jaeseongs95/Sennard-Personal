@@ -4,8 +4,6 @@
 
 package io.github.jaeseongs95.sennard.personal.wake;
 
-import java.io.BufferedInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -13,10 +11,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -25,8 +21,6 @@ import io.github.jaeseongs95.sennard.hookclient.NativeWakeProtocol.Launch;
 import io.github.jaeseongs95.sennard.protocol.ToolProcess;
 import io.github.jaeseongs95.sennard.server.messaging.WakeTransport.Outcome;
 import tools.jackson.core.JacksonException;
-import tools.jackson.core.StreamReadFeature;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectReader;
 import tools.jackson.databind.json.JsonMapper;
@@ -35,7 +29,6 @@ import tools.jackson.databind.node.JsonNodeFactory;
 /** Creates a Claude Code conversation without a model turn and resumes it for each exact native input. */
 final class ClaudeManagedConversation implements NativeWakeAdapter.ManagedConversation, AutoCloseable {
     private static final System.Logger LOG = System.getLogger(ClaudeManagedConversation.class.getName());
-    private static final int MAX_FRAME_BYTES = 1024 * 1024;
     private static final String STARTUP_NOTE = "Sennard managed session initialized.";
     private static final JsonNode SUCCESS = JsonNodeFactory.instance.stringNode("success");
     private final Path executable;
@@ -55,7 +48,9 @@ final class ClaudeManagedConversation implements NativeWakeAdapter.ManagedConver
             throws IOException, InterruptedException {
         var conversation = new ClaudeManagedConversation(executable, launch, mapper, deadline, starter);
         try (var exchange = conversation.start("--session-id")) {
-            conversation.await(() -> {
+            var startup = new ManagedExchangeDeadline(deadline, "Claude managed startup timed out.",
+                    "Claude managed startup failed.", true);
+            startup.run(() -> {
                 conversation.requireListedSelection(exchange.initialize());
                 exchange.submit(launch.id(), STARTUP_NOTE, true);
                 boolean persisted = false;
@@ -214,33 +209,17 @@ final class ClaudeManagedConversation implements NativeWakeAdapter.ManagedConver
         return SUCCESS.equals(frame.path("subtype")) && error.isBoolean() && !error.asBoolean();
     }
 
-    private <T> T await(Callable<T> work) throws IOException, InterruptedException {
-        var task = new FutureTask<>(work);
-        Thread.ofVirtual().start(task);
-        try {
-            return task.get(deadline.toNanos(), TimeUnit.NANOSECONDS);
-        } catch (TimeoutException timeout) {
-            throw new IOException("Claude managed startup timed out.", timeout);
-        } catch (ExecutionException failed) {
-            if (failed.getCause() instanceof IOException io) {
-                throw io;
-            }
-            throw new IOException("Claude managed startup failed.", failed.getCause());
-        } finally {
-            task.cancel(true);
-        }
-    }
-
     private final class Exchange implements AutoCloseable {
         private final ToolProcess.Stdio process;
         private final ObjectReader reader;
-        private final BufferedInputStream output;
+        private final ManagedStreamFrames frames;
 
         Exchange(ToolProcess.Stdio process) {
             this.process = process;
-            this.reader = mapper.readerFor(JsonNode.class).with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-                    .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-            this.output = new BufferedInputStream(process.output());
+            this.reader = WakeJson.strictReader(mapper, JsonNode.class);
+            this.frames = new ManagedStreamFrames(process.output(), process.input(),
+                    "Claude stream frame exceeds its limit.",
+                    () -> new EOFException("Claude returned an incomplete stream frame."));
         }
 
         JsonNode initialize() throws IOException {
@@ -274,34 +253,22 @@ final class ClaudeManagedConversation implements NativeWakeAdapter.ManagedConver
         }
 
         private void write(JsonNode frame) throws IOException {
-            var input = process.input();
-            input.write(mapper.writeValueAsBytes(frame));
-            input.write('\n');
-            input.flush();
+            frames.write(mapper.writeValueAsBytes(frame));
         }
 
         JsonNode read() throws IOException {
-            var bytes = new ByteArrayOutputStream();
-            for (int octet; (octet = output.read()) != -1;) {
-                if (octet == '\n') {
-                    if (bytes.size() > 0) {
-                        JsonNode frame = reader.readValue(bytes.toByteArray());
-                        if (!frame.isObject()) {
-                            throw new IOException("Claude returned a non-object stream frame.");
-                        }
-                        return frame;
-                    }
-                } else {
-                    if (bytes.size() == MAX_FRAME_BYTES) {
-                        throw new IOException("Claude stream frame exceeds its limit.");
-                    }
-                    bytes.write(octet);
+            byte[] bytes;
+            do {
+                bytes = frames.read();
+                if (bytes == null) {
+                    return null;
                 }
+            } while (bytes.length == 0);
+            JsonNode frame = reader.readValue(bytes);
+            if (!frame.isObject()) {
+                throw new IOException("Claude returned a non-object stream frame.");
             }
-            if (bytes.size() > 0) {
-                throw new EOFException("Claude returned an incomplete stream frame.");
-            }
-            return null;
+            return frame;
         }
 
         @Override

@@ -23,8 +23,8 @@ import io.github.jaeseongs95.sennard.domain.error.SennardException;
  * rows, the re-encryption and the keys. It is an entrance: it does the disk work itself and calls the use cases of {@link AttachmentService} one at a time, each its own transaction.
  *
  * <p>Two jobs run on their own and are kept apart, because they cost differently. The cleaner ({@link #reap}, every {@code reaper-interval}, one minute by default) only asks the database
- * for the upload rows that are expired or done and deletes them: it never lists the folder and asks no per-file question. The comparison of the folder with the rows
- * ({@link #reconcileFolder}) looks at every file of the folder with one to three lookups each; it runs once when the store is ready after the start, every
+ * for expired staging rows and deletes them: it never lists the folder and asks no per-file question. Completed rows keep the original begin result. The comparison of the folder with the rows
+ * ({@link #reconcileFolder}) looks at every file of the folder with two to four lookups each. It runs once when the store is ready after the start, every
  * {@code reconcile-interval} (24 hours by default) and when {@code sennard attachments purge-orphans} is run without {@code --yes}.
  *
  * <ul>
@@ -42,8 +42,8 @@ public class AttachmentMaintenance {
     static final int BATCH = 100;
     private static final Logger LOG = LoggerFactory.getLogger(AttachmentMaintenance.class);
 
-    /** What a round of the cleaner did: the expired upload rows it deleted (with their files) and the done upload rows it deleted. */
-    public record Reaped(int expiredUploads, int completedUploads) {
+    /** The number of expired staging rows the cleaner deleted with their files. */
+    public record Reaped(int expiredUploads) {
     }
 
     /** What a comparison of the folder with the rows did: the files it moved to the quarantine folder and the quarantined files it moved back. */
@@ -94,8 +94,8 @@ public class AttachmentMaintenance {
     // ------------------------------------------------------------------------------------------------------------ the cleaner
 
     /**
-     * One round of the cleaner, at the time of the injected clock: the expired upload rows (each deleted by one conditional statement, its file after that) and the done upload rows. It
-     * reads only the database's upload rows; it does not list the folder or compare it with the rows ({@link #reconcileFolder}).
+     * One round of the cleaner, at the time of the injected clock. Each expired staging row is deleted by a conditional statement, followed by its file. The cleaner does not list the
+     * folder or compare it with the rows ({@link #reconcileFolder}).
      */
     public Reaped reap() {
         int expired = 0;
@@ -105,21 +105,15 @@ public class AttachmentMaintenance {
                 expired++;
             }
         }
-        int completed = 0;
-        for (UploadCandidates.Candidate candidate : service.completedUploads(BATCH)) {
-            if (service.deleteCompleted(candidate.id())) {
-                completed++;
-            }
-        }
-        return new Reaped(expired, completed);
+        return new Reaped(expired);
     }
 
     // ------------------------------------------------------------------------------------------------------------ the comparison of the folder with the rows
 
     /**
      * Compares the folder with the rows (the design's 7), at the time of the injected clock: a file that no row names, and a file that a later file of its attachment replaced, is moved
-     * to the quarantine folder once {@code orphan-grace} has passed (never before, never deleted); a quarantined file whose storage key has a row again is moved back. It asks the rows one
-     * to three questions for every file of the folder, so it is not part of the cleaner's round: it runs when the store is ready after the start, every {@code reconcile-interval}, and by
+     * to the quarantine folder once {@code orphan-grace} has passed (never before, never deleted); a quarantined file whose storage key has a row again is moved back. It asks the rows two
+     * to four questions for every file of the folder, so it is not part of the cleaner's round: it runs when the store is ready after the start, every {@code reconcile-interval}, and by
      * {@code sennard attachments purge-orphans} without {@code --yes}.
      */
     public Reconciled reconcileFolder() {

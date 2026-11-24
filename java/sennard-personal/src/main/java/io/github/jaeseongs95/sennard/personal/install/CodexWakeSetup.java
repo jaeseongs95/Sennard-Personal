@@ -15,7 +15,6 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.function.Predicate;
 
 import javax.swing.JOptionPane;
@@ -83,7 +82,9 @@ record CodexWakeSetup(InstallEnvironment environment, CodexQueueWakeSettings set
     private static List<Copy> readCopies(InstallEnvironment environment, CodexQueueWakeSettings settings) throws IOException {
         List<Copy> copies = new ArrayList<>();
         for (Path folder : new CodexPackageLocation().dataFolders(environment)) {
-            copies.add(new Copy(folder, settings.read(folder)));
+            copies.add(settings.read(folder)
+                    .<Copy>map(configuration -> new ConfiguredCopy(folder, configuration))
+                    .orElseGet(() -> new MissingCopy(folder)));
         }
         return List.copyOf(copies);
     }
@@ -105,8 +106,8 @@ record CodexWakeSetup(InstallEnvironment environment, CodexQueueWakeSettings set
             }
             if (promoteFiles) {
                 for (Copy copy : copies) {
-                    if (copy.configuration().isPresent() && !copy.wasEnabled()) {
-                        settings.enable(copy.folder(), copy.configuration().orElseThrow());
+                    if (copy instanceof ConfiguredCopy configured && !configured.wasEnabled()) {
+                        settings.enable(configured.folder(), configured.configuration());
                     }
                 }
             }
@@ -115,9 +116,21 @@ record CodexWakeSetup(InstallEnvironment environment, CodexQueueWakeSettings set
         }
     }
 
-    private record Copy(Path folder, Optional<Configuration> configuration) {
-        boolean wasEnabled() {
-            return configuration.map(Configuration::enabled).orElse(false);
+    private sealed interface Copy permits MissingCopy, ConfiguredCopy {
+        boolean wasEnabled();
+    }
+
+    private record MissingCopy(Path folder) implements Copy {
+        @Override
+        public boolean wasEnabled() {
+            return false;
+        }
+    }
+
+    private record ConfiguredCopy(Path folder, Configuration configuration) implements Copy {
+        @Override
+        public boolean wasEnabled() {
+            return configuration.enabled();
         }
     }
 

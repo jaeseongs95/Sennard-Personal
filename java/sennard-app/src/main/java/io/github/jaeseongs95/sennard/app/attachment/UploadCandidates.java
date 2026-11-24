@@ -43,11 +43,4 @@ public class UploadCandidates {
         String statement = sql.query(SELECT + "state = 'STAGING' AND expires_at <= :now").orderBy("expires_at, id").limit(":limit");
         return List.copyOf(jdbc.query(statement, values, (row, number) -> new Candidate(row.getString("id"), row.getString("storage_key"))));
     }
-
-    /** At most {@code limit} uploads whose attachment is made. */
-    public List<Candidate> completed(int limit) {
-        MapSqlParameterSource values = new MapSqlParameterSource("limit", limit);
-        String statement = sql.query(SELECT + "state = 'COMPLETED'").orderBy("updated_at, id").limit(":limit");
-        return List.copyOf(jdbc.query(statement, values, (row, number) -> new Candidate(row.getString("id"), row.getString("storage_key"))));
-    }
 }

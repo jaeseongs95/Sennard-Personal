@@ -41,7 +41,7 @@ interface SessionIdSchemaAdapter<I extends SessionIdInput> extends ServerHookAda
         return switch (event) {
             case SESSION_START -> new HostEvent.SessionStarted(context, startKind(HookJson.text(input.source())));
             case SESSION_END -> new HostEvent.SessionEnded(context, HookJson.text(input.reason()));
-            case USER_PROMPT_SUBMIT -> new HostEvent.UserPromptSubmitted(context, HookJson.text(input.prompt()));
+            case USER_PROMPT_SUBMIT -> new HostEvent.UserPromptSubmitted(context, HookJson.text(input.prompt()), promptOrigin(input));
             case PRE_TOOL_USE -> new HostEvent.ToolRequested(context, tool(input));
             case POST_TOOL_USE -> toolFinished(context, input, input.toolResponse(), reportsFailureInResponse(input));
             case POST_TOOL_USE_FAILURE -> toolFinished(context, input, input.error(), true);
@@ -68,6 +68,14 @@ interface SessionIdSchemaAdapter<I extends SessionIdInput> extends ServerHookAda
 
     /** How this host marks a child agent. Its rule, because the markers and their absence do not mean the same on every host. */
     SessionActor actor(SessionIdEvent event, I input);
+
+    /**
+     * Who wrote the prompt of a prompt event, by the host's own field for it. A host with no such field, or one that left it out, has its prompts counted as the user's: the answer is
+     * never made from the prompt's text.
+     */
+    default HostEvent.PromptOrigin promptOrigin(I input) {
+        return HostEvent.PromptOrigin.USER;
+    }
 
     /** The reasoning effort the host reports in this call, or null when it reports none. */
     default String effort(I input) {

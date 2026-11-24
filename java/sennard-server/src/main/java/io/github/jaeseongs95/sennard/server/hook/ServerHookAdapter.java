@@ -19,6 +19,11 @@ public interface ServerHookAdapter {
      */
     HostEvent read(String event, HookBody body);
 
+    /** Whether the host requires the termination reason to be sent at the next input. */
+    default boolean defersStopReason() {
+        return false;
+    }
+
     /**
      * Renders a verdict in the format expected by the named native hook.
      *

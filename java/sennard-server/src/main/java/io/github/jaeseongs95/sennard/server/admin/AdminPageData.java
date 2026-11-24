@@ -58,7 +58,7 @@ import io.github.jaeseongs95.sennard.server.limits.ResourceLimits;
 import io.github.jaeseongs95.sennard.server.workflow.ConvergenceLimits;
 import io.github.jaeseongs95.sennard.app.board.BoardService;
 import io.github.jaeseongs95.sennard.domain.board.BoardEntry;
-import io.github.jaeseongs95.sennard.server.mcp.HostCallerAdapter;
+import io.github.jaeseongs95.sennard.service.identity.SessionRegistry;
 import io.github.jaeseongs95.sennard.service.settings.DatabaseLinkSettings;
 import io.github.jaeseongs95.sennard.service.settings.DatabaseTls;
 import io.github.jaeseongs95.sennard.service.store.modules.ContextLayerStore;
@@ -87,7 +87,7 @@ public class AdminPageData {
      * (null when no request was ever seen), so the page can say that what it shows may no longer be what the session does.
      */
     public record SessionView(String host, String hostLabel, String sessionId, String state, String cwd, String summary, String summaryAt, String lastPromptAt, Boolean summaryStale,
-            String selfRole, String lastSeenAt, boolean kindUnknown, BindingSummary binding) {
+            String selfRole, String lastSeenAt, boolean kindUnknown, BindingSummary binding, String userTitle) {
     }
 
     public record BindingSummary(String roleId, String boundAt, String lastUsedAt, boolean lapsed) {
@@ -209,8 +209,7 @@ public class AdminPageData {
     private final RootApprovalService rootApprovals;
     private final RootReleaseService rootReleases;
     private final BlockedPlanAdminService blockedPlans;
-    /** The hosts whose hooks cannot tell a subagent from a main agent, by the name their sessions are stored under. */
-    private final Set<String> hostsMarkingNoSubagents;
+    private final SessionRegistry sessions;
     private final Clock clock;
     private final PreLinkAdminService preLink;
     private final AdminLogSource logs;
@@ -219,7 +218,7 @@ public class AdminPageData {
     private final DatabaseLinkSettings links;
 
     public AdminPageData(ContextLayerService context, PresenceStore presence, BoardService board, JevProviders providers, JevReadiness readiness, JevBudget budget, SkillUsageService skillUsage, WorkflowStatsService workflowStats,
-            SkillInventoryReader inventory, RootApprovalService rootApprovals, RootReleaseService rootReleases, BlockedPlanAdminService blockedPlans, List<HostCallerAdapter> hosts,
+            SkillInventoryReader inventory, RootApprovalService rootApprovals, RootReleaseService rootReleases, BlockedPlanAdminService blockedPlans, SessionRegistry sessions,
             JvmInstallation jvmInstallation, MessageSource messages, Clock clock, PreLinkAdminService preLink, AdminLogSource logs, PreparedStore prepared,
             DatabaseLinkSettings links, PasskeyRevocations revocations, io.github.jaeseongs95.sennard.app.attachment.AttachmentProperties attachmentProperties) {
         this.attachmentProperties = attachmentProperties;
@@ -233,7 +232,7 @@ public class AdminPageData {
         this.jvmInstallation = jvmInstallation;
         this.messages = messages;
         this.clock = clock;
-        this.hostsMarkingNoSubagents = hosts.stream().filter(host -> !host.hooksMarkSubagents()).map(host -> host.host().sessionHost()).collect(Collectors.toUnmodifiableSet());
+        this.sessions = sessions;
         this.context = context;
         this.presence = presence;
         this.board = board;
@@ -246,15 +245,7 @@ public class AdminPageData {
         this.rootApprovals = rootApprovals;
     }
 
-    /**
-     * On a host whose hooks do not mark a subagent, a session that has written nothing about itself may be a subagent's, and the page cannot
-     * tell: it goes to the page's undecided group, where the user sets a role or takes it off the list.
-     */
-    private boolean kindUnknown(String host, String summary, String role) {
-        return hostsMarkingNoSubagents.contains(host) && (summary == null || summary.isBlank()) && (role == null || role.isBlank());
-    }
-
-    /** The sessions the board knows, then the bound sessions it no longer knows, shown as ended so their binding can still be seen and removed. */
+    /** The main sessions on the board and the ended main sessions that still have signed bindings. */
     private record Sessions(SessionsError error, List<SessionView> views) {
     }
 
@@ -269,31 +260,30 @@ public class AdminPageData {
                 known.add(AdminLog.bindingKey(row.host(), row.sessionId()));
                 views.add(board.readEntry(row.host(), row.sessionId()).map(entry -> boardView(row, entry, bindings)).orElseGet(() -> boardView(row, null, bindings)));
             }
+            for (ContextLayerService.BindingView binding : admin.bindings()) {
+                if (!known.contains(AdminLog.bindingKey(binding.host(), binding.sessionId()))
+                        && sessions.findRef(binding.host(), binding.sessionId()).filter(sessions::isRegisteredMain).isPresent()) {
+                    views.add(view(binding.host(), binding.sessionId(), "ended", null, null, bindings));
+                }
+            }
         } catch (DataAccessException | TransactionException | SennardException failed) {
             LOG.warn("The admin page could not read the session board", failed);
             views.clear();
-            known.clear();
             error = SESSIONS_UNAVAILABLE;
-        }
-        for (ContextLayerService.BindingView binding : admin.bindings()) {
-            if (!known.contains(AdminLog.bindingKey(binding.host(), binding.sessionId()))) {
-                views.add(view(binding.host(), binding.sessionId(), "ended", null, null, false, bindings));
-            }
         }
         return new Sessions(error, views);
     }
 
     /** A session the board lists, with what its board entry says (null where the session has no entry). */
     private SessionView boardView(PresenceStore.Row row, BoardEntry entry, Map<String, ContextLayerService.BindingView> bindings) {
-        boolean undecided = kindUnknown(row.host(), entry == null ? null : entry.summary(), entry == null ? null : entry.role());
-        return view(row.host(), row.sessionId(), row.state(), entry, row.heartbeatAt(), undecided, bindings);
+        return view(row.host(), row.sessionId(), row.state(), entry, row.heartbeatAt(), bindings);
     }
 
-    private static SessionView view(String host, String sessionId, String state, BoardEntry entry, String lastSeenAt, boolean kindUnknown, Map<String, ContextLayerService.BindingView> bindings) {
+    private static SessionView view(String host, String sessionId, String state, BoardEntry entry, String lastSeenAt, Map<String, ContextLayerService.BindingView> bindings) {
         ContextLayerService.BindingView binding = bindings.get(AdminLog.bindingKey(host, sessionId));
         return new SessionView(host, host, sessionId, state, entry == null ? null : entry.cwd(), entry == null ? null : entry.summary(), entry == null || entry.summaryAt() == null ? null : entry.summaryAt().toString(),
-                entry == null || entry.lastPromptAt() == null ? null : entry.lastPromptAt().toString(), entry == null ? null : entry.summaryStale(), entry == null ? null : entry.role(), lastSeenAt, kindUnknown,
-                binding == null ? null : new BindingSummary(binding.roleId(), binding.boundAt(), binding.lastUsedAt(), binding.lapsed()));
+                entry == null || entry.lastPromptAt() == null ? null : entry.lastPromptAt().toString(), entry == null ? null : entry.summaryStale(), entry == null ? null : entry.role(), lastSeenAt, false,
+                binding == null ? null : new BindingSummary(binding.roleId(), binding.boundAt(), binding.lastUsedAt(), binding.lapsed()), entry == null ? null : entry.userTitle());
     }
 
     private Settings settings(ContextLayerService.SignedSettings signed) {

@@ -303,12 +303,12 @@ class IdleWakeServiceTest {
             }
         };
         WakeHookBoundary boundary = new WakeHookBoundary(wake, messages, null);
-        HostEvent marker = new HostEvent.UserPromptSubmitted(context(), IdleWakeService.marker(UUID.randomUUID().toString()));
+        HostEvent marker = new HostEvent.UserPromptSubmitted(context(), IdleWakeService.marker(UUID.randomUUID().toString()), HostEvent.PromptOrigin.USER);
         assertInstanceOf(HookVerdict.Proceed.class, boundary.before(marker).orElseThrow());
         assertEquals(1, reservations.consumes);
         assertEquals(1, claims.get());
         assertEquals(0, reservations.nativeInputs);
-        assertTrue(boundary.before(new HostEvent.UserPromptSubmitted(context(), "ordinary instruction")).isEmpty());
+        assertTrue(boundary.before(new HostEvent.UserPromptSubmitted(context(), "ordinary instruction", HostEvent.PromptOrigin.USER)).isEmpty());
         assertEquals(1, reservations.nativeInputs);
     }
 
@@ -606,7 +606,7 @@ class IdleWakeServiceTest {
 
     @Test void onlyWakeClaimConflictIsIntercepted() {
         IdleWakeService wake = service(new Reservations());
-        HostEvent event = new HostEvent.UserPromptSubmitted(context(), "[sennard wake:12345678-1234-abcd-1234-123456789abc]");
+        HostEvent event = new HostEvent.UserPromptSubmitted(context(), "[sennard wake:12345678-1234-abcd-1234-123456789abc]", HostEvent.PromptOrigin.USER);
         var failure = new java.util.concurrent.atomic.AtomicReference<RuntimeException>(new ConflictException(ConflictCode.NATIVE_WAKE_CLAIM_CHANGED));
         SessionMessageService messages = new SessionMessageService(null, null, null, null, null, null, JsonMapper.builder().build(), CLOCK, wake, null) {
             @Override public List<Delivered> claimWakeInput(HostContext context, String nonce) { throw failure.get(); }

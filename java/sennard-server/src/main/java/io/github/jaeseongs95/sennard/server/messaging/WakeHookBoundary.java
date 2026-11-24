@@ -49,8 +49,7 @@ public class WakeHookBoundary implements HookBoundary {
         if (!event.startsTurn()) {
             return Optional.empty();
         }
-        String input = event instanceof HostEvent.UserPromptSubmitted submitted ? submitted.prompt() : ((HostEvent.TurnStarted) event).provisionalInput();
-        Optional<String> nonce = IdleWakeService.markerNonce(input);
+        Optional<String> nonce = IdleWakeService.markerNonce(event.turnInputText());
         if (nonce.isEmpty()) {
             wake.nativeInput(event.context());
             return Optional.empty();

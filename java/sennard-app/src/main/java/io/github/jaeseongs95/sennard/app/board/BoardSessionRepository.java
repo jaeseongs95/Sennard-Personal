@@ -13,13 +13,12 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 /**
- * The board rows. It extends the {@code Repository} marker and not {@code CrudRepository}: a repository offers only what is declared here. The queries are derived from
- * the method names; there is no SQL to write.
+ * The board rows. Extending the {@code Repository} marker limits the operations to the methods declared here.
  */
 public interface BoardSessionRepository extends Repository<BoardSession, BoardSessionKey> {
     Optional<BoardSession> findByKeyHostAndKeySessionId(String host, String sessionId);
 
-    /** A row written by a test as the aggregate; the service changes a row with {@link #touch} or {@link #summarize}, one statement each, so no version is compared. */
+    /** Saves the aggregate using optimistic locking. The service uses atomic updates that advance the aggregate version. */
     BoardSession save(BoardSession session);
 
     /** The first write of a row, with what the first change carries (the columns it does not carry are null); a second one for the same session is a duplicate key. */
@@ -49,6 +48,12 @@ public interface BoardSessionRepository extends Repository<BoardSession, BoardSe
     @Query("UPDATE sennard.board_sessions SET summary = :summary, summary_at = :at, seen_at = :at, role = COALESCE(:role, role), version = version + 1 "
             + "WHERE host = :host AND session_id = :sessionId")
     int summarize(@Param("host") String host, @Param("sessionId") String sessionId, @Param("summary") String summary, @Param("at") Instant at, @Param("role") String role);
+
+    /** Applies a newer title observation to an existing row. An explicit removal leaves its timestamp in place. */
+    @Modifying
+    @Query("UPDATE sennard.board_sessions SET user_title = :title, user_title_observed_at = :observedAt, version = version + 1 "
+            + "WHERE host = :host AND session_id = :sessionId AND (user_title_observed_at IS NULL OR user_title_observed_at < :observedAt)")
+    void observeTitle(@Param("host") String host, @Param("sessionId") String sessionId, @Param("title") String title, @Param("observedAt") Instant observedAt);
 
     /** Rows last seen before {@code before} (UTC); returns how many were removed. */
     long deleteBySeenAtLessThan(Instant before);

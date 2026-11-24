@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,6 +23,7 @@ import java.sql.SQLException;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -43,6 +45,8 @@ import io.github.jaeseongs95.sennard.domain.error.IntegrityException;
 import io.github.jaeseongs95.sennard.domain.error.InvalidInputException;
 import io.github.jaeseongs95.sennard.domain.error.NotFoundCode;
 import io.github.jaeseongs95.sennard.domain.error.NotFoundException;
+import io.github.jaeseongs95.sennard.domain.error.UnavailableCode;
+import io.github.jaeseongs95.sennard.domain.error.UnavailableException;
 
 /**
  * The upload tools of the attachments (design 3, 4.4, 6) on the real business database and the real attachment folder: {@code AttachmentUploads} over {@code AttachmentService} and the
@@ -88,7 +92,7 @@ import io.github.jaeseongs95.sennard.domain.error.NotFoundException;
  *                             passes (resume), and the rows are all there; a wrong sha256 stays refused as often as the finish is sent
  * 3   f15 idempotence of a bundle   the same begin again (same author, operationKey, files) answers the same attachment id and upload ids; another list (a file more, a file fewer, the files in
  *                             another order, another size or name or sha256 of one file) under the key is ARTIFACT_OPERATION_CONFLICT; another author may use the key; a chunk sent again
- *                             answers as before; a finish sent twice answers the same Kept; a finish sent after the cleaner removed the COMPLETED upload rows answers the same Kept
+ *                             answers as before; begin and finish return their original results after expiry, cleaning and restart, and completed chunks remain conflicts
  * 3   f16 a chunk of a file  a chunk of file 1 is taken whoever sends it and does not touch file 0's upload rows (received, next sequence); the chunk of an upload of a finished bundle is
  *                             ARTIFACT_CHUNK_CONFLICT; the upload status of each file names its attachment and its number
  * </pre>
@@ -767,9 +771,11 @@ class AttachmentFlowTest {
     }
 
     @Test
-    void aChunkAndAFinishOfABundleSentAgainAnswerAsBeforeAlsoAfterTheCleanerRemovedTheFinishedUploadRows() throws Exception {
-        List<AttachmentWorld.Item> items = world.items(3, 50);
-        AttachmentService.Begun begun = world.beginBundle(ALICE, items);
+    void aCompletedBundleReplaysAfterExpiryCleaningAndRestartWithoutRequiringDiskSpace() throws Exception {
+        List<AttachmentWorld.Item> items = world.items(2, 50);
+        String operationKey = AttachmentWorld.operationKey();
+        AttachmentService.BeginRequest request = world.bundleRequest(operationKey, items);
+        AttachmentService.Begun begun = world.uploads().begin(ALICE, request);
         String id = begun.attachmentId();
         String secondUpload = begun.files().get(1).uploadId();
         byte[] secondContent = items.get(1).content();
@@ -780,23 +786,45 @@ class AttachmentFlowTest {
         assertEquals(size, AttachmentWorld.size(world.pathOfUpload(secondUpload)), "and appended nowhere");
         refused(ConflictException.class, ConflictCode.ARTIFACT_CHUNK_CONFLICT, false, () -> world.chunk(secondUpload, 0, world.bytes(50)));
         world.chunk(begun.files().get(0).uploadId(), 0, items.get(0).content());
-        world.chunk(begun.files().get(2).uploadId(), 0, items.get(2).content());
 
         AttachmentService.Kept kept = world.uploads().finish(id);
         assertEquals(AttachmentWorld.kept(id, items), kept);
         assertEquals(kept, world.uploads().finish(id), "a finish sent twice answers the same Kept");
         assertEquals(1, world.count("SELECT count(*) FROM sennard.attachment"));
-        assertEquals(3, world.count("SELECT count(*) FROM sennard.attachment_file"));
-        assertEquals(3, world.count("SELECT count(*) FROM sennard.attachment_storage"));
+        assertEquals(2, world.count("SELECT count(*) FROM sennard.attachment_file"));
+        assertEquals(2, world.count("SELECT count(*) FROM sennard.attachment_storage"));
 
-        assertEquals(3, world.maintenance().reap().completedUploads(), "the cleaner removes the COMPLETED upload row of every file");
-        assertEquals(0, world.count("SELECT count(*) FROM sennard.upload_staging"));
-        assertEquals(kept, world.uploads().finish(id), "a finish sent after the cleaner finds the attachment by the same id");
+        var afterExpiry = begun.expiresAt().plusSeconds(1);
+        world.clock().set(afterExpiry);
+        assertEquals(0, world.maintenance().reap().expiredUploads());
+        assertEquals(2, world.count("SELECT count(*) FROM sennard.upload_staging WHERE state = 'COMPLETED'"));
+        assertTrue(world.service().openUploads().isEmpty(), "completed mappings are outside the staging budget");
+        AttachmentService.Begun bobs = world.uploads().begin(BOB, request);
+        assertNotEquals(id, bobs.attachmentId(), "another owner gets a separate attachment and upload IDs");
+        assertNotEquals(begun.files().get(0).uploadId(), bobs.files().get(0).uploadId());
+        List<String> storedKeys = world.store().storedKeys();
+
+        world.close();
+        world = AttachmentWorld.open(scratch, Map.of("disk-margin-bytes", Long.MAX_VALUE + "B"));
+        world.clock().set(afterExpiry);
+        assertEquals(begun, world.uploads().begin(ALICE, request), "the attachment and ordered upload IDs survive restart");
         assertEquals(kept, world.uploads().finish(id));
-        refused(NotFoundException.class, NotFoundCode.ARTIFACT_NOT_FOUND, false, () -> world.chunk(secondUpload, 1, secondContent));
+        assertEquals(ALICE, world.service().attachment(id).orElseThrow().createdBy());
+        assertOperationConflict(operationKey, List.of(items.get(1), items.get(0)));
+        AttachmentService.BeginFile first = request.files().get(0);
+        AttachmentService.BeginFile changed = new AttachmentService.BeginFile(first.fileName(), "text/csv", first.size(), first.sha256());
+        AttachmentService.BeginRequest changedMedia = new AttachmentService.BeginRequest(operationKey, List.of(changed, request.files().get(1)), request.purpose());
+        refused(ConflictException.class, ConflictCode.ARTIFACT_OPERATION_CONFLICT, false, () -> world.uploads().begin(ALICE, changedMedia));
+        refused(UnavailableException.class, UnavailableCode.ARTIFACT_STORAGE_FULL, false, () -> world.uploads().begin(BOB, request));
+        refused(UnavailableException.class, UnavailableCode.ARTIFACT_STORAGE_FULL, false,
+                () -> world.uploads().begin(ALICE, world.bundleRequest(AttachmentWorld.operationKey(), items)));
+        refused(ConflictException.class, ConflictCode.ARTIFACT_CHUNK_CONFLICT, false, () -> world.chunk(secondUpload, 1, secondContent));
+        var completed = world.uploads().uploadStatus(secondUpload);
+        assertEquals(completed, world.uploads().transfer(secondUpload, InputStream.nullInputStream(), secondContent.length), "a completed transfer reads no input");
+        assertEquals(storedKeys, world.store().storedKeys());
         assertEquals(1, world.count("SELECT count(*) FROM sennard.attachment"));
-        assertEquals(3, world.count("SELECT count(*) FROM sennard.attachment_storage"));
-        for (int seq = 0; seq < 3; seq++) {
+        assertEquals(2, world.count("SELECT count(*) FROM sennard.attachment_storage"));
+        for (int seq = 0; seq < items.size(); seq++) {
             assertArrayEquals(items.get(seq).content(), world.readAll(id, seq, 64));
         }
     }

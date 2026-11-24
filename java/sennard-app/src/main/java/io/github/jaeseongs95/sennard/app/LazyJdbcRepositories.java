@@ -22,6 +22,7 @@ import org.springframework.data.repository.config.RepositoryConfigurationUtils;
 
 import io.github.jaeseongs95.sennard.app.attachment.UploadStagingRepository;
 import io.github.jaeseongs95.sennard.app.board.BoardSessionRepository;
+import io.github.jaeseongs95.sennard.app.execution.ExecutionRepository;
 import io.github.jaeseongs95.sennard.app.journal.JournalWorkflowRepository;
 import io.github.jaeseongs95.sennard.app.messaging.MessageRepository;
 import io.github.jaeseongs95.sennard.app.operation.OperationReceiptRepository;
@@ -80,7 +81,7 @@ final class LazyJdbcRepositories extends RepositoryBeanDefinitionRegistrarSuppor
 
     /** What Spring Data reads the {@code @EnableJdbcRepositories} attributes from: the packages of the rewritten areas (one repository of each names its package); it is never a bean. */
     @EnableJdbcRepositories(basePackageClasses = {BoardSessionRepository.class, MessageRepository.class, UserPromptRepository.class, JournalWorkflowRepository.class,
-            OperationReceiptRepository.class, UploadStagingRepository.class})
+            OperationReceiptRepository.class, UploadStagingRepository.class, ExecutionRepository.class})
     private static final class RepositoryPackages {
     }
 }

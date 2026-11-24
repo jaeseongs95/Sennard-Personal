@@ -26,13 +26,13 @@
 - 이미 발행한 판의 노트는 내용을 고치지 않습니다. 문서 경로가 바뀌어 상대 링크가 깨지면 링크 대상만 고칩니다.
 - 노트의 언어, 절 구성과 순서는 [문서 포맷](document-format.ko.md#릴리스-노트)을 따릅니다.
 - Antigravity 설치 ZIP은 release가 발행되면 `.github/workflows/antigravity-package.yml`이 만들어 그 release에 올립니다.
-- release가 발행되면 `.github/workflows/server-package.yml`이 러너 하나에서 릴리스 jar 하나와 `.sha256`을 만들고(`:sennard-personal:releaseJar`), jar 이름을 태그와 대조하고 체크섬을 검사한 뒤, 검사가 통과했을 때만 둘을 그 release에 올립니다. 태그 없이 `workflow_dispatch`로 돌리면 release에 올리지 않고 실행 산출물로만 남깁니다. jar는 모든 운영체제에서 같은 파일이므로 러너는 하나이고 OS 행렬은 없습니다.
+- 릴리스를 발행하면 `.github/workflows/server-package.yml`이 러너 하나에서 JAR와 체크섬을 만듭니다(`:sennard-personal:releaseJar`). `checkReleaseArchive`는 태그를 대조하고 정확한 JAR 파일명으로 `setup.cmd`와 `setup.sh`를 생성합니다. 워크플로는 체크섬과 두 실행 파일을 검증한 뒤 서버 자산 네 개를 첨부합니다. 태그 없이 수동으로 실행하면 실행 산출물로 보관합니다. 지원 운영체제는 동일한 JAR를 사용합니다.
 
 ## 발행 전 점검
 
 릴리스 후보는 플러그인 manifest, 포함된 스킬, 릴리스 jar가 같은 소스 상태를 가리켜야 합니다. 변경된 계약이나 스킬이 있으면 해당 변경을 포함한 검증 결과를 남깁니다.
 
-GitHub Release에는 `sennard-<판>.jar`와 `sennard-<판>.jar.sha256`(`:sennard-personal:releaseJar`) 두 자산을 첨부합니다. 사용자는 자기 JDK 25로 jar를 실행하며, OS별 압축 파일과 동봉 런타임은 없습니다. jar는 재현 가능하게(파일 시각 없음, 항목 순서 고정) 만들어, 워크플로가 만든 jar와 관리자의 컴퓨터에서 만든 jar의 SHA-256이 같게 합니다. release를 발행하기 전에 두 SHA-256을 대조하며 다르면 발행을 멈춥니다.
+GitHub Release에는 `sennard-<판>.jar`, `sennard-<판>.jar.sha256`, `setup.cmd`, `setup.sh`를 첨부합니다. 사용자는 자신의 JDK 25 이상으로 실행합니다. jar는 재현 가능하게(파일 시각 없음, 항목 순서 고정) 만들어, 워크플로가 만든 jar와 관리자의 컴퓨터에서 만든 jar의 SHA-256이 같게 합니다. release를 발행하기 전에 두 SHA-256을 대조하며 다르면 발행을 멈춥니다.
 
 릴리스 전에는 다음을 확인합니다.
 
@@ -45,7 +45,7 @@ GitHub Release에는 `sennard-<판>.jar`와 `sennard-<판>.jar.sha256`(`:sennard
 - 배포 후보의 현재 버전과 공개 저장소의 최신 안정 tag를 비교하고, 업데이트 알림이 설치 파일이나 마켓플레이스 설정을 변경하지 않는지 확인한다.
 - 포함 스킬의 품질 평가 상태와 runtime 활성 상태를 공개 문서에 분리해 기록한다. 품질 게이트를 통과하지 못한 스킬은 기본적으로 비활성화하되, 사용자가 현재 후보와 남은 제한을 확인하고 활성 배포를 명시적으로 승인한 경우에는 registry, 직접 descriptor와 implicit invocation을 같은 릴리스에서 일관되게 활성화한다.
 - orchestrated semantic workflow의 `bootstrapExecution`, stage별 `executionRequirement`와 `StageResult.executionContext`가 계획 HMAC·저장 receipt에 결속되고, missing/under-provisioned 실행이 각각 `BINDING_REQUIRED`/`BINDING_INVALID`로 차단되는지 확인한다. observation ID가 서버 재시작과 동시 DB 연결 뒤에도 한 번만 소비되는지, HMAC token의 same-byte 비정규 base64url 표기가 schema와 내부 검사 모두에서 거부되는지도 확인한다. strict MCP claim·guarded start·semantic stage 경계에서는 assurance가 없는 plan을 진행시키지 않는다.
-- 호출자 관측이 없으면 `BINDING_REQUIRED`, 모순·재사용 오류면 `BINDING_INVALID`로 거절하는지 시험으로 확인한다. 릴리스 전에 빌드한 플러그인으로 transcript를 남기는 새 Claude Code 세션을 띄워 `plan_workflow`부터 `open_convergence_root`, `claim_workflow_attempt`, `start_guarded_workflow`, `record_stage_result`, `finalize_workflow`까지 한 흐름이 관측값으로 통과하는지, 서브에이전트가 부른 `plan_workflow`가 서브에이전트 actor로 관측되는지 확인한다.
+- 호출자 관측이 없으면 `BINDING_REQUIRED`, 모순·재사용 오류면 `BINDING_INVALID`로 거절하는지 시험으로 확인한다. 릴리스 전에 빌드한 플러그인으로 transcript를 남기는 새 Claude Code 세션을 띄워 `plan_workflow`부터 `open_convergence_root`, `claim_workflow_attempt`, `start_guarded_workflow`, `record_stage_result`, `finalize_workflow`까지 한 흐름이 관측값으로 통과하는지, 서브에이전트가 부른 `plan_workflow`는 실제 호출 actor를 관측하고 메인 세션에 결속되는지 확인한다.
 - `record_stage_result`의 `outputFile`이 digest 불일치·JSON 아닌 첨부·16 MiB 초과·없는 첨부와 다른 세션의 첨부를 거절하고, 인라인 출력과 같은 검사를 거쳐 receipt에 참조만 남기는지 테스트로 확인한다. 저장소 크기에 비례하는 stage 출력이 있는 실제 요청으로 새 Claude Code 세션을 띄워 orchestrated run이 finalize까지 가는지 확인한다.
 - 비활성 스킬은 직접 호출 시 provider와 스크립트를 실행하지 않는 fail-closed 지침을 유지한다. 활성 스킬은 registry, 직접 descriptor, `agents/openai.yaml`과 `SKILL.md`의 상태가 모두 일치하는지 확인한다.
 - 저장소가 전체 `WorkflowReceipt`·`StageResult`와 direct continuity snapshot의 `core`·`evidenceRefs`를 평문으로 저장한다는 사실, 확인 기반 보존·삭제 정책, 백업 표(`continuity_cleanup_backup`, `workflow_cleanup_backup`)의 처리와 OS 접근 권한 정책을 사용자 문서에서 설명한다.

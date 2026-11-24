@@ -7,6 +7,8 @@ package io.github.jaeseongs95.sennard.server.skills;
 import static io.github.jaeseongs95.sennard.server.skills.Checks.need;
 
 import java.io.UncheckedIOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.OperatingSystemMXBean;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
@@ -45,6 +47,13 @@ import io.github.jaeseongs95.sennard.domain.error.IntegrityCode;
 import io.github.jaeseongs95.sennard.domain.error.IntegrityException;
 import io.github.jaeseongs95.sennard.domain.error.InvalidInputException;
 import io.github.jaeseongs95.sennard.server.contract.CanonicalJson;
+import io.github.jaeseongs95.sennard.server.execution.EnvironmentSpec;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionHandle;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionIds;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionRequest;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionSnapshot;
+import io.github.jaeseongs95.sennard.server.execution.ProcessRunner;
+import io.github.jaeseongs95.sennard.server.execution.Refused;
 import io.github.jaeseongs95.sennard.server.message.Messages;
 import io.github.jaeseongs95.sennard.service.files.FileFacts;
 import io.github.jaeseongs95.sennard.service.files.FileFactsException;
@@ -59,7 +68,7 @@ import tools.jackson.databind.json.JsonMapper;
  * a proof ties a test's red and green receipts to the plan and to exact file digests, a review answers the changed files of a request.
  * Unsigned local consistency, not attestation; the limitations in every result say so.
  *
- * <p>{@code run} starts the caller's own test command through the {@link SkillProcessRunner} and answers the
+ * <p>{@code run} starts the caller's own test command through the {@link ProcessRunner} and answers the
  * receipt of that run; {@code check-proof} judges only whether the receipts, the plan and the files agree, whoever made the receipts. Every document is checked
  * against its contract, then bound to a record; the digests of whole documents are taken over their canonical form.
  */
@@ -82,6 +91,8 @@ public class EngineeringPractices {
     private static final int DEFAULT_TIMEOUT_MS = 30000;
     /** The receipt contract's bounds of {@code argv}: at most 128 items of at most 8192 characters. */
     private static final int ARGV_ITEMS = 128;
+    /** How long one wait for the end of a run lasts; the wait is repeated until the run ended. */
+    private static final Duration AWAIT_STEP = Duration.ofMinutes(1);
     private static final int ARGV_ITEM_LENGTH = 8192;
     /** What a caller may set in the child's environment with {@code env}: at most this many variables, a name of 1..128 characters, a value of at most 8192. */
     private static final int ENV_VARIABLES = 32;
@@ -408,14 +419,16 @@ public class EngineeringPractices {
     private final JsonMapper mapper;
     private final Messages messages;
     private final Catalog packaged;
-    private final SkillProcessRunner runner;
+    private final ProcessRunner runner;
+    private final SkillRunEnvironment environments;
     private final Clock clock;
 
-    public EngineeringPractices(SkillSchemas schemas, JsonMapper mapper, Messages messages, SkillProcessRunner runner, Clock clock) {
+    public EngineeringPractices(SkillSchemas schemas, JsonMapper mapper, Messages messages, ProcessRunner runner, SkillRunEnvironment environments, Clock clock) {
         this.schemas = schemas;
         this.mapper = mapper;
         this.messages = messages;
         this.runner = runner;
+        this.environments = environments;
         this.clock = clock;
         this.packaged = schemas.assets().read(KNOWLEDGE, Catalog.class);
     }
@@ -704,8 +717,10 @@ public class EngineeringPractices {
     /**
      * Runs the caller's command over a snapshot that still holds, and answers its receipt: the snapshot before, the digest of the same files after, the exit code, the
      * output and its digests. A receipt that is not {@code PASS} makes the exit code 1. A run that changed a file of the snapshot is {@code INPUT_CHANGED}, whatever the
-     * command answered; a run that was still going at the limit is {@code TIMED_OUT}; one that could not be started, or wrote more than the runner keeps, is
-     * {@code SPAWN_ERROR} (a command that wrote past the bound while it ran is killed and is {@code SPAWN_ERROR} too). The command starts in the real path of the root the
+     * command answered; a run that was still going at the limit is {@code TIMED_OUT}; one that could not be started, was killed (by an interrupt or the server's stop), or wrote more
+     * than the runner keeps of a stream in memory ({@link io.github.jaeseongs95.sennard.server.execution.StreamOutput}: its first and its last bytes), is {@code SPAWN_ERROR}: the runner no longer kills a command for its output, so one that wrote more ends as it would have
+     * and is judged by what is kept (the whole output is in the runner's log files). A wait that is interrupted cancels the command; when it has still not ended within the runner's
+     * bound after that, the answer is {@code SPAWN_ERROR} as well (a result, not an error), with the interrupt kept for the caller. The command starts in the real path of the root the
      * snapshot was checked in, with an emptied environment plus the server's listed variables and the caller's {@code env}; a batch file with an argument the Windows command
      * interpreter would read as syntax, an {@code env} out of bounds, and a run beyond the runner's concurrency limit are refused and nothing starts.
      */
@@ -724,7 +739,7 @@ public class EngineeringPractices {
         need(timeoutMs >= 1 && timeoutMs <= MAX_TIMEOUT_MS, InputCode.PRACTICES_RUNNER_TIMEOUTMS_MUST_BE_WITHIN_1300000);
         need(environment.size() <= ENV_VARIABLES && environment.entrySet().stream().allMatch(variable -> environmentVariable(variable.getKey(), variable.getValue())),
                 InputCode.PRACTICES_RUNNER_EXPLICIT_BOUNDED_ENV_IS_REQUIRED);
-        String environmentNote = note == null ? runner.describeEnvironment(environment.keySet()) : note;
+        String environmentNote = note == null ? environments.describe(environment.keySet()) : note;
         need(filled(environmentNote), InputCode.PRACTICES_RUNNER_ENVIRONMENT_NOTE_IS_REQUIRED);
         verifySnapshot(files, root, snapshot);
         // The directory the snapshot was just checked in: its real path, the one the files were read through, not the text the caller wrote.
@@ -736,12 +751,15 @@ public class EngineeringPractices {
         String emptyDigest = Checks.hash("");
         // A receipt of a run that did not happen is held to the contract before the command starts: what the contract would refuse afterwards is refused now.
         assertReceipt(mapper.valueToTree(sealed(new ReceiptBody(RECEIPT_VERSION, "engineering-run-receipt", argv, snapshot, snapshot.digest(), startedAt, startedAt, RunStatus.SPAWN_ERROR, null, "", "",
-                emptyDigest, emptyDigest, timeoutMs, argv.getFirst(), runtime, runner.platform(), environmentNote))));
+                emptyDigest, emptyDigest, timeoutMs, argv.getFirst(), runtime, platform(), environmentNote))));
 
-        SkillProcessRunner.Completed child;
+        ExecutionSnapshot child;
         try {
-            child = runner.run(workingDirectory, argv, environment, Duration.ofMillis(timeoutMs));
-        } catch (SkillProcessRunner.Refused refused) {
+            // The skill's own environment policy (an emptied environment plus a list of the server's variables, then the caller's): the runner is told to give that.
+            ExecutionRequest request = new ExecutionRequest(argv, workingDirectory, new EnvironmentSpec(SkillRunEnvironment.INHERITED_NAMES, environment), Duration.ofMillis(timeoutMs),
+                    ExecutionRequest.MAX_LOG_BYTES);
+            child = awaitEnd(runner.start(ExecutionIds.next(), request));
+        } catch (Refused refused) {
             throw switch (refused.reason()) {
                 case TOO_MANY_RUNS -> new InvalidInputException(InputCode.PRACTICES_RUNNER_TOO_MANY_RUNS, SennardException.args("limit", refused.detail()), Map.of(), refused);
                 case STOPPING -> new InvalidInputException(InputCode.PRACTICES_RUNNER_SERVER_IS_STOPPING, Map.of(), Map.of(), refused);
@@ -750,16 +768,44 @@ public class EngineeringPractices {
         }
         String finishedAt = Checks.iso(clock.instant());
         String afterDigest = digestAfterRun(files, root, snapshot);
-        RunStatus status = !Objects.equals(afterDigest, snapshot.digest()) ? RunStatus.INPUT_CHANGED : switch (child) {
-            case SkillProcessRunner.Exited exited -> exited.outputTruncated() ? RunStatus.SPAWN_ERROR : exited.exitCode() == 0 ? RunStatus.PASS : RunStatus.FAIL;
-            case SkillProcessRunner.TimedOut _ -> RunStatus.TIMED_OUT;
-            case SkillProcessRunner.Failed _ -> RunStatus.SPAWN_ERROR;
+        RunStatus status = !Objects.equals(afterDigest, snapshot.digest()) ? RunStatus.INPUT_CHANGED : switch (child.state()) {
+            case EXITED -> child.outputOmitted() ? RunStatus.SPAWN_ERROR : child.exitCode() == 0 ? RunStatus.PASS : RunStatus.FAIL;
+            case TIMED_OUT -> RunStatus.TIMED_OUT;
+            // RUNNING: the wait was interrupted and the command had not ended within the runner's bound after it was asked to end; the run was stopped before it ended, which is what SPAWN_ERROR says
+            case KILLED, NOT_STARTED, RUNNING -> RunStatus.SPAWN_ERROR;
         };
-        BigInteger exitCode = child instanceof SkillProcessRunner.Exited exited ? BigInteger.valueOf(exited.exitCode()) : null;
-        Receipt receipt = sealed(new ReceiptBody(RECEIPT_VERSION, "engineering-run-receipt", argv, snapshot, afterDigest, startedAt, finishedAt, status, exitCode, child.stdout(), child.stderr(),
-                Checks.hash(child.stdout()), Checks.hash(child.stderr()), timeoutMs, argv.getFirst(), runtime, runner.platform(), environmentNote));
+        BigInteger exitCode = child.exitCode() == null ? null : BigInteger.valueOf(child.exitCode());
+        String stdout = child.stdout().head();
+        String stderr = child.stderr().head();
+        Receipt receipt = sealed(new ReceiptBody(RECEIPT_VERSION, "engineering-run-receipt", argv, snapshot, afterDigest, startedAt, finishedAt, status, exitCode, stdout, stderr,
+                Checks.hash(stdout), Checks.hash(stderr), timeoutMs, argv.getFirst(), runtime, platform(), environmentNote));
         assertReceipt(mapper.valueToTree(receipt));
         return SkillCheckResult.of(receipt, status == RunStatus.PASS);
+    }
+
+    /**
+     * Waits for the end of the run, which the runner brings about itself (its time limit is the request's). A wait that is interrupted cancels the run, keeps the interrupt for the
+     * caller and answers how the run was left.
+     */
+    private static ExecutionSnapshot awaitEnd(ExecutionHandle handle) {
+        try {
+            while (true) {
+                ExecutionSnapshot now = handle.await(AWAIT_STEP);
+                if (now.state().finished()) {
+                    return now;
+                }
+            }
+        } catch (InterruptedException interrupted) {
+            ExecutionSnapshot left = handle.cancel();
+            Thread.currentThread().interrupt();
+            return left;
+        }
+    }
+
+    /** Where the command ran, as a receipt records it: the operating system, its version and architecture, as the JVM reports them. */
+    private static String platform() {
+        OperatingSystemMXBean system = ManagementFactory.getOperatingSystemMXBean();
+        return system.getName() + " " + system.getVersion() + " " + system.getArch();
     }
 
     /** Whether a variable of the caller can be set: a name of 1..128 characters without {@code =} or a control character (NUL among them), a value of at most 8192 without NUL. */

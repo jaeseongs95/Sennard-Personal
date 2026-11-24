@@ -488,13 +488,197 @@ class ShellEditTargetsTest {
     @Test
     void aGitCommandThatRewritesTheWorkingTreeFromTheRepositoryStateIsAnUnreadWrite() {
         for (String command : List.of("git pull", "git pull origin main", "git merge topic", "git merge --abort", "git cherry-pick abc123", "git rebase main", "git rebase --continue", "git stash pop",
-                "git stash apply stash@{1}", "git reset --hard", "git reset --hard HEAD~1", "git checkout main", "git checkout -b topic", "git switch main", "git switch -c topic",
+                "git stash apply stash@{1}", "git reset --hard", "git reset --hard HEAD~1", "git checkout main", "git checkout -b topic", "git switch main",
                 "git -C sub merge topic", "git checkout main && git pull")) {
             assertWrites(msys(command), true);
             assertWrites(plain(command), true);
         }
         assertWrites(plain("git -C /d/ws pull"), true);
         assertWrites(plain("git pull && echo x > a.txt"), true, "a.txt");
+    }
+
+    private static final List<ShellEditTargets.Dialect> EVERY_DIALECT = List.of(ShellEditTargets.Dialect.POSIX, ShellEditTargets.Dialect.POWERSHELL, ShellEditTargets.Dialect.CMD,
+            ShellEditTargets.Dialect.EITHER);
+
+    /** The command is no write in every reading the gate can give it: the shell's tree as the file system's or not, and each dialect. */
+    private static void assertNoWriteEverywhere(String command) {
+        assertNull(msys(command), command);
+        assertNull(plain(command), command);
+        for (ShellEditTargets.Dialect dialect : EVERY_DIALECT) {
+            assertNull(of(command, dialect, false), dialect + " " + command);
+        }
+    }
+
+    /** The command is an unread write in every reading the gate can give it. */
+    private static void assertUnreadEverywhere(String command) {
+        assertWrites(msys(command), true);
+        assertWrites(plain(command), true);
+        for (ShellEditTargets.Dialect dialect : EVERY_DIALECT) {
+            assertWrites(of(command, dialect, false), true);
+        }
+    }
+
+    private static void assertUnreadIn(String command, ShellEditTargets.Dialect... dialects) {
+        for (ShellEditTargets.Dialect dialect : dialects) {
+            assertEquals(true, of(command, dialect, false).unknown(), dialect + " " + command);
+        }
+    }
+
+    /**
+     * A switch leaves the working tree as it is only when the whole simple command is one of the few forms that create a branch at the commit already checked out, and ends at a
+     * separator that ends a command in every shell; everything else is read as rewriting the tree from the repository state.
+     */
+    @Test
+    void aGitSwitchThatIsExactlyABranchCreatedAtTheCurrentCommitIsNoUnreadWrite() {
+        for (String command : List.of("git switch -c topic", "git switch --create topic", "git switch --create=topic", "git switch -ctopic", "git switch -c topic HEAD",
+                "git switch --create topic HEAD", "git switch --create=topic HEAD", "git switch -ctopic HEAD", "git switch -c feature/x-1.2 HEAD", "git switch -c feature/x-1.2", "git switch -c a.b",
+                "git switch -c a+b", "git switch -c a+b HEAD", "git switch -c topic\n", "cd sub && git switch -c topic", "git switch -c topic | cat", "git switch -c topic || echo failed")) {
+            assertNoWriteEverywhere(command);
+        }
+        // What follows the command is another command, read on its own.
+        for (String tail : List.of("&&", "\n", "||", "|")) {
+            for (ShellEditTargets.Dialect dialect : EVERY_DIALECT) {
+                assertWrites(of("git switch -c topic " + tail + " echo x > a.txt", dialect, false), false, "a.txt");
+                assertWrites(of("git switch -c topic HEAD " + tail + " echo x > a.txt", dialect, false), false, "a.txt");
+            }
+            assertWrites(msys("git switch -c topic " + tail + " echo x > a.txt"), false, "a.txt");
+        }
+        assertWrites(plain("git switch -c topic && echo x > a.txt"), false, "a.txt");
+        assertWrites(plain("git switch -c topic; echo x > a.txt"), false, "a.txt");
+        assertWrites(of("git switch -c topic; echo x > a.txt", ShellEditTargets.Dialect.POWERSHELL, false), false, "a.txt");
+        assertWrites(of("git switch -c topic; echo x > a.txt", ShellEditTargets.Dialect.EITHER, false), false, "a.txt");
+        assertWrites(of("git switch -c topic & echo x > a.txt", ShellEditTargets.Dialect.CMD, false), false, "a.txt");
+        // A redirection of the command's own output changes nothing about what git does; the file it names is the write.
+        assertWrites(plain("git switch -c topic > out.txt"), false, "out.txt");
+        assertNull(plain("git switch -c topic 2>&1"));
+    }
+
+    /** The decision of AGS3-D-0348's re-audit: a form that is not exactly one of the allowed ones is unread, however harmless git itself finds it. */
+    @Test
+    void aGitSwitchThatIsNotExactlyOneOfTheAllowedFormsStaysAnUnreadWrite() {
+        for (String command : List.of("git switch --create=", "git switch -c=", "git switch -c=topic", "git switch -qC x", "git switch --force-c x", "git switch --cre topic", "git switch -c -- topic",
+                "git switch HEAD -c topic", "git switch -c topic --track=direct", "git switch -t origin/x", "git switch --quiet -c x", "git switch -c x --detach", "git switch -qc topic",
+                "git switch -c topic --track", "git switch -c topic --quiet", "git switch --guess -c topic", "git switch -c topic --no-guess", "git switch -c topic --progress",
+                "git switch -c topic @", "git switch -c t @", "git switch -c topic HEAD HEAD", "git switch -c topic HEAD @", "git switch -c topic head", "git switch -c topic HEAD~", "git switch -c topic -- HEAD",
+                "git -C . switch -c x", "git -C sub switch -c topic", "git -C /d/ws switch -c topic", "git -c core.x=y switch -c topic", "git --no-pager switch -c topic",
+                "git --git-dir=.git switch -c topic", "git -P switch -c topic")) {
+            assertUnreadEverywhere(command);
+        }
+        assertWrites(plain("git -C /d/ws switch -c topic; echo x > a.txt"), true, "a.txt");
+    }
+
+    /** A prefix of the command (an environment variable, a wrapper program) can change what git does, or which program runs. */
+    @Test
+    void aGitSwitchWithAnEnvironmentAssignmentOrAWrapperBeforeItStaysAnUnreadWrite() {
+        for (String command : List.of("X=1 git switch -c x", "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=. git switch -c x", "env X=1 git switch -c x",
+                "env -i git switch -c x", "sudo git switch -c x", "command git switch -c x", "exec git switch -c x", "time git switch -c x", "FOO=bar git switch -c x HEAD")) {
+            assertWrites(msys(command), true);
+            assertWrites(plain(command), true);
+            assertWrites(of(command, ShellEditTargets.Dialect.EITHER, false), true);
+        }
+    }
+
+    /** What ends the command is part of what git is given: a bracket or brace ends the argument list in one shell and is an argument of git in another. */
+    @Test
+    void aGitSwitchCutShortByABracketOrBraceStaysAnUnreadWrite() {
+        // PowerShell: a parenthesis starts a sub-expression whose value is one more argument, or an array of them.
+        for (String command : List.of("git switch -c topic (echo main)", "git switch -c topic ('main')", "git switch -c topic @('main')", "git switch -c topic @(echo main)",
+                "git switch -c topic {echo main}", "git switch -c topic (", "git switch -c topic HEAD (echo main)")) {
+            assertUnreadIn(command, ShellEditTargets.Dialect.POWERSHELL, ShellEditTargets.Dialect.EITHER);
+        }
+        // cmd hands a bracket in the middle of a command to the program: a ref made as "(x" is a start point.
+        for (String command : List.of("git switch -c topic (x", "git switch -c topic )x", "git switch -c topic ( x", "git switch -c topic ) x")) {
+            assertUnreadIn(command, ShellEditTargets.Dialect.CMD, ShellEditTargets.Dialect.EITHER);
+        }
+        // Nothing here is a plain separator in any shell.
+        for (String command : List.of("(git switch -c topic)", "echo $(git switch -c topic)", "git switch -c topic )", "git switch -c topic (x")) {
+            assertUnreadIn(command, ShellEditTargets.Dialect.POSIX, ShellEditTargets.Dialect.EITHER);
+        }
+        assertUnreadIn("& { git switch -c topic }", ShellEditTargets.Dialect.POWERSHELL, ShellEditTargets.Dialect.EITHER);
+        assertUnreadIn("(git switch -c topic)", ShellEditTargets.Dialect.CMD);
+    }
+
+    /** After PowerShell's {@code --%} the rest of the line is git's, a {@code ;} included, which no longer ends the command. */
+    @Test
+    void aGitSwitchWithThePowerShellStopParsingTokenAnywhereStaysAnUnreadWrite() {
+        for (String command : List.of("git --% switch -c topic ;x", "git --% switch -c topic (x", "git --% switch -c topic", "git switch --% -c topic", "git switch -c topic --% ;x",
+                "git switch -c topic HEAD --%")) {
+            assertUnreadEverywhere(command);
+        }
+    }
+
+    /**
+     * Git takes the value of some global options as the next argument; read as the subcommand, that value hid the switch from the judgment (AGS3-D-0348 re-audit N3).
+     * An option this does not know is no reason to guess where the subcommand is.
+     */
+    @Test
+    void aGitGlobalOptionThatTakesItsValueApartDoesNotHideTheSubcommand() {
+        for (String command : List.of("git --config-env core.x=HOME switch -c {topic,main}", "git --config-env core.x=HOME switch main", "git --attr-source HEAD switch main",
+                "git --config-env=core.x=HOME switch main", "git --attr-source=HEAD switch main", "git --config-env core.x=HOME checkout main", "git --attr-source HEAD checkout main",
+                "git --config-env core.x=HOME pull", "git --attr-source HEAD merge topic")) {
+            assertUnreadEverywhere(command);
+        }
+        assertWrites(plain("git --attr-source HEAD checkout -- a.txt"), false, "a.txt");
+        assertWrites(plain("git --config-env core.x=HOME restore a.txt"), false, "a.txt");
+    }
+
+    @Test
+    void aGitGlobalOptionThisDoesNotKnowIsAnUnreadWriteWhateverTheSubcommand() {
+        // --super-prefix is no option of the command line of git 2.55 (git stops at it), -Cpath and -cname=value are one word git does not read as the option.
+        for (String command : List.of("git --zzz switch main", "git --zzz status", "git --zzz log", "git -z log", "git -vp log", "git $OPT log", "git \"$OPT\" switch -c topic", "git $SUB main",
+                "git --no-pager $SUB main", "git --git-dir", "git --super-prefix=sub/ status", "git --super-prefix sub/ switch main", "git -Csub status", "git -ca.b=c status",
+                "git --list-cmds status", "git -C=sub status")) {
+            assertWrites(msys(command), true);
+            assertWrites(plain(command), true);
+        }
+        assertUnreadIn("git $OPT log", ShellEditTargets.Dialect.POWERSHELL, ShellEditTargets.Dialect.EITHER);
+        assertUnreadIn("git %OPT% log", ShellEditTargets.Dialect.CMD);
+    }
+
+    /** Every global option git has is known, so none of its read-only commands becomes an unread write by this (the options of git 2.55). */
+    @Test
+    void aReadOnlyGitCommandWithAKnownGlobalOptionIsStillNoWrite() {
+        for (String command : List.of("git --no-pager log", "git -C . status", "git -C sub log --oneline", "git -c core.x=y diff", "git -c core.pager=cat -C sub show HEAD", "git --config-env core.x=HOME status",
+                "git --config-env=core.x=HOME status", "git --attr-source HEAD status", "git --attr-source=HEAD diff", "git --git-dir=.git status", "git --git-dir .git --work-tree . log",
+                "git --work-tree=. status", "git --namespace n status", "git --namespace=n status", "git --no-optional-locks status", "git --no-replace-objects log", "git --no-lazy-fetch fetch",
+                "git --no-advice status", "git --bare log", "git -p log", "git --paginate diff", "git -P log", "git --literal-pathspecs status", "git --glob-pathspecs status",
+                "git --noglob-pathspecs status", "git --icase-pathspecs status", "git --no-literal-pathspecs status", "git --exec-path=/x status",
+                "git --version", "git -v", "git --help", "git -h", "git --help switch main", "git --html-path", "git --man-path", "git --info-path", "git --exec-path", "git --list-cmds=main")) {
+            assertNoWriteEverywhere(command);
+        }
+    }
+
+    /** The name of the branch is read as given, because a shell can spread one word over several arguments and the second becomes the start point; only a plain literal name passes. */
+    @Test
+    void aBranchNameThatTheShellMayExpandOrThatIsNotPlainKeepsTheSwitchAnUnreadWrite() {
+        for (String command : List.of("git switch --create", "git switch -C topic", "git switch -Ctopic", "git switch --force-create topic", "git switch --force-create=topic", "git switch -c -f",
+                "git switch -c \"a b\"", "git switch -c \"$NAME\"", "git switch -c {topic,main}", "git switch -c topic{,x}", "git switch --create={topic,main}", "git switch -c$X",
+                "X=\"topic main\"; git switch -c $X", "echo \"topic main\" | xargs git switch -c", "git switch -c $(echo topic main)", "git switch --create=-f")) {
+            assertWrites(msys(command), true);
+            assertWrites(plain(command), true);
+            assertWrites(of(command, ShellEditTargets.Dialect.EITHER, false), true);
+        }
+        for (String command : List.of("$X='topic','main'; git switch -c @X", "$X='topic','main'; git switch -c $X", "$env:X='topic main'; git --% switch -c %X%", "git --% switch --create=%X%",
+                "git switch -c @X", "git switch --create=$X", "git switch -c topic@{1}")) {
+            assertWrites(of(command, ShellEditTargets.Dialect.POWERSHELL, false), true);
+            assertWrites(of(command, ShellEditTargets.Dialect.EITHER, false), true);
+        }
+        for (String command : List.of("set X=topic main& git switch -c !X!", "git switch -c %X%", "git switch --create=%X%", "git switch -c !X!")) {
+            assertWrites(of(command, ShellEditTargets.Dialect.CMD, false), true);
+            assertWrites(of(command, ShellEditTargets.Dialect.EITHER, false), true);
+        }
+    }
+
+    @Test
+    void aGitSwitchThatCanChangeTheWorkingTreeStaysAnUnreadWrite() {
+        for (String command : List.of("git switch main", "git switch -", "git switch --detach", "git switch --detach main", "git switch -d main", "git switch --discard-changes main", "git switch -f main",
+                "git switch --force main", "git switch --merge main", "git switch -m main", "git switch --orphan topic", "git switch -c topic main", "git switch -c topic origin/main", "git switch -c topic HEAD~1",
+                "git switch -C topic main", "git switch -c topic --discard-changes", "git switch -c topic -f", "git switch -c topic --force", "git switch -cf topic", "git switch -fc topic",
+                "git switch -c topic -m", "git switch -c topic --detach", "git switch -c topic --recurse-submodules", "git switch -c", "git switch", "git switch -c topic -- main", "git switch -c topic $REF",
+                "git -C sub switch main", "git -C sub switch -c topic main", "git switch -c topic main && git pull")) {
+            assertWrites(msys(command), true);
+            assertWrites(plain(command), true);
+        }
     }
 
     @Test

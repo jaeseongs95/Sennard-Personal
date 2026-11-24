@@ -19,6 +19,12 @@ import org.springframework.data.domain.Limit;
  * The row limits on derived queries are rendered by Spring Data's database dialect.
  */
 public interface MessageRepository extends Repository<Message, String> {
+    String SESSION_ENDPOINTS = "target_actor_id = '' AND sender_actor_id = '' "
+            + "AND NOT EXISTS (SELECT 1 FROM sennard.session_ref r WHERE "
+            + "(r.session_ref = messages.sender_ref OR r.session_ref = messages.target_ref) AND (r.kind <> 'MAIN' OR r.parent_ref IS NOT NULL))";
+    String CLAIMABLE = "target_ref = :targetRef AND " + SESSION_ENDPOINTS
+            + " AND acknowledged_at IS NULL AND expires_at > :now AND (claim_until IS NULL OR claim_until <= :now)";
+
     Optional<Message> findById(String messageId);
 
     /**
@@ -35,10 +41,8 @@ public interface MessageRepository extends Repository<Message, String> {
      */
     @Modifying
     @Query("UPDATE sennard.messages SET claimed_at = :now, claim_until = :claimUntil, delivery_attempts = delivery_attempts + 1, first_delivered_at = :firstDeliveredAt, "
-            + "claim_receipt = :receipt, version = version + 1 WHERE message_id = :messageId AND target_ref = :targetRef AND target_actor_id = :targetActorId "
-            + "AND acknowledged_at IS NULL AND expires_at > :now "
-            + "AND (claim_until IS NULL OR claim_until <= :now) AND delivery_attempts = :previousAttempts")
-    int claim(@Param("messageId") String messageId, @Param("targetRef") String targetRef, @Param("targetActorId") String targetActorId,
+            + "claim_receipt = :receipt, version = version + 1 WHERE message_id = :messageId AND " + CLAIMABLE + " AND delivery_attempts = :previousAttempts")
+    int claim(@Param("messageId") String messageId, @Param("targetRef") String targetRef,
             @Param("previousAttempts") long previousAttempts, @Param("now") Instant now, @Param("claimUntil") Instant claimUntil,
             @Param("firstDeliveredAt") Instant firstDeliveredAt, @Param("receipt") String receipt);
 
@@ -49,27 +53,24 @@ public interface MessageRepository extends Repository<Message, String> {
     @Modifying
     @Query("UPDATE sennard.messages SET acknowledged_at = :now, claim_until = NULL, acknowledgement_receipt = :receipt, version = version + 1 "
             + "WHERE message_id = :messageId AND target_ref = :targetRef AND target_actor_id = :targetActorId "
-            + "AND claimed_at IS NOT NULL AND acknowledged_at IS NULL AND claim_receipt = :receipt")
+            + "AND " + SESSION_ENDPOINTS + " AND claimed_at IS NOT NULL AND acknowledged_at IS NULL AND claim_receipt = :receipt")
     int acknowledge(@Param("messageId") String messageId, @Param("targetRef") String targetRef, @Param("targetActorId") String targetActorId,
             @Param("receipt") String receipt, @Param("now") Instant now);
 
-    /** The next messages a claim may take, in the queue's order: unacknowledged, not expired, not under a live lease. */
-    List<Message> findByTargetRefAndTargetActorIdAndAcknowledgedAtIsNullAndExpiresAtGreaterThanAndClaimUntilIsNullOrTargetRefAndTargetActorIdAndAcknowledgedAtIsNullAndExpiresAtGreaterThanAndClaimUntilLessThanEqualOrderBySeqAsc(
-            String target1, String actor1, Instant expires1, String target2, String actor2, Instant expires2, Instant claimUntil, Limit limit);
+    /** Read only queue keys until the delivery budget selects which bodies to load. */
+    @Query("SELECT message_id FROM sennard.messages WHERE " + CLAIMABLE + " ORDER BY seq ASC")
+    List<String> findClaimableIds(@Param("targetRef") String targetRef, @Param("now") Instant now);
 
-    default List<Message> findClaimable(String targetRef, String targetActorId, Instant now, int limit) {
-        return findByTargetRefAndTargetActorIdAndAcknowledgedAtIsNullAndExpiresAtGreaterThanAndClaimUntilIsNullOrTargetRefAndTargetActorIdAndAcknowledgedAtIsNullAndExpiresAtGreaterThanAndClaimUntilLessThanEqualOrderBySeqAsc(
-                targetRef, targetActorId, now, targetRef, targetActorId, now, now, Limit.of(limit));
+    List<Message> findByMessageIdInOrderBySeqAsc(List<String> messageIds);
+
+    default List<Message> findClaimable(String targetRef, Instant now, int limit) {
+        List<String> ids = findClaimableIds(targetRef, now).stream().limit(limit).toList();
+        return ids.isEmpty() ? List.of() : findByMessageIdInOrderBySeqAsc(ids);
     }
 
     /** How many messages wait for the recipient (what {@link #findClaimable} would offer, without the limit). */
-    @Query("SELECT COUNT(*) FROM sennard.messages WHERE target_ref = :targetRef AND target_actor_id = :targetActorId AND acknowledged_at IS NULL AND expires_at > :now "
-            + "AND (claim_until IS NULL OR claim_until <= :now)")
-    long countClaimable(@Param("targetRef") String targetRef, @Param("targetActorId") String targetActorId, @Param("now") Instant now);
-
-    default long countClaimable(String targetRef, Instant now) {
-        return countClaimable(targetRef, "", now);
-    }
+    @Query("SELECT COUNT(*) FROM sennard.messages WHERE " + CLAIMABLE)
+    long countClaimable(@Param("targetRef") String targetRef, @Param("now") Instant now);
 
     /** How many messages the queue holds that nobody acknowledged (lapsed ones too, until they are removed): what the queue's message limit counts. */
     @Query("SELECT COUNT(*) FROM sennard.messages WHERE acknowledged_at IS NULL")

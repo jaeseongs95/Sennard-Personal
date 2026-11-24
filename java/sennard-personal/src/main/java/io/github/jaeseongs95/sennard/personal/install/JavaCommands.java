@@ -6,6 +6,7 @@ package io.github.jaeseongs95.sennard.personal.install;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -22,13 +23,22 @@ import io.github.jaeseongs95.sennard.protocol.ToolProcess;
 public final class JavaCommands implements Commands {
     @Override
     public Result run(List<String> argv, Map<String, String> environment, Duration timeout) {
-        return run(argv, environment, null, timeout);
+        return run(argv, null, environment, null, timeout);
     }
 
     @Override
     public Result run(List<String> argv, Map<String, String> environment, byte[] input, Duration timeout) {
+        return run(argv, null, environment, input, timeout);
+    }
+
+    @Override
+    public Result run(List<String> argv, Path directory, Map<String, String> environment, Duration timeout) {
+        return run(argv, directory, environment, null, timeout);
+    }
+
+    private Result run(List<String> argv, Path directory, Map<String, String> environment, byte[] input, Duration timeout) {
         try {
-            ToolProcess.Outcome outcome = ToolProcess.run(ToolProcess.Request.of(argv, ToolProcess.Stderr.MERGE, timeout).withEnvironment(environment).withInput(input));
+            ToolProcess.Outcome outcome = ToolProcess.run(ToolProcess.Request.of(argv, ToolProcess.Stderr.MERGE, timeout).inDirectory(directory).withEnvironment(environment).withInput(input));
             return switch (outcome) {
                 case ToolProcess.Finished done -> new Result(done.exitCode(), new String(done.output(), StandardCharsets.UTF_8));
                 case ToolProcess.TimedOut late -> throw new UnavailableException(UnavailableCode.COMMAND_TIMEOUT, SennardException.args("command", argv.get(0), "seconds", String.valueOf(timeout.toSeconds())));

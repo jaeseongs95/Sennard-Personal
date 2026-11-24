@@ -5,7 +5,6 @@
 package io.github.jaeseongs95.sennard.personal.skills;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -15,7 +14,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -29,8 +27,10 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 
 import io.github.jaeseongs95.sennard.personal.LocalProcessRunner;
 import io.github.jaeseongs95.sennard.personal.ReleasedFolder;
-import io.github.jaeseongs95.sennard.server.skills.SkillProcessRunner.Completed;
-import io.github.jaeseongs95.sennard.server.skills.SkillProcessRunner.Exited;
+import io.github.jaeseongs95.sennard.personal.RunnerFixture;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionIds;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionSnapshot;
+import io.github.jaeseongs95.sennard.server.execution.ExecutionState;
 
 /**
  * What the real runner leaves behind when a process of the command lost its parent before the runner's first listing saw it and keeps the pipes of the output open without
@@ -111,11 +111,12 @@ class RunnerDetachedHolderTest {
             LocalProcessRunner runner = context.getBean(LocalProcessRunner.class);
             Set<String> pipesBefore = openPipes();
 
-            Completed completed = runner.run(root, List.of("/bin/sh", "-c", SHELL, "sh", JAVA, JAVA_HEAP, "Holder.java"), Map.of(), Duration.ofSeconds(120));
+            ExecutionSnapshot completed = runner.start(ExecutionIds.next(), RunnerFixture.request(List.of("/bin/sh", "-c", SHELL, "sh", JAVA, JAVA_HEAP, "Holder.java"), root, Duration.ofSeconds(120)))
+                    .await(Duration.ofSeconds(180));
             holder = Long.parseLong(Files.readString(root.resolve("holder.pid")));
 
-            Exited exited = assertInstanceOf(Exited.class, completed, completed::toString);
-            assertEquals(0, exited.exitCode(), "the shell ended by itself once the holder held the pipes");
+            assertEquals(ExecutionState.EXITED, completed.state(), completed::toString);
+            assertEquals(0, completed.exitCode(), "the shell ended by itself once the holder held the pipes");
             assertTrue(ProcessHandle.of(holder).map(ProcessHandle::isAlive).orElse(false),
                     "the holder lost its parent before a listing saw it, so the runner did not kill it (if it did, a listing caught the subshell and this case proves nothing)");
 

@@ -30,11 +30,11 @@ class SessionMessageCallerTest {
     }
 
     @Test
-    void establishedRootAndChildHaveDistinctPeerAddresses() {
+    void onlyTheObservedRootHasAPeerAddress() {
         var root = session(Provenance.HOST_OBSERVED, SessionActor.root(Basis.OBSERVED, "ROOT"));
         var child = session(Provenance.HOST_OBSERVED, SessionActor.child("child", "CHILD"));
         assertEquals(PeerAddress.session(root.sessionRef()), SessionMessageTools.caller(root));
-        assertEquals(new PeerAddress(root.sessionRef(), "child"), SessionMessageTools.caller(child));
+        assertEquals(BindingCode.PEER_MAIN_SESSION_REQUIRED, assertThrows(BindingException.class, () -> SessionMessageTools.caller(child)).code());
     }
 
     private static SelfSession session(Provenance provenance, SessionActor actor) {

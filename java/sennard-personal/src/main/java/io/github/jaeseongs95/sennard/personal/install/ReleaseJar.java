@@ -58,7 +58,11 @@ final class ReleaseJar {
      * @throws UnavailableException INSTALL_FAILED when the extraction fails or the jar holds no content folder
      */
     void extractInto(Path folder, String version, Path java, Commands commands, Map<String, String> environment) {
-        Commands.Result result = commands.run(List.of(java.toString(), "-Djarmode=tools", "-jar", jar.toString(), "extract", "--destination", folder.toString()), environment, EXTRACT);
+        // The jar is named by its file name and the child runs in the jar's folder: the Windows java launcher reads its command line in the system's code page and turns a letter outside
+        // it into '?', so the jar's folder cannot be an argument. The destination is the one path that is: the installation's folder, which the installer has checked against the same code
+        // page, and absolute because the child no longer runs in the folder this command does.
+        Commands.Result result = commands.run(List.of(java.toString(), "-Djarmode=tools", "-jar", jar.getFileName().toString(), "extract", "--destination", folder.toAbsolutePath().normalize().toString()),
+                jar.getParent(), environment, EXTRACT);
         if (result.exitCode() != 0) {
             throw new UnavailableException(UnavailableCode.INSTALL_FAILED, SennardException.args("what", "extractFailed", "file", jar, "cause", result.output().strip()));
         }

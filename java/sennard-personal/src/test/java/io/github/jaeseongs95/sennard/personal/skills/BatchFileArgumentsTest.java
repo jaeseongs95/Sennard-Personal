@@ -15,8 +15,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import io.github.jaeseongs95.sennard.personal.BatchFileArguments;
-import io.github.jaeseongs95.sennard.server.skills.SkillProcessRunner.Reason;
-import io.github.jaeseongs95.sennard.server.skills.SkillProcessRunner.Refused;
+import io.github.jaeseongs95.sennard.server.execution.Refused.Reason;
+import io.github.jaeseongs95.sennard.server.execution.Refused;
 
 /**
  * The judgment of which command lines may reach a Windows batch file (case e of the run cases). It reads text only, so it is checked on every operating system; the

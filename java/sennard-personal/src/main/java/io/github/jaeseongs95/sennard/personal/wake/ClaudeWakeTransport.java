@@ -4,9 +4,7 @@
 
 package io.github.jaeseongs95.sennard.personal.wake;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -14,7 +12,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 import io.github.jaeseongs95.sennard.hookclient.WakeEnvironment;
 import io.github.jaeseongs95.sennard.protocol.ToolProcess;
@@ -53,14 +50,12 @@ public final class ClaudeWakeTransport implements NativeWakeAdapter {
 
     @Override
     public Optional<ManagedLauncher> managedLauncher(Map<String, String> environment, Target target) {
-        if (target.workspace() == null) {
-            return Optional.empty();
-        }
         try {
-            Path workspace = Path.of(target.workspace());
-            if (!workspace.isAbsolute() || !Files.isDirectory(workspace)) {
+            var directory = ManagedWakeWorkspace.existingDirectory(target.workspace());
+            if (directory.isEmpty()) {
                 return Optional.empty();
             }
+            Path workspace = directory.orElseThrow();
             var selected = WakeEnvironment.forHost(ClaudeHost.ID.label(), environment);
             if (selected.isEmpty()) {
                 return Optional.empty();
@@ -77,19 +72,15 @@ public final class ClaudeWakeTransport implements NativeWakeAdapter {
     }
 
     private static Optional<Path> executable(Map<String, String> environment) {
-        String path = environment.getOrDefault("PATH", environment.getOrDefault("Path", ""));
-        for (String entry : path.split(Pattern.quote(File.pathSeparator))) {
-            if (!entry.isBlank()) {
-                var candidate = executableIn(Path.of(entry));
-                if (candidate.isPresent()) {
-                    return candidate;
-                }
-            }
+        String name = ClaudeHost.ID.label();
+        var onPath = NativeLauncher.onPath(environment, name, ClaudeWakeTransport::eligible);
+        if (onPath.isPresent()) {
+            return onPath;
         }
         for (String variable : List.of("HOME", "USERPROFILE")) {
             String home = environment.get(variable);
             if (home != null) {
-                var candidate = executableIn(Path.of(home, ".local", "bin"));
+                var candidate = NativeLauncher.inDirectory(Path.of(home, ".local", "bin"), name, ClaudeWakeTransport::eligible);
                 if (candidate.isPresent()) {
                     return candidate;
                 }
@@ -98,16 +89,8 @@ public final class ClaudeWakeTransport implements NativeWakeAdapter {
         return Optional.empty();
     }
 
-    private static Optional<Path> executableIn(Path directory) {
-        if (directory.isAbsolute()) {
-            String name = ClaudeHost.ID.label();
-            for (String file : List.of(name, name + ".exe")) {
-                Path candidate = directory.resolve(file);
-                if (Files.isRegularFile(candidate) && Files.isExecutable(candidate)) {
-                    return Optional.of(candidate);
-                }
-            }
-        }
-        return Optional.empty();
+    private static boolean eligible(Path candidate) {
+        return NativeLauncher.eligible(candidate, NativeLauncher.ScriptPolicy.POSIX_SHEBANG, unreadable ->
+                LOG.log(System.Logger.Level.DEBUG, "Claude launcher unreadable ({0})", unreadable.getClass().getSimpleName()));
     }
 }

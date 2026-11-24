@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
+import java.io.EOFException;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -76,6 +77,21 @@ class ClaudeManagedConversationTest {
         assertFalse(processes.getFirst().isAlive());
     }
 
+    @Test
+    void ignoresBlankLinesBeforeAndAfterStartupFrames() throws Exception {
+        try (var conversation = open("blank-lines-startup", "unused")) {
+            assertEquals(launch.id(), conversation.threadId());
+        }
+    }
+
+    @Test
+    void distinguishesCleanEofFromAnUnterminatedInitializationFrame() {
+        assertEquals("Claude ended before initialization.",
+                assertThrows(EOFException.class, () -> open("clean-eof", "unused")).getMessage());
+        assertEquals("Claude returned an incomplete stream frame.",
+                assertThrows(EOFException.class, () -> open("partial-eof", "unused")).getMessage());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"wrong-startup-id", "queried-on-startup"})
     void requiresPassiveStartupOfTheAssignedId(String behavior) {
@@ -128,6 +144,19 @@ class ClaudeManagedConversationTest {
             BufferedReader input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
             var initialize = MAPPER.readTree(input.readLine());
             require("initialize".equals(initialize.path("request").path("subtype").asString()));
+            if ("clean-eof".equals(behavior)) {
+                return;
+            }
+            if ("partial-eof".equals(behavior)) {
+                OUTPUT.write('{');
+                OUTPUT.flush();
+                return;
+            }
+            boolean blankLines = "blank-lines-startup".equals(behavior);
+            if (blankLines) {
+                OUTPUT.write('\n');
+                OUTPUT.flush();
+            }
             boolean unsupported = "unsupported".equals(behavior);
             if (behavior.equals("wrong-initialization-id")) {
                 emit(Map.of("type", "system", "subtype", "init", "session_id", UUID.randomUUID().toString()));
@@ -166,6 +195,10 @@ class ClaudeManagedConversationTest {
             emit(Map.of("type", "result", "subtype", modelError ? "error_during_execution" : "success",
                     "session_id", session, "is_error", modelError, "modelUsage", Map.of(),
                     "num_turns", behavior.equals("queried-on-startup") || !passive ? 1 : 0));
+            if (blankLines) {
+                OUTPUT.write('\n');
+                OUTPUT.flush();
+            }
             if (modelError) {
                 System.exit(1);
             }

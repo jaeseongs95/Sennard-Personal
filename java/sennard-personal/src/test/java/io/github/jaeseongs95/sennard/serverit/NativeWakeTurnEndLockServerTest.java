@@ -153,7 +153,7 @@ class NativeWakeTurnEndLockServerTest {
                         try {
                             // No outer test transaction: the real boundary catches a typed final CAS loss only after rollback.
                             HookVerdict result = server.bean(WakeHookBoundary.class).before(new HostEvent.UserPromptSubmitted(target.context(),
-                                    IdleWakeService.marker(target.reservation().nonce()))).orElseThrow();
+                                    IdleWakeService.marker(target.reservation().nonce()), HostEvent.PromptOrigin.USER)).orElseThrow();
                             nativePid.completeExceptionally(new AssertionError("native boundary returned before its real observation update"));
                             nativeFinished.complete(null);
                             return result;

@@ -4,6 +4,8 @@
 
 package io.github.jaeseongs95.sennard.server.hook.host;
 
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -14,6 +16,9 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import io.github.jaeseongs95.sennard.hookclient.HookClientCall;
 import io.github.jaeseongs95.sennard.hookclient.McpRelayArguments;
 import io.github.jaeseongs95.sennard.server.hook.HookInstallation;
+import io.github.jaeseongs95.sennard.server.hook.HostRegistrationFile;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The records a host's hook definition and MCP registration files are written from. Each adapter fills the ones its host's file has and the adapter's mapper writes them: the
@@ -26,7 +31,25 @@ public final class HookDefinition {
      */
     public static final String MCP_SERVER = "sennard";
 
+    private static final Path EVENT_HOOKS_FILE = Path.of("hooks", "hooks.json");
+    private static final Path MCP_FILE = Path.of(".mcp.json");
+
     private HookDefinition() {
+    }
+
+    /** Registration for packages that own both the event hooks file and the MCP configuration file in full. */
+    static List<HostRegistrationFile.WholeFile> eventRegistrationFiles(JsonMapper mapper, ByEvent hooks, McpServers servers) {
+        return wholeRegistrationFiles(mapper, EVENT_HOOKS_FILE, mapper.valueToTree(hooks), MCP_FILE, servers);
+    }
+
+    /** An adapter supplies its own hook document and the paths of the two files it owns. */
+    static List<HostRegistrationFile.WholeFile> wholeRegistrationFiles(JsonMapper mapper, Path hooksFile, JsonNode hooks, Path mcpFile, McpServers servers) {
+        return List.of(new HostRegistrationFile.WholeFile(hooksFile, hooks),
+                new HostRegistrationFile.WholeFile(mcpFile, mapper.valueToTree(servers)));
+    }
+
+    static void append(Map<String, List<Entry>> events, SessionIdEvent event, Entry entry) {
+        events.computeIfAbsent(event.hostName(), key -> new ArrayList<>()).add(entry);
     }
 
     /**

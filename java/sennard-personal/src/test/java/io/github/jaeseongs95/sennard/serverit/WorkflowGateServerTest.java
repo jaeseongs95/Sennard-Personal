@@ -308,8 +308,9 @@ class WorkflowGateServerTest {
     @ParameterizedTest
     @CsvSource({
             "codex, multi_agent_v1send_input, false",
-            "codex, send_message, false",
-            "codex, followup_task, false",
+            "codex, mcp__codex_tui__send_message_to_thread, false",
+            "codex, mcp__codex_app__send_message_to_thread, false",
+            "codex, codex_appsend_message_to_thread, false",
             "claude, SendMessage, false",
             "claude, SendMessage, true",
             "claude, SubagentHandback, true"
@@ -333,8 +334,15 @@ class WorkflowGateServerTest {
             }
         }));
         assertTrue(denied(host, refusal), refusal.toString());
-        assertTrue(reason(host, refusal).contains("prepare_session_message"), refusal.toString());
-        assertTrue(reason(host, refusal).contains("send_session_message"), refusal.toString());
+        if (child) {
+            assertTrue(reason(host, refusal).contains("verified same-session recipient"), refusal.toString());
+            assertFalse(reason(host, refusal).contains("send_session_message"), refusal.toString());
+        } else {
+            assertTrue(reason(host, refusal).contains("prepare_session_message"), refusal.toString());
+            assertTrue(reason(host, refusal).contains("send_session_message"), refusal.toString());
+            assertTrue(reason(host, refusal).contains("list_session_status"), refusal.toString());
+            assertTrue(reason(host, refusal).contains(nativeTool), "the refusal names the blocked tool: " + refusal);
+        }
 
         if (!child) {
             JsonNode otherMcp = preToolUse(host, session, "mcp__another_server__" + nativeTool, object());
@@ -345,12 +353,327 @@ class WorkflowGateServerTest {
         }
     }
 
+    /** The prompt of a Claude Code turn with the {@code source} the host gives it: user, or system for what the host injected itself (a background task's finished notice). */
+    private static String claudePrompt(String session, String source, String text) throws IOException {
+        JsonNode output = ok(hook("claude", "UserPromptSubmit", null, session, body -> body.put("source", source).put("prompt", text)));
+        return output.path("hookSpecificOutput").path("additionalContext").asString();
+    }
+
+    /** A host notification is a new request and can resume an existing operation. It is not a user-authored archive entry. */
+    @Test
+    void aHostNotificationStartsARequestAndResumesTheRelatedWorkflow() throws IOException {
+        String host = "claude";
+        String notice = "<task-notification><task-id>bg-1</task-id><status>completed</status></task-notification>";
+        String session = newSession(host);
+        assertTrue(claudePrompt(session, "user", "Run the checks in the background").contains(GATE));
+        JsonNode started = call(host, session, WorkflowKind.OPERATION.toolName(), operation("Run the checks", "skills", skills()));
+        assertTrue(started.path("ok").asBoolean(), started.toString());
+        assertFalse(denied(host, preToolUse(host, session)), "the request has its instance");
+        long archived = ((Number) SessionServerSupport.row(server, "SELECT COUNT(*) AS n FROM sennard.user_prompt WHERE host = ? AND session_id = ?", "claude-code", session).get("n")).longValue();
+        assertEquals(1, archived, "the user's prompt is archived");
+
+        String announced = claudePrompt(session, "system", notice);
+        String runId = started.path("data").path("runId").asString();
+        assertTrue(announced.contains(GATE) && announced.contains(runId), announced);
+        assertTrue(denied(host, preToolUse(host, session)), "the earlier selection does not serve the notification");
+        JsonNode resumed = call(host, session, "resume_workflow", args("runId", runId));
+        assertTrue(resumed.path("ok").asBoolean(), resumed.toString());
+        JsonNode finalized = call(host, session, "finalize_workflow", revisionOf(resumed.path("data")));
+        assertEquals("PASSED", finalized.path("data").path("state").asString(), finalized.toString());
+        assertFalse(stop(host, session).toString().contains(GATE), "the resumed run serves the notification through Stop");
+        assertEquals(archived, ((Number) SessionServerSupport.row(server, "SELECT COUNT(*) AS n FROM sennard.user_prompt WHERE host = ? AND session_id = ?", "claude-code", session).get("n")).longValue(),
+                "a notice is not the user's prompt");
+
+        assertTrue(claudePrompt(session, "user", notice).contains(GATE), "the same text the host says is the user's is a new request");
+        assertTrue(denied(host, preToolUse(host, session)), "a new request needs its own instance");
+        assertEquals(archived + 1, ((Number) SessionServerSupport.row(server, "SELECT COUNT(*) AS n FROM sennard.user_prompt WHERE host = ? AND session_id = ?", "claude-code", session).get("n")).longValue());
+    }
+
+    @Test
+    void hostNotificationStopKeepsOfferedInquiryResumable() throws IOException {
+        String host = "claude";
+        String session = newSession(host);
+        claudePrompt(session, "user", "Look up the background task");
+        JsonNode opened = call(host, session, WorkflowKind.INQUIRY.toolName(), inquiry("Read the background task result"));
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+        String runId = opened.path("data").path("runId").asString();
+
+        claudePrompt(session, "system", "<task-notification><status>completed</status></task-notification>");
+        assertTrue(denied(host, preToolUse(host, session)), "the host's new request must take its own workflow");
+        JsonNode held = stop(host, session);
+        assertTrue(held.toString().contains(GATE), held.toString());
+        assertTrue(held.toString().contains("Currently open workflow gates: 1"), held.toString());
+        assertTrue(held.toString().contains("resume_workflow"), held.toString());
+        JsonNode status = call(host, session, "get_workflow_status", args("runId", runId, "detail", "compact"));
+        assertEquals("RUNNING", status.path("data").path("state").asString(), status.toString());
+
+        JsonNode resumed = call(host, session, "resume_workflow", args("runId", runId));
+        assertTrue(resumed.path("ok").asBoolean(), resumed.toString());
+        assertEquals(runId, resumed.path("data").path("runId").asString(), resumed.toString());
+        assertFalse(denied(host, preToolUse(host, session)), "the resumed inquiry allows reads");
+        JsonNode execution = preToolUse(host, session, "Bash", object().put("command", "./gradlew test"));
+        assertTrue(denied(host, execution), execution.toString());
+        assertTrue(execution.toString().contains("Execution refused"), execution.toString());
+        assertTrue(denied(host, preToolUse(host, session, "Write",
+                object().put("file_path", workspace.resolve("notification-inquiry.txt").toString()))));
+        JsonNode finalized = call(host, session, "finalize_workflow", revisionOf(resumed.path("data")));
+        assertEquals("PASSED", finalized.path("data").path("state").asString(), finalized.toString());
+        JsonNode marked = call(host, session, "mark_turn_unchanged", args("schemaVersion", "1.0.0"));
+        assertTrue(marked.path("ok").asBoolean(), marked.toString());
+        assertFalse(stop(host, session, true).toString().contains(GATE));
+        claudePrompt(session, "user", "A different request");
+        assertTrue(denied(host, preToolUse(host, session)));
+    }
+
+    /** A host that does not say who wrote a prompt is never assumed to have written it: Codex's input has a {@code source} of no such meaning, and its prompt is a request all the same. */
+    @Test
+    void anotherHostsPromptIsARequestWhateverItsSourceFieldSays() throws IOException {
+        String host = "codex";
+        String session = newSession(host);
+        prompt(host, session);
+        JsonNode started = call(host, session, WorkflowKind.OPERATION.toolName(), operation("Run the checks", "skills", skills()));
+        assertTrue(started.path("ok").asBoolean(), started.toString());
+        assertFalse(denied(host, preToolUse(host, session)));
+        JsonNode next = ok(hook(host, "UserPromptSubmit", null, session, body -> body.put("source", "system")));
+        assertTrue(next.path("hookSpecificOutput").path("additionalContext").asString().contains(GATE), next.toString());
+        assertTrue(denied(host, preToolUse(host, session)), "a prompt of a host with no origin field is a new request");
+    }
+
+    /**
+     * What the refusal of a send out of the delegation says: the blocked tool and the recipient, what to do for another session (find its host and session id, then prepare and send),
+     * and what to do for a subagent of this session.
+     */
+    private static void assertRefused(String host, JsonNode output, String tool, String recipient) {
+        assertTrue(denied(host, output), tool + " to " + recipient + " " + output);
+        String reason = reason(host, output);
+        assertTrue(reason.contains(tool + " call to " + recipient + " was blocked"), "the refusal names the tool and the recipient: " + reason);
+        assertTrue(reason.indexOf("list_session_status") < reason.indexOf("prepare_session_message") && reason.indexOf("prepare_session_message") < reason.indexOf("send_session_message"),
+                "the steps come in order: " + reason);
+        assertTrue(reason.contains("targetHost") && reason.contains("targetSessionId"), reason);
+        assertTrue(reason.contains("id the host gave it or the name you gave it"), "the way to reach an own subagent: " + reason);
+    }
+
+    private static void assertNativeSendDenied(String host, JsonNode output, String tool, String recipient, String sender) {
+        if (sender == null) {
+            assertRefused(host, output, tool, recipient);
+        } else {
+            assertTrue(denied(host, output), tool + " to " + recipient + " " + output);
+            String reason = reason(host, output);
+            assertTrue(reason.contains("verified same-session recipient"), reason);
+            assertFalse(reason.contains("send_session_message"), reason);
+        }
+    }
+
+    /**
+     * An agent's message to a subagent of its own session goes to no other session, so the native-peer refusal does not stop it; what makes the recipient a subagent of the session is what
+     * the server recorded of it (its start, the call that started it), never the shape of the recipient's text. Any other recipient, another session included, is refused with the same
+     * advice.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aClaudeMessageToASubagentTheServerRecordedIsNotRefusedAsAPeerMessage(boolean child) throws IOException {
+        String host = "claude";
+        String session = newSession(host);
+        prompt(host, session);
+        String childId = "child-peer";
+        if (child) {
+            startOfSubagent(host, session, childId);
+        }
+        String inquiryTool = WorkflowKind.INQUIRY.toolName();
+        JsonNode opened = child ? childCall(session, childId, inquiryTool, inquiry("The child answers")) : call(host, session, inquiryTool, inquiry("The parent answers"));
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+        String sender = child ? childId : null;
+        String started = "a0123456789abcdef";
+
+        // Nothing is recorded yet: a recipient shaped like an agent id is not known to be a subagent.
+        assertNativeSendDenied(host, sendMessage(session, started, sender), "SendMessage", started, sender);
+        // The start of a subagent names the id the host gave it: that is the record.
+        startOfSubagent(host, session, started);
+        assertFalse(denied(host, sendMessage(session, started, sender)), "a subagent whose start the server saw");
+        // The name an Agent call gave a subagent is a recipient from the moment that call finished, not before, and not when it failed.
+        assertNativeSendDenied(host, sendMessage(session, "researcher", sender), "SendMessage", "researcher", sender);
+        ok(failedTool(host, session, "Agent", object().put("name", "failed-one").put("prompt", "x")));
+        assertNativeSendDenied(host, sendMessage(session, "failed-one", sender), "SendMessage", "failed-one", sender);
+        ok(hook(host, "PostToolUse", null, session, DomainServerSupport.tool("Agent", object().put("name", "researcher").put("prompt", "x")).andThen(body -> body.set("tool_response", object().put("status", "async_launched")))));
+        assertFalse(denied(host, sendMessage(session, "researcher", sender)), "the name an Agent call gave");
+
+        // Whatever else looks like an agent id, or is a name nobody gave, is not recorded.
+        for (String recipient : List.of("a0000000000000000", "wf_1a2b3c4d-5e6-3", "abadcafe", "researcher-2", "bridge:session_01")) {
+            assertNativeSendDenied(host, sendMessage(session, recipient, sender), "SendMessage", recipient, sender);
+        }
+        // Another session Sennard knows is reached by peer messaging, with the same advice.
+        String other = newSession(host);
+        assertNativeSendDenied(host, sendMessage(session, other, sender), "SendMessage", other, sender);
+        // A subagent another session started is no subagent of this one, whatever its id.
+        startOfSubagent(host, other, "a1111111111111111");
+        assertNativeSendDenied(host, sendMessage(session, "a1111111111111111", sender), "SendMessage", "a1111111111111111", sender);
+        // Nothing in this repository says what the hand-back tool takes or whom it reaches, so it names no recipient the server could have recorded: it stays on Sennard's peer path.
+        JsonNode handback = ok(hook(host, "PreToolUse", "native-peer", session, body -> {
+            DomainServerSupport.tool("SubagentHandback", object().put("to", started).put("message", "done")).accept(body);
+            body.remove("mcp_server");
+        }));
+        assertTrue(denied(host, handback), handback.toString());
+        String text = reason(host, handback);
+        assertTrue(text.contains("SubagentHandback call was blocked, because its recipient cannot be read from this call"), handback.toString());
+        assertTrue(text.contains("send_session_message") && !text.contains("send again") && !text.contains("name you gave it"), "no way to send it again with the host's tool: " + text);
+    }
+
+    /**
+     * A subagent's message to the agent that started it is inside the delegation: its result going back, a question to it. The host's notation for the parent is the adapter's fact; the
+     * same words from a sender that is no subagent name no parent (the main agent has none), so the main agent's send to {@code main} stays refused.
+     */
+    @Test
+    void aClaudeSubagentMayMessageTheMainAgentThatStartedItAndNoOneElseCanNameAParent() throws IOException {
+        String host = "claude";
+        String session = newSession(host);
+        prompt(host, session);
+        String childId = "child-peer";
+        startOfSubagent(host, session, childId);
+        JsonNode opened = childCall(session, childId, WorkflowKind.INQUIRY.toolName(), inquiry("The child answers"));
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+
+        assertFalse(denied(host, sendMessage(session, "main", childId)), "a subagent's result goes back to the main agent");
+        assertRefused(host, sendMessage(session, "main", null), "SendMessage", "main");
+        assertNativeSendDenied(host, sendMessage(session, "main-agent", childId), "SendMessage", "main-agent", childId);
+        assertNativeSendDenied(host, sendMessage(session, "team-lead", childId), "SendMessage", "team-lead", childId);
+    }
+
+    /**
+     * All forms require an observed sender and recipient in the same session tree. The version-2 tools can address the parent as {@code /root} and reach the hook with a
+     * {@code collaboration} prefix under the default namespace.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aCodexMessageThatTheHostKeepsInsideTheAgentTreeIsNotRefused(boolean child) throws IOException {
+        String host = "codex";
+        String session = newSession(host);
+        prompt(host, session);
+        String sender = child ? "codex-child" : null;
+        if (child) {
+            startOfSubagent(host, session, sender);
+        }
+        String agentId = "019a6d3e-1f6a-7c11-9a55-0d8b2f4e7c10";
+        String v1Send = "multi_agent_v1send_input";
+        assertNativeSendDenied(host, sendTo(host, session, v1Send, agentId, sender), v1Send, agentId, sender);
+        assertNativeSendDenied(host, sendTo(host, session, v1Send, "/root", sender), v1Send, "/root", sender);
+        ok(hook(host, "PostToolUse", null, session, DomainServerSupport.tool("spawn_agent", object().put("message", "x"))
+                .andThen(body -> body.put("tool_response", "{\"agent_id\":\"" + agentId + "\",\"nickname\":null}"))));
+        assertFalse(denied(host, sendTo(host, session, v1Send, agentId, sender)), "the id spawn_agent returned");
+        ok(hook(host, "PostToolUse", null, session, DomainServerSupport.tool("collaborationspawn_agent", object().put("task_name", "researcher"))
+                .andThen(body -> body.put("tool_response", DomainServerSupport.MAPPER.createArrayNode().add(object().put("type", "input_text")
+                        .put("text", "{\"task_name\":\"/root/researcher\"}")).toString()))));
+        for (String tool : List.of("send_message", "followup_task", "collaborationsend_message", "collaborationfollowup_task")) {
+            if (child) {
+                assertFalse(denied(host, sendTo(host, session, tool, "/root", sender)), tool + " to parent");
+            } else {
+                assertRefused(host, sendTo(host, session, tool, "/root", null), tool, "/root");
+            }
+            for (String target : List.of("/root/researcher", "researcher", agentId)) {
+                assertFalse(denied(host, sendTo(host, session, tool, target, sender)), tool + " " + target);
+            }
+            String unknown = "019a6d3e-1f6a-7c11-9a55-000000000000";
+            assertNativeSendDenied(host, sendTo(host, session, tool, unknown, sender), tool, unknown, sender);
+        }
+        // Another session's thread is reached through a task tool by its threadId: that is not the delegation's, unless the thread is a recorded subagent.
+        String other = newSession(host);
+        startOfSubagent(host, other, "019a6d3e-1f6a-7c11-9a55-0d8b2f4e7c99");
+        for (String tool : List.of("mcp__codex_tui__send_message_to_thread", "mcp__codex_app__send_message_to_thread", "codex_appsend_message_to_thread")) {
+            assertNativeSendDenied(host, threadSend(tool, session, other, sender), tool, other, sender);
+            assertNativeSendDenied(host, threadSend(tool, session, agentId + "-x", sender), tool, agentId + "-x", sender);
+            assertFalse(denied(host, threadSend(tool, session, agentId, sender)), tool + ": a thread the server recorded as a subagent of the session");
+            assertNativeSendDenied(host, threadSend(tool, session, "019a6d3e-1f6a-7c11-9a55-0d8b2f4e7c99", sender), tool, "019a6d3e-1f6a-7c11-9a55-0d8b2f4e7c99", sender);
+        }
+    }
+
+    /** Codex's version-1 send names the agent id or the task name spawn_agent gave, as the tool's own source states: a recipient the server recorded from the spawn is no peer. */
+    @Test
+    void aCodexMessageToAnAgentItsSpawnReturnedIsNotRefusedAsAPeerMessage() throws IOException {
+        String host = "codex";
+        String sendTool = "multi_agent_v1send_input";
+        String spawnTool = "spawn_agent";
+        String session = newSession(host);
+        prompt(host, session);
+        String agentId = "019a6d3e-1f6a-7c11-9a55-0d8b2f4e7c10";
+
+        assertRefused(host, sendTo(host, session, sendTool, agentId, null), sendTool, agentId);
+        assertRefused(host, sendTo(host, session, sendTool, "researcher", null), sendTool, "researcher");
+        ok(hook(host, "PostToolUse", null, session, DomainServerSupport.tool(spawnTool, object().put("task_name", "researcher").put("message", "x"))
+                .andThen(body -> body.put("tool_response", "{\"agent_id\":\"" + agentId + "\",\"nickname\":null}"))));
+        assertFalse(denied(host, sendTo(host, session, sendTool, agentId, null)), "the id spawn_agent returned");
+        assertFalse(denied(host, sendTo(host, session, sendTool, "researcher", null)), "the task name spawn_agent was given");
+
+        // An id no spawn returned, and a name nobody gave.
+        assertRefused(host, sendTo(host, session, sendTool, "019a6d3e-1f6a-7c11-9a55-000000000000", null), sendTool, "019a6d3e-1f6a-7c11-9a55-000000000000");
+        assertRefused(host, sendTo(host, session, sendTool, "reviewer", null), sendTool, "reviewer");
+        String other = newSession(host);
+        assertRefused(host, sendTo(host, session, sendTool, other, null), sendTool, other);
+        // The agent another session spawned is no agent of this one.
+        ok(hook(host, "PostToolUse", null, other, DomainServerSupport.tool(spawnTool, object().put("task_name", "elsewhere").put("message", "x"))
+                .andThen(body -> body.put("tool_response", "{\"task_name\":\"/root/elsewhere\",\"nickname\":null}"))));
+        assertRefused(host, sendTo(host, session, sendTool, "elsewhere", null), sendTool, "elsewhere");
+        assertRefused(host, sendTo(host, session, sendTool, "/root/elsewhere", null), sendTool, "/root/elsewhere");
+    }
+
+    /** A spawn that failed made no agent: its task name is not a recipient. */
+    @Test
+    void aCodexSpawnThatFailedGivesNoRecipient() throws IOException {
+        String host = "codex";
+        String session = newSession(host);
+        prompt(host, session);
+        ok(failedTool(host, session, "spawn_agent", object().put("task_name", "researcher").put("message", "x")));
+        assertRefused(host, sendTo(host, session, "multi_agent_v1send_input", "researcher", null), "multi_agent_v1send_input", "researcher");
+    }
+
+    /** The hook of a tool call the host reports as failed. */
+    private static RawHttp.Response failedTool(String host, String session, String tool, ObjectNode input) throws IOException {
+        return DomainServerSupport.hookFrom("PostToolUse", server.port, "windows", host, "PostToolUseFailure", null, session,
+                DomainServerSupport.tool(tool, input).andThen(body -> body.put("error", "the call failed")));
+    }
+
+    private static JsonNode startOfSubagent(String host, String session, String agentId) throws IOException {
+        return ok(DomainServerSupport.hookFrom("Stop", server.port, "windows", host, "SubagentStart", null, session,
+                body -> body.put("hook_event_name", "SubagentStart").put("agent_id", agentId).put("agent_type", "general-purpose")));
+    }
+
+    private static JsonNode sendMessage(String session, String recipient, String childId) throws IOException {
+        return ok(hook("claude", "PreToolUse", "native-peer", session, body -> {
+            DomainServerSupport.tool("SendMessage", object().put("to", recipient).put("message", "continue")).accept(body);
+            body.remove("mcp_server");
+            if (childId != null) {
+                body.put("agent_id", childId).put("agent_type", "general-purpose");
+            }
+        }));
+    }
+
+    /** A Codex send by its {@code target}, as the main session or, with an agent id, as a subagent. */
+    private static JsonNode sendTo(String host, String session, String tool, String target, String childId) throws IOException {
+        return ok(hook(host, "PreToolUse", "native-peer", session, body -> {
+            DomainServerSupport.tool(tool, object().put("target", target).put("message", "continue")).accept(body);
+            body.remove("mcp_server");
+            if (childId != null) {
+                body.put("agent_id", childId);
+            }
+        }));
+    }
+
+    /** A task tool (the TUI's or the app's) that sends a prompt to a thread by its {@code threadId}. */
+    private static JsonNode threadSend(String tool, String session, String threadId, String childId) throws IOException {
+        return ok(hook("codex", "PreToolUse", "native-peer", session, body -> {
+            DomainServerSupport.tool(tool, object().put("threadId", threadId).put("prompt", "continue")).accept(body);
+            body.remove("mcp_server");
+            if (childId != null) {
+                body.put("agent_id", childId);
+            }
+        }));
+    }
+
     @ParameterizedTest
     @CsvSource({"send_message", "default_api:send_message"})
     void antigravityNativePeerSendsAreDenied(String nativeTool) throws IOException {
         Consumer<ObjectNode> direct = body -> body.putObject("toolCall").put("name", nativeTool)
                 .putObject("args").put("Recipient", "another-agent").put("Message", "fixture body");
         String session = newSession("agy");
+        DomainServerSupport.observeAgyRoot(server, session);
         prompt("agy", session);
         JsonNode opened = call("agy", session, WorkflowKind.INQUIRY.toolName(), inquiry("The parent answers"));
         assertTrue(opened.path("ok").asBoolean(), opened.toString());
@@ -362,7 +685,8 @@ class WorkflowGateServerTest {
         String unbound = SessionServerSupport.uniqueSession();
         JsonNode deniedUnbound = ok(hook("agy", "PreToolUse", "native-peer", unbound, direct));
         assertTrue(denied("agy", deniedUnbound), deniedUnbound.toString());
-        assertTrue(reason("agy", deniedUnbound).contains("send_session_message"), deniedUnbound.toString());
+        assertTrue(reason("agy", deniedUnbound).contains("verified same-session recipient"), deniedUnbound.toString());
+        assertFalse(reason("agy", deniedUnbound).contains("send_session_message"), deniedUnbound.toString());
         JsonNode deniedByWildcard = ok(hook("agy", "PreToolUse", null, session, direct));
         assertTrue(denied("agy", deniedByWildcard), deniedByWildcard.toString());
 
@@ -416,6 +740,83 @@ class WorkflowGateServerTest {
                 () -> assertClaudeNativeSendRefused(claudeNativeSend(session, "main", null)));
     }
 
+    @Test
+    void claudeNativeSendRequiresAnObservedChildSender() throws IOException {
+        String session = newSession("claude");
+        String other = newSession("claude");
+        String child = "a0123456789abcdef";
+        observeClaudeSubagentStart(other, child);
+
+        JsonNode output = claudeNativeSend(session, "main", child);
+        assertTrue(denied("claude", output), output.toString());
+        assertTrue(reason("claude", output).contains("verified same-session recipient"), output.toString());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"codex, multi_agent_v1send_input", "codex, send_message", "codex, followup_task", "agy, default_api:send_message"})
+    void nativeSendUsesObservedMembershipInTheSameSession(String host, String tool) throws IOException {
+        String root = newSession(host);
+        String other = newSession(host);
+        String child = SessionServerSupport.uniqueSession();
+        String sibling = SessionServerSupport.uniqueSession();
+        String unknown = SessionServerSupport.uniqueSession();
+        if (host.equals("agy")) {
+            DomainServerSupport.observeAgyRoot(server, root);
+            DomainServerSupport.observeAgyRoot(server, other);
+            DomainServerSupport.observeAgy(server, child, root, root);
+            DomainServerSupport.observeAgy(server, sibling, root, child);
+        } else {
+            for (String descendant : List.of(child, sibling)) {
+                ok(DomainServerSupport.hookFrom("PostToolUse", server.port, "windows", "codex", "SubagentStart", null, root,
+                        body -> body.put("hook_event_name", "SubagentStart").put("agent_id", descendant)));
+            }
+        }
+
+        assertAll(
+                () -> assertFalse(denied(host, nativeSend(host, tool, root, null, child))),
+                () -> assertFalse(denied(host, nativeSend(host, tool, root, child, root))),
+                () -> assertFalse(denied(host, nativeSend(host, tool, root, child, sibling))),
+                () -> assertTrue(denied(host, nativeSend(host, tool, root, null, root))),
+                () -> assertTrue(denied(host, nativeSend(host, tool, root, null, unknown))),
+                () -> assertTrue(denied(host, nativeSend(host, tool, other, null, child))),
+                () -> assertTrue(denied(host, nativeSend(host, tool, root, child, other))),
+                () -> assertTrue(denied(host, nativeSend(host, tool, root, unknown, root))));
+    }
+
+    private static JsonNode nativeSend(String host, String tool, String root, String sender, String recipient) throws IOException {
+        if (host.equals("agy")) {
+            return ok(hook(host, "PreToolUse", "native-peer", sender == null ? root : sender,
+                    body -> body.putObject("toolCall").put("name", tool).putObject("args").put("Recipient", recipient).put("Message", "fixture body")));
+        }
+        return ok(hook(host, "PreToolUse", "native-peer", root, body -> {
+            DomainServerSupport.tool(tool, object().put("target", recipient)).accept(body);
+            body.remove("mcp_server");
+            if (sender != null) {
+                body.put("agent_id", sender);
+            }
+        }));
+    }
+
+    @Test
+    void codexNativeSendUsesTheCanonicalTaskNameFromSpawn() throws IOException {
+        String root = newSession("codex");
+        String other = newSession("codex");
+        String child = SessionServerSupport.uniqueSession();
+        String path = "/root/research";
+        ok(DomainServerSupport.hookFrom("PostToolUse", server.port, "windows", "codex", "SubagentStart", null, root,
+                body -> body.put("hook_event_name", "SubagentStart").put("agent_id", child)));
+        assertTrue(denied("codex", nativeSend("codex", "send_message", root, null, path)));
+        ok(hook("codex", "PostToolUse", null, root, body -> {
+            DomainServerSupport.tool("spawn_agent", object().put("task_name", "research")).accept(body);
+            body.putArray("tool_response").addObject().put("type", "input_text").put("text", object().put("task_name", path).toString());
+        }));
+
+        assertAll(
+                () -> assertFalse(denied("codex", nativeSend("codex", "send_message", root, null, path))),
+                () -> assertFalse(denied("codex", nativeSend("codex", "send_message", root, child, "/root"))),
+                () -> assertTrue(denied("codex", nativeSend("codex", "send_message", other, null, path))));
+    }
+
     private static void observeClaudeSubagentStart(String session, String agentId) throws IOException {
         ok(DomainServerSupport.hookFrom("Stop", server.port, "windows", "claude", "SubagentStart", null, session,
                 body -> body.put("hook_event_name", "SubagentStart").put("agent_id", agentId).put("agent_type", "general-purpose")));
@@ -441,24 +842,27 @@ class WorkflowGateServerTest {
 
     private static void assertClaudeNativeSendRefused(JsonNode output) {
         assertTrue(denied("claude", output), output.toString());
-        assertTrue(reason("claude", output).contains("Use Sennard peer messaging"), output.toString());
+        assertTrue(reason("claude", output).contains("prepare_session_message"), output.toString());
     }
 
     @ParameterizedTest
     @CsvSource({"claude", "codex", "agy"})
-    void aTurnEndIsHeldForTheMissingInstanceWithALimit(String host) throws IOException {
+    void aTurnEndWithAnOpenGateIsHeldForTheMissingSelectionWithALimit(String host) throws IOException {
         String session = newSession(host);
-        prompt(host, session);
+        openEarlierOperation(host, session);
+        if (!host.equals("agy")) {
+            assertFalse(stop(host, session, true).toString().contains(GATE), "an already continued Stop does not claim a recheck");
+        }
         for (int hold = 0; hold < 3; hold += 1) {
-            JsonNode held = stop(host, session, hold > 0);
+            JsonNode held = stop(host, session);
             assertTrue(held.toString().contains(GATE), "turn end " + hold + " is held: " + held);
-            assertTrue(held.toString().contains("Currently open workflow gates: 0"), held.toString());
+            assertTrue(held.toString().contains("Currently open workflow gates: 1"), held.toString());
             assertTrue(held.toString().contains("Reconsider the approach"), held.toString());
             assertEquals(hold == 2, held.toString().contains("This is the final recheck"), held.toString());
             assertFalse(held.toString().contains("start_workflow"), held.toString());
-            assertFalse(held.toString().contains("resume_workflow"), held.toString());
+            assertTrue(held.toString().contains("resume_workflow"), held.toString());
         }
-        JsonNode exhausted = stop(host, session, true);
+        JsonNode exhausted = stop(host, session);
         if (host.equals("agy")) {
             assertEquals(object(), exhausted);
             String reason = "no workflow procedure was selected";
@@ -471,6 +875,89 @@ class WorkflowGateServerTest {
             assertFalse(exhausted.path("continue").asBoolean(true), exhausted.toString());
             assertTrue(exhausted.path("stopReason").asString().contains("no workflow procedure was selected"), exhausted.toString());
         }
+        prompt(host, session);
+        JsonNode fresh = stop(host, session);
+        assertTrue(fresh.toString().contains(GATE), fresh.toString());
+        assertFalse(fresh.toString().contains("This is the final recheck"), fresh.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"claude", "codex", "agy"})
+    void emptyGateGuidanceAllowsInquiryToServeTheSameRequest(String host) throws IOException {
+        String session = newSession(host);
+        if (host.equals("claude")) {
+            claudePrompt(session, "user", "Look up the result");
+        } else if (host.equals("agy")) {
+            ok(hook(host, "PreInvocation", null, session, body -> body.put("invocationNum", 0).put("lastUserInput", "Look up the result")));
+        } else {
+            ok(hook(host, "UserPromptSubmit", null, session, body -> body.put("prompt", "Look up the result")));
+        }
+        JsonNode held = stop(host, session);
+        String guidance = held.toString();
+        assertTrue(guidance.contains("Currently open workflow gates: 0"), guidance);
+        assertTrue(guidance.contains("INQUIRY, CHANGE, EXECUTION, TRANSITION"), guidance);
+        assertFalse(guidance.contains("This is the final recheck"), guidance);
+        assertFalse(guidance.contains("resume_workflow"), guidance);
+        assertTrue(held.path("continue").asBoolean(true), guidance);
+        assertFalse(held.has("stopReason"), guidance);
+        assertTrue(denied(host, preToolUse(host, session)));
+        JsonNode opened = call(host, session, WorkflowKind.INQUIRY.toolName(), inquiry("Look up the result"));
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+        JsonNode finalized = call(host, session, "finalize_workflow", revisionOf(opened.path("data")));
+        assertEquals("PASSED", finalized.path("data").path("state").asString(), finalized.toString());
+        JsonNode marked = call(host, session, "mark_turn_unchanged", args("schemaVersion", "1.0.0"));
+        assertTrue(marked.path("ok").asBoolean(), marked.toString());
+
+        JsonNode recap = call(host, session, "record_turn_recap", args("schemaVersion", "1.0.0", "recap", "Looked up the result"));
+        assertTrue(recap.path("ok").asBoolean(), recap.toString());
+        JsonNode summary = call(host, session, "update_session_status", args("schemaVersion", "1.0.0", "summary", "Result lookup complete"));
+        assertTrue(summary.path("ok").asBoolean(), summary.toString());
+        JsonNode stopped = stop(host, session);
+        assertFalse(stopped.toString().contains(GATE), stopped.toString());
+        assertTrue(stopped.path("continue").asBoolean(true), stopped.toString());
+        assertFalse(stopped.has("stopReason"), stopped.toString());
+        assertFalse("continue".equals(stopped.path("decision").asString()), stopped.toString());
+        String next = host.equals("agy")
+                ? ok(hook(host, "PreInvocation", null, session,
+                        body -> body.put("invocationNum", 0).put("lastUserInput", "A different request"))).toString()
+                : prompt(host, session);
+        assertFalse(next.contains("no workflow procedure was selected"), next);
+        assertTrue(denied(host, preToolUse(host, session)));
+        JsonNode firstRecheck = stop(host, session);
+        assertTrue(firstRecheck.toString().contains(GATE), firstRecheck.toString());
+        assertFalse(firstRecheck.toString().contains("This is the final recheck"), firstRecheck.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"claude", "codex", "agy"})
+    void emptyGateExhaustsTheBudgetWhenNoProcedureIsSelected(String host) throws IOException {
+        String session = newSession(host);
+        prompt(host, session);
+        String count = "SELECT COUNT(*) AS hits FROM sennard.continuity_observations WHERE event = ?";
+        long before = ((Number) SessionServerSupport.row(server, count, WorkflowEvents.STOP_EXHAUSTED).get("hits")).longValue();
+
+        for (int attempt = 0; attempt < 3; attempt++) {
+            JsonNode held = stop(host, session);
+            String guidance = held.toString();
+            assertTrue(guidance.contains("Currently open workflow gates: 0"), guidance);
+            assertTrue(guidance.contains("INQUIRY, CHANGE, EXECUTION, TRANSITION"), guidance);
+            assertFalse(guidance.contains("This is the final recheck"), guidance);
+            assertFalse(guidance.contains("resume_workflow"), guidance);
+            assertTrue(held.path("continue").asBoolean(true), guidance);
+            assertFalse(held.has("stopReason"), guidance);
+        }
+
+        JsonNode exhausted = stop(host, session);
+        String reason = "no workflow procedure was selected";
+        if (host.equals("agy")) {
+            assertEquals(object(), exhausted);
+            assertAntigravityDeferredStop(session, reason);
+        } else {
+            assertFalse(exhausted.path("continue").asBoolean(true), exhausted.toString());
+            assertTrue(exhausted.path("stopReason").asString().contains(reason), exhausted.toString());
+        }
+        long after = ((Number) SessionServerSupport.row(server, count, WorkflowEvents.STOP_EXHAUSTED).get("hits")).longValue();
+        assertEquals(before + 1, after);
     }
 
     @Test
@@ -536,7 +1023,7 @@ class WorkflowGateServerTest {
     @Test
     void concurrentStopsCannotExceedTheSignedLimit() throws Exception {
         String session = newSession("codex");
-        prompt("codex", session);
+        openEarlierOperation("codex", session);
         int calls = 6;
         CountDownLatch ready = new CountDownLatch(calls);
         CountDownLatch go = new CountDownLatch(1);
@@ -544,7 +1031,7 @@ class WorkflowGateServerTest {
             var results = IntStream.range(0, calls).mapToObj(index -> workers.submit(() -> {
                 ready.countDown();
                 assertTrue(go.await(10, TimeUnit.SECONDS));
-                return stop("codex", session, true);
+                return stop("codex", session, false);
             })).toList();
             try {
                 assertTrue(ready.await(10, TimeUnit.SECONDS));
@@ -565,32 +1052,37 @@ class WorkflowGateServerTest {
         }
     }
 
+    private static void openEarlierOperation(String host, String session) throws IOException {
+        prompt(host, session);
+        JsonNode earlier = call(host, session, WorkflowKind.OPERATION.toolName(), operation("Earlier operation", "skills", skills()));
+        assertTrue(earlier.path("ok").asBoolean(), earlier.toString());
+        prompt(host, session);
+    }
+
     @Test
-    void geminiRetriesStayInTheSameRequest() throws IOException {
+    void geminiRetriesStayInTheSameRequestAndDoNotRecheckStop() throws IOException {
         String session = SessionServerSupport.uniqueSession();
         gemini(session, "SessionStart", object().put("source", "startup"));
         assertTrue(gemini(session, "BeforeAgent", object().put("prompt", "First request")).toString().contains(GATE));
         String other = SessionServerSupport.uniqueSession();
         gemini(other, "SessionStart", object().put("source", "startup"));
-        for (int attempt = 0; attempt < 3; attempt++) {
-            JsonNode held = gemini(session, "AfterAgent", object());
-            assertEquals("deny", held.path("decision").asString(), held.toString());
-            String retry = held.path("reason").asString();
-            assertTrue(retry.contains(GATE), retry);
-            if (attempt == 0) {
-                JsonNode crossSession = gemini(other, "BeforeAgent", object().put("prompt", retry));
-                assertTrue(crossSession.toString().contains(GATE), crossSession.toString());
-            }
-            JsonNode callback = gemini(session, "BeforeAgent", object().put("prompt", retry));
-            assertFalse(callback.toString().contains(GATE), callback.toString());
-            JsonNode duplicate = gemini(session, "BeforeAgent", object().put("prompt", retry));
-            assertFalse(duplicate.toString().contains(GATE), duplicate.toString());
-        }
-        JsonNode exhausted = gemini(session, "AfterAgent", object());
-        assertFalse(exhausted.path("continue").asBoolean(true), exhausted.toString());
-        assertTrue(exhausted.path("reason").asString().contains("no workflow procedure was selected"), exhausted.toString());
+        JsonNode held = gemini(session, "AfterAgent", object());
+        assertEquals("deny", held.path("decision").asString(), held.toString());
+        String retry = held.path("reason").asString();
+        assertTrue(retry.contains(GATE), retry);
+        JsonNode crossSession = gemini(other, "BeforeAgent", object().put("prompt", retry));
+        assertTrue(crossSession.toString().contains(GATE), crossSession.toString());
+        JsonNode callback = gemini(session, "BeforeAgent", object().put("prompt", retry));
+        assertFalse(callback.toString().contains(GATE), callback.toString());
+        JsonNode duplicate = gemini(session, "BeforeAgent", object().put("prompt", retry));
+        assertFalse(duplicate.toString().contains(GATE), duplicate.toString());
+        JsonNode repeated = gemini(session, "AfterAgent", object());
+        assertFalse(repeated.toString().contains(GATE), repeated.toString());
+        assertTrue(repeated.path("continue").asBoolean(true), repeated.toString());
         gemini(session, "BeforeAgent", object().put("prompt", "Independent request"));
-        assertEquals("deny", gemini(session, "AfterAgent", object()).path("decision").asString());
+        JsonNode next = gemini(session, "AfterAgent", object());
+        assertEquals("deny", next.path("decision").asString(), next.toString());
+        assertTrue(next.path("reason").asString().contains(GATE), next.toString());
     }
 
     private static JsonNode gemini(String session, String event, ObjectNode input) throws IOException {
@@ -642,7 +1134,13 @@ class WorkflowGateServerTest {
         String guidance = prompt(host, session);
         String held = stop(host, session).toString();
         assertTrue(guidance.contains("Select a workflow procedure as the first step of every request."), guidance);
-        assertTrue(guidance.contains("For a direct answer, even if no other tool is needed, select INQUIRY."), guidance);
+        for (String purpose : List.of("INQUIRY — Answer or investigate",
+                "CHANGE — Change files",
+                "EXECUTION — Run commands in an OPERATION",
+                "TRANSITION — Pause, finish, abort, or release existing work",
+                "get_skill_inventory with its skillIds when needed")) {
+            assertTrue(guidance.contains(purpose), "prompt missing " + purpose + ": " + guidance);
+        }
         for (String procedure : List.of("INQUIRY", "CHANGE", "EXECUTION", "TRANSITION")) {
             assertTrue(guidance.contains(procedure), "prompt missing " + procedure + ": " + guidance);
             assertTrue(held.contains(procedure), "Stop missing " + procedure + ": " + held);
@@ -657,19 +1155,29 @@ class WorkflowGateServerTest {
 
     @ParameterizedTest
     @CsvSource({"claude", "codex", "agy"})
-    void stopSummarizesOpenWorkflowsWithoutRepeatingTheirInstructions(String host) throws IOException {
+    void aRunningWorkflowIsOfferedBeforeNewWorkOnTheNextRequest(String host) throws IOException {
         String session = newSession(host);
         prompt(host, session);
         JsonNode first = call(host, session, WorkflowKind.OPERATION.toolName(), operation("First operation", "skills", skills()));
         JsonNode second = call(host, session, WorkflowKind.OPERATION.toolName(), operation("Second operation", "skills", skills()));
         assertTrue(first.path("ok").asBoolean() && second.path("ok").asBoolean());
-        prompt(host, session);
+        String guidance = prompt(host, session);
+        assertResumeBeforeNewWork(guidance, "start_inquiry_workflow");
+        JsonNode refused = preToolUse(host, session);
+        assertTrue(denied(host, refused), refused.toString());
+        assertResumeBeforeNewWork(reason(host, refused), "start_inquiry_workflow");
         String held = stop(host, session).toString();
         assertTrue(held.contains("Currently open workflow gates: 2"), held);
+        assertResumeBeforeNewWork(held, "choose the procedure");
         for (String omitted : List.of(first.path("data").path("runId").asString(), second.path("data").path("runId").asString(),
-                "First operation", "Second operation", "start_workflow", "resume_workflow", "start_operation_workflow")) {
+                "First operation", "Second operation", "start_workflow", "start_operation_workflow")) {
             assertFalse(held.contains(omitted), held);
         }
+    }
+
+    private static void assertResumeBeforeNewWork(String guidance, String newWork) {
+        int resume = guidance.indexOf("resume_workflow");
+        assertTrue(resume >= 0 && resume < guidance.indexOf(newWork), guidance);
     }
 
     @ParameterizedTest
@@ -1142,6 +1650,144 @@ class WorkflowGateServerTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"claude", "codex"})
+    void midTurnUserInputInheritsOnlyInquiryReads(String host) throws IOException {
+        String session = newSession(host);
+        prompt(host, session);
+        JsonNode opened = call(host, session, WorkflowKind.INQUIRY.toolName(), inquiry("Read a result"));
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+        String runId = opened.path("data").path("runId").asString();
+        prompt(host, session);
+        assertFalse(denied(host, preToolUse(host, session)), "the new input inherits reads");
+        String exec = host.equals("claude") ? "Bash" : "exec_command";
+        assertTrue(denied(host, preToolUse(host, session, exec, object().put("command", "echo inherited"))), "the new input inherits no execution");
+        if (host.equals("claude")) {
+            String path = workspace.resolve("inherited-inquiry.txt").toString();
+            assertTrue(denied(host, preToolUse(host, session, "Write", object().put("file_path", path))), "the new input inherits no edits");
+        }
+        assertFalse(stop(host, session).toString().contains(GATE));
+        JsonNode status = call(host, session, "get_workflow_status", args("runId", runId, "detail", "compact"));
+        assertEquals("PASSED", status.path("data").path("state").asString(), status.toString());
+    }
+
+    @Test
+    void onlyOneInquiryIsOpenInTheSessionTree() throws IOException {
+        String session = newSession("claude");
+        prompt("claude", session);
+        String runId = openInquiry(session, null, "Parent investigation");
+        JsonNode duplicate = childCall(session, "child-inquirer", WorkflowKind.INQUIRY.toolName(), inquiry("Second investigation"));
+        assertFalse(duplicate.path("ok").asBoolean(), duplicate.toString());
+        assertTrue(duplicate.toString().contains(runId) && duplicate.toString().contains("resume_workflow"), duplicate.toString());
+        stop("claude", session);
+        assertEquals("PASSED", stateOf(session, runId));
+        prompt("claude", session);
+        openInquiry(session, null, "New investigation");
+    }
+
+    @Test
+    void simultaneousInquiryStartsAllowOnlyOneRun() throws Exception {
+        String session = newSession("claude");
+        prompt("claude", session);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            var starts = IntStream.range(0, 2).mapToObj(index -> workers.submit(() -> {
+                ready.countDown();
+                assertTrue(go.await(10, TimeUnit.SECONDS));
+                return call("claude", session, WorkflowKind.INQUIRY.toolName(), inquiry("Investigation " + index));
+            })).toList();
+            try {
+                assertTrue(ready.await(10, TimeUnit.SECONDS));
+            } finally {
+                go.countDown();
+            }
+            JsonNode first = starts.get(0).get(20, TimeUnit.SECONDS);
+            JsonNode second = starts.get(1).get(20, TimeUnit.SECONDS);
+            boolean firstOpened = first.path("ok").asBoolean();
+            assertEquals(!firstOpened, second.path("ok").asBoolean(), first + " " + second);
+            JsonNode opened = firstOpened ? first : second;
+            JsonNode refused = firstOpened ? second : first;
+            String runId = opened.path("data").path("runId").asString();
+            assertFalse(runId.isBlank(), opened.toString());
+            assertEquals("INQUIRY_ALREADY_OPEN", refused.path("error").path("details").path("reason").asString(), refused.toString());
+            assertEquals(runId, refused.path("error").path("details").path("runId").asString());
+            stop("claude", session);
+            assertEquals("PASSED", stateOf(session, runId));
+        }
+    }
+
+    @Test
+    void aSubagentReadsInItsParentsInquiryAndStopsWithoutARecheck() throws IOException {
+        String session = newSession("claude");
+        prompt("claude", session);
+        String runId = openInquiry(session, null, "Read the workspace");
+        observeClaudeSubagentStart(session, "child-reader");
+        assertFalse(denied("claude", childTool(session, "child-reader")), "a verified child may read under the parent's inquiry");
+        assertFalse(subagentStop(session, "child-reader").toString().contains(GATE), "the child's end spends no recheck");
+        assertEquals("RUNNING", stateOf(session, runId));
+        stop("claude", session);
+        assertEquals("PASSED", stateOf(session, runId));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"claude", "codex", "agy"})
+    void anInquiryFinalizedInANotificationRequestStillServesStop(String host) throws IOException {
+        String session = newSession(host);
+        for (String status : List.of("completed", "failed")) {
+            String input = "<task-notification><status>" + status + "</status></task-notification>";
+            ok(hook(host, promptEvent(host), null, session, body -> body.put(host.equals("agy") ? "lastUserInput" : "prompt", input)));
+        }
+        assertTrue(denied(host, preToolUse(host, session)), "a notification begins a new request");
+        for (String goal : List.of("Read the completed task's result", "Read the other task's result")) {
+            JsonNode opened = call(host, session, WorkflowKind.INQUIRY.toolName(), inquiry(goal));
+            assertTrue(opened.path("ok").asBoolean(), opened.toString());
+            JsonNode finalized = call(host, session, "finalize_workflow", revisionOf(opened.path("data")));
+            assertEquals("PASSED", finalized.path("data").path("state").asString(), finalized.toString());
+        }
+        JsonNode marked = call(host, session, "mark_turn_unchanged", args("schemaVersion", "1.0.0"));
+        assertTrue(marked.path("ok").asBoolean(), marked.toString());
+        assertTrue(denied(host, preToolUse(host, session)), "a finished inquiry grants no further tool access");
+
+        JsonNode stopped = stop(host, session);
+        assertFalse(stopped.toString().contains(GATE), stopped.toString());
+        String next = prompt(host, session);
+        assertFalse(next.contains("no workflow procedure was selected"), next);
+        assertTrue(denied(host, preToolUse(host, session)), "the next input still has to choose a procedure");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"claude", "codex", "agy"})
+    void checkpointAfterTheLastNotificationInquiryPreservesItsServedTurn(String host) throws IOException {
+        String session = newSession(host);
+        JsonNode initial = call(host, session, "load_context", args("schemaVersion", "1.0.0"));
+        assertTrue(initial.path("ok").asBoolean(), initial.toString());
+        for (String status : List.of("completed", "failed")) {
+            String input = "<task-notification><status>" + status + "</status></task-notification>";
+            ok(hook(host, promptEvent(host), null, session, body -> body.put(host.equals("agy") ? "lastUserInput" : "prompt", input)));
+            JsonNode opened = call(host, session, WorkflowKind.INQUIRY.toolName(), inquiry("Read the " + status + " task result"));
+            assertTrue(opened.path("ok").asBoolean(), opened.toString());
+            JsonNode finalized = call(host, session, "finalize_workflow", revisionOf(opened.path("data")));
+            assertEquals("PASSED", finalized.path("data").path("state").asString(), finalized.toString());
+        }
+
+        JsonNode loaded = call(host, session, "load_context", args("schemaVersion", "1.0.0"));
+        assertTrue(loaded.path("ok").asBoolean(), loaded.toString());
+        assertTrue(loaded.path("data").path("epoch").asLong() > initial.path("data").path("epoch").asLong(), loaded.toString());
+        JsonNode saved = call(host, session, "checkpoint_context", args("schemaVersion", "1.0.0", "expectedStateToken", loaded.path("data").path("stateToken").asString(), "status", "ACTIVE",
+                "core", args("objective", "Remember the just-finished notification", "completionCriteria", List.of(), "constraints", List.of(), "decisions", List.of(),
+                        "progress", List.of(), "blockers", List.of(), "nextActions", List.of()), "evidenceRefs", List.of()));
+        assertTrue(saved.path("ok").asBoolean(), saved.toString());
+        assertTrue(denied(host, preToolUse(host, session)), "a settled inquiry grants no further tool access");
+
+        JsonNode stopped = stop(host, session);
+        assertFalse(stopped.toString().contains(GATE), stopped.toString());
+        assertFalse(stop(host, session, true).toString().contains(GATE), "the repeated Stop sees the same served request");
+        String next = prompt(host, session);
+        assertFalse(next.contains("no workflow procedure was selected"), next);
+        assertTrue(denied(host, preToolUse(host, session)), "the next request selects its own workflow");
+    }
+
+    @ParameterizedTest
     @CsvSource({"claude", "codex", "agy"})
     void anOpenOperationIsShownAtEveryPromptAndResumedByTheAgent(String host) throws IOException {
         String session = newSession(host);
@@ -1421,6 +2067,38 @@ class WorkflowGateServerTest {
         return ok(DomainServerSupport.hookFrom("Stop", server.port, "windows", "claude", "SubagentStop", null, session, body -> body.put("agent_id", agentId).put("agent_type", "general-purpose")));
     }
 
+    /** The end of a Claude Code subagent that the host says its own hook already continued once ({@code stop_hook_active}). */
+    private static JsonNode continuedSubagentStop(String session, String agentId) throws IOException {
+        return ok(DomainServerSupport.hookFrom("Stop", server.port, "windows", "claude", "SubagentStop", null, session,
+                body -> body.put("agent_id", agentId).put("agent_type", "general-purpose").put("stop_hook_active", true)));
+    }
+
+    /**
+     * A subagent ending does not spend Stop rechecks or block the operation it was running.
+     */
+    @Test
+    void aSubagentsRunningOperationIsCheckedAtTheRootStop() throws IOException {
+        String session = newSession("claude");
+        prompt("claude", session);
+        JsonNode opened = childCall(session, "child-leaving", WorkflowKind.OPERATION.toolName(), operation("The subagent leaves it running", "skills", skills()));
+        assertTrue(opened.path("ok").asBoolean(), opened.toString());
+        String leaving = opened.path("data").path("runId").asString();
+        String other = childCall(session, "child-other", WorkflowKind.OPERATION.toolName(), operation("The other subagent works on", "skills", skills())).path("data").path("runId").asString();
+        String mine = call("claude", session, WorkflowKind.OPERATION.toolName(), operation("The main agent works on", "skills", skills())).path("data").path("runId").asString();
+
+        for (JsonNode child : List.of(subagentStop(session, "child-leaving"), continuedSubagentStop(session, "child-leaving"))) {
+            assertFalse(denied("claude", child), child.toString());
+            assertTrue(child.path("continue").asBoolean(true), child.toString());
+            assertFalse(child.toString().contains("recorded disposition"), child.toString());
+        }
+        assertEquals("RUNNING", stateOf(session, leaving));
+        assertEquals("RUNNING", stateOf(session, other));
+        assertEquals("RUNNING", stateOf(session, mine));
+        String main = stop("claude", session).toString();
+        assertTrue(main.contains("Workflows that need a recorded disposition before stopping: 3"), main);
+        assertFalse(main.contains("final report"), main);
+    }
+
     private static String stateOf(String session, String runId) throws IOException {
         JsonNode status = call("claude", session, "get_workflow_status", args("runId", runId, "detail", "compact"));
         return status.path("data").path("state").asString();
@@ -1432,36 +2110,17 @@ class WorkflowGateServerTest {
         return opened.path("data").path("runId").asString();
     }
 
-    /**
-     * The turn end of the main agent closes the inquiry the main agent opened and not the one of a subagent: the instances are independent, and the subagent goes on in its own, which
-     * still serves its commands after the main agent's Stop.
-     */
     @Test
-    void theMainAgentsTurnEndClosesItsOwnInquiryAndLeavesTheOneOfASubagentOpen() throws IOException {
-        String session = newSession("claude");
-        prompt("claude", session);
-        String mine = openInquiry(session, null, "The main agent answers");
-        String childs = openInquiry(session, "child-inquirer", "The subagent investigates");
-        JsonNode ended = stop("claude", session);
-        assertFalse(ended.toString().contains(GATE), "the request had an instance: " + ended);
-        assertEquals("PASSED", stateOf(session, mine), "the inquiry of the main agent is closed with its turn");
-        assertFalse("PASSED".equals(stateOf(session, childs)), "the inquiry of the subagent is not the main agent's turn's");
-        assertFalse(denied("claude", childBash(session, "child-inquirer")), "the subagent goes on in its own instance");
-    }
-
-    /** The subagent's own end closes its inquiry; then it is a request with no instance again, and another subagent's instance is untouched. */
-    @Test
-    void aSubagentsEndClosesItsInquiryAndItChoosesAgainAfterIt() throws IOException {
+    void aSubagentsInquiryClosesWithTheRootTurn() throws IOException {
         String session = newSession("claude");
         prompt("claude", session);
         String first = openInquiry(session, "child-ending", "The first subagent investigates");
-        String other = openInquiry(session, "child-staying", "The other subagent investigates");
-        assertFalse(subagentStop(session, "child-ending").toString().contains(GATE), "the subagent had an instance, so its end is not held");
-        assertEquals("PASSED", stateOf(session, first), "the inquiry of the subagent is closed with the subagent");
-        assertFalse("PASSED".equals(stateOf(session, other)), "the other subagent's inquiry stays open");
-        assertTrue(denied("claude", childBash(session, "child-ending")), "a closed instance serves no request: the subagent chooses again");
-        assertFalse(denied("claude", childBash(session, "child-staying")));
-        openInquiry(session, "child-ending", "The first subagent investigates again");
-        assertFalse(denied("claude", childBash(session, "child-ending")), "the new instance serves it");
+        assertFalse(subagentStop(session, "child-ending").toString().contains(GATE));
+        assertEquals("RUNNING", stateOf(session, first));
+        JsonNode ended = stop("claude", session);
+        assertFalse(ended.toString().contains(GATE), ended.toString());
+        assertEquals("PASSED", stateOf(session, first));
+        assertTrue(denied("claude", childBash(session, "child-ending")));
+        openInquiry(session, null, "Answer another request");
     }
 }

@@ -291,7 +291,10 @@ class HookRegistrationFileTest {
     @ParameterizedTest
     @ValueSource(strings = {"SessionStart", "Stop"})
     void claudeWakeIsAnAsyncRewakeAtEveryIdlePointThatOnlyAnAnsweredWaitCanWake(String event) {
-        JsonNode wake = handler(hooks(claude()), event, 1);
+        HostRegistrationFile.WholeFile file = hooks(claude());
+        assertEquals(2, file.content().path("hooks").path(event).size());
+        assertFalse(handler(file, event, 0).has("asyncRewake"));
+        JsonNode wake = handler(file, event, 1);
         assertEquals("command", wake.path("type").stringValue());
         assertTrue(wake.path("asyncRewake").booleanValue());
         assertEquals(JAVA, wake.path("command").stringValue());
@@ -444,11 +447,13 @@ class HookRegistrationFileTest {
     @Test
     void codexPreToolUseRegistersWaitContinuityAndNativePeerCommands() {
         HostRegistrationFile.WholeFile file = hooks(codex());
+        assertEquals(3, file.content().path("hooks").path("PreToolUse").size());
         assertEquals("^mcp__codex_app__wait_threads$", entry(file, "PreToolUse", 0).path("matcher").stringValue());
         assertEquals(HOOK_LINE + " hook codex PreToolUse --module=peer-wait", handler(file, "PreToolUse", 0).path("command").stringValue());
         assertFalse(entry(file, "PreToolUse", 1).has("matcher"), "continuity must run for every PreToolUse event Codex emits");
         assertEquals(HOOK_LINE + " hook codex PreToolUse --module=continuity --on-failure=deny-pre-tool-use", handler(file, "PreToolUse", 1).path("command").stringValue());
-        assertEquals("^(multi_agent_v1send_input|send_message|followup_task)$", entry(file, "PreToolUse", 2).path("matcher").stringValue());
+        assertEquals("^(multi_agent_v1send_input|send_message|followup_task|collaborationsend_message|collaborationfollowup_task|mcp__codex_tui__send_message_to_thread"
+                + "|mcp__codex_app__send_message_to_thread|codex_appsend_message_to_thread)$", entry(file, "PreToolUse", 2).path("matcher").stringValue());
         assertEquals(HOOK_LINE + " hook codex PreToolUse --module=native-peer --on-failure=deny-pre-tool-use", handler(file, "PreToolUse", 2).path("command").stringValue());
         assertEquals("^(manual|auto)$", entry(file, "PreCompact", 0).path("matcher").stringValue());
         assertEquals("^(manual|auto)$", entry(file, "PostCompact", 0).path("matcher").stringValue());
@@ -539,7 +544,7 @@ class HookRegistrationFileTest {
     // ---------------------------------------------------------------------------------------------------------------------------- Gemini
 
     @Test
-    void geminiHooksJsonRegistersNativeAgentResultsInTheirOwnAfterToolEntry() {
+    void geminiHooksJsonRegistersOneEntryPerEventAndNoneOfItsOwnForASubagentsResult() {
         HostRegistrationFile.WholeFile file = hooks(gemini());
         assertEquals(Path.of("hooks", "hooks.json"), file.relativePath());
         assertEquals(Set.of("hooks"), Set.copyOf(file.content().propertyNames()));
@@ -547,21 +552,14 @@ class HookRegistrationFileTest {
         assertEquals(events, List.copyOf(file.content().path("hooks").propertyNames()));
         for (String event : events) {
             JsonNode group = entry(file, event, 0);
-            assertEquals(event.equals("AfterTool") ? 2 : 1, file.content().path("hooks").path(event).size(), event);
-            assertEquals(event.equals("AfterTool") ? "^(?!invoke_agent$).*$" : "*", group.path("matcher").stringValue(), event);
+            assertEquals(1, file.content().path("hooks").path(event).size(), event);
+            assertEquals("*", group.path("matcher").stringValue(), event);
             assertEquals(1, group.path("hooks").size(), event);
             JsonNode handler = group.path("hooks").path(0);
             assertEquals("sennard-" + event, handler.path("name").stringValue());
             assertEquals("command", handler.path("type").stringValue());
             assertEquals(event.equals("SessionStart") ? HookClientCall.SESSION_START_LIMIT_SECONDS * 1000 : 10_000, handler.path("timeout").intValue(), "this host's timeout is in milliseconds");
         }
-        JsonNode nativeResult = entry(file, "AfterTool", 1);
-        assertEquals("^invoke_agent$", nativeResult.path("matcher").stringValue());
-        assertEquals(1, nativeResult.path("hooks").size());
-        JsonNode handler = handler(file, "AfterTool", 1);
-        assertEquals("sennard-native-peer-result", handler.path("name").stringValue());
-        assertEquals("command", handler.path("type").stringValue());
-        assertEquals(10_000, handler.path("timeout").intValue());
     }
 
     @Test
@@ -572,7 +570,6 @@ class HookRegistrationFileTest {
             assertEquals(HOOK_LINE + " hook gemini " + event, handler(file, event, 0).path("command").stringValue());
         }
         assertEquals(HOOK_LINE + " hook gemini BeforeTool --on-failure=deny-decision --on-refusal=deny-decision", handler(file, "BeforeTool", 0).path("command").stringValue());
-        assertEquals(HOOK_LINE + " hook gemini AfterTool --on-failure=deny-result", handler(file, "AfterTool", 1).path("command").stringValue());
     }
 
     /** The manifest also holds the extension's name and version, so the registration is the one member Sennard writes, not the file. */

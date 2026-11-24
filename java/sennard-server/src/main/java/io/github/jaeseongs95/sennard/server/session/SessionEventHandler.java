@@ -103,16 +103,17 @@ public class SessionEventHandler implements HostEventHandler {
     }
 
     /**
-     * What a hook does to the session list. Only a main agent's hook registers a session or keeps it alive; a subagent's, and
-     * one whose marker the host gave in a form that cannot be read, leave it as it is. A session the host runs as an agent chosen at launch is
-     * marked so that its own tool calls do not list it either. The end of a session needs no such care: it ends a registered session and
-     * creates nothing. The processes above the hook's launcher come with the session start only; a start that names some has the host decided
+     * Main hooks maintain their session's generation. Hooks that still need actor correlation keep their process observation under an
+     * unknown kind until a tool call confirms it. A child's end can only close its own physical generation.
+     * The processes above the hook's launcher come with the session start only; a start that names some has the host decided
      * among them and the session owned by it ({@link HookSessions#started}), any other hook leaves the ownership as it is.
      */
     private void keepSession(HostEvent event, List<Long> hostCandidates, String host, long receivedAtMs) {
         HostContext context = event.context();
         if (event instanceof HostEvent.SessionEnded ended) {
-            sessions.ended(host, context.sessionId(), ended.reason().isBlank() ? "session-end" : ended.reason(), receivedAtMs);
+            if (context.actor().role() == HostContext.Role.ROOT || context.sessionId().equals(context.actor().agentKey())) {
+                sessions.ended(host, context.sessionId(), ended.reason().isBlank() ? "session-end" : ended.reason(), receivedAtMs);
+            }
             return;
         }
         if (context.actor().role() != HostContext.Role.ROOT) {
@@ -120,12 +121,18 @@ public class SessionEventHandler implements HostEventHandler {
         }
         switch (context.actor().lead()) {
             case MAIN -> {
+                boolean provisional = context.actor().basis() == HostContext.Basis.PROVISIONAL;
+                if (provisional) {
+                    sessions.kindSeen(host, context.sessionId(), SessionKind.UNKNOWN);
+                }
                 if (event instanceof HostEvent.SessionStarted) {
                     sessions.started(host, context.sessionId(), hostCandidates, receivedAtMs);
                 } else {
                     sessions.observed(host, context.sessionId(), receivedAtMs);
                 }
-                sessions.kindSeen(host, context.sessionId(), SessionKind.MAIN);
+                if (!provisional) {
+                    sessions.kindSeen(host, context.sessionId(), SessionKind.MAIN);
+                }
             }
             case PRESET_AGENT -> sessions.kindSeen(host, context.sessionId(), SessionKind.PRESET_AGENT);
         }

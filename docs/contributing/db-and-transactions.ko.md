@@ -131,7 +131,7 @@ Flyway를 쓰지 않는 이유: Flyway는 아는 DB 목록을 갖고 DB마다 �
 | `version` | `BIGINT` | 스크립트 번호 |
 | `attempt` | `INTEGER` | 그 번호의 몇 번째 시도인지(1부터) |
 | `script` | `VARCHAR(255)` | 파일 이름 |
-| `digest` | `CHAR(64)` | jar 안 파일의 SHA-256(자리표시자를 바꾸기 전) |
+| `digest` | `CHAR(64)` | jar에 담긴 원본 파일의 SHA-256(SQL을 실행용으로 준비하기 전) |
 | `applied_at` | `TIMESTAMP` | UTC, 주입된 `Clock` |
 | `outcome` | `VARCHAR(10)` | `SUCCEEDED` 또는 `FAILED`(DB가 받으면 `CHECK`로 제한) |
 
@@ -147,6 +147,8 @@ Flyway를 쓰지 않는 이유: Flyway는 아는 DB 목록을 갖고 DB마다 �
 - **표를 바꾸려고 DB를 다시 만들지 않습니다.** 방법은 `ALTER TABLE`이며 행은 그대로 보존합니다. `ALTER TABLE t ADD c <type>`(키워드 `COLUMN` 없음)은 PostgreSQL, Oracle, SQL Server, MySQL, MariaDB, Db2, H2가 모두 받으므로 스크립트가 이미 있는 표에 열을 더할 수 있습니다. 행이 있는 표에 `NOT NULL` 열을 더할 때는 `ADD c <type> DEFAULT <상수> NOT NULL`로 쓰며, Oracle이 받는 순서인 `DEFAULT`가 `NOT NULL` 앞입니다. `DROP COLUMN`, `DROP CONSTRAINT`, `ADD CONSTRAINT`도 이식할 수 있습니다. `V12__session_kind.sql`의 주석에는 앞선 문장이 있습니다. 곧 표준 `ALTER TABLE`에는 Oracle과 SQL Server가 받는 `ADD COLUMN` 철자가 없어서 기존 표에 열을 더하는 스크립트는 없다는 말인데, 틀렸습니다. 그 스크립트는 이미 적용되었으므로 고치지 않습니다.
 - **제품마다 다른 문장은 쓰지 않습니다.** `SET NOT NULL`, `MODIFY`, `ALTER COLUMN`, `RENAME`입니다. 이 가운데 하나가 필요한 변경은 새 표를 만들고, `INSERT ... SELECT`로 행을 옮기고, 옛 표를 `DROP`합니다.
 - **배포된 마이그레이션은 바꾸지 않습니다. 업무 변경은 새 `V` 스크립트로 앞으로만 갑니다(`ALTER TABLE` 위주, 추가 우선).** 배포 전 스크립트만 고칠 수 있습니다. `V21__attachment.sql`이 최종 첨부 묶음 구조를 처음부터 만듭니다([첨부와 업로드](attachments.ko.md) 참조). `V22`(`workflow_runs.kind`를 `ALTER TABLE ... ADD kind VARCHAR(32) DEFAULT 'CHANGE' NOT NULL`로 더함)는 배포 뒤 변경이 취하는 형태의 예이며, 이미 있는 표를 바꾸고 행을 보존합니다.
+
+업무 DB의 expand V27이 아직 적용되지 않았다면 적용기가 배포본의 리소스 경로, SHA-256, 잠금 행 INSERT를 확인합니다. 마이그레이션 트랜잭션 안에서 해당 INSERT에 이번 시도의 Java UTC 시각을 바인딩합니다. V27이 이미 성공한 DB는 기존 이력과 잠금 행을 보존합니다. 확인 결과가 일치하지 않으면 V27의 시도를 기록하기 전에 중단합니다. DDL이 트랜잭션과 별도로 커밋되어 실패한 시도의 변경이 일부 남았다면, 재시도 전에 시도 전 스키마를 복구하고 실패 이력 행을 보존합니다.
 
 ### 쓰기 도구의 operationKey와 영수증
 

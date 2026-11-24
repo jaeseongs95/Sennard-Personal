@@ -46,6 +46,7 @@ class WorkflowCompletionHookServerTest {
                 new TurnSaveCheckServerTest.Host("agy", "antigravity", "PreInvocation"));
     }
 
+
     @BeforeAll
     static void start() throws Exception {
         server = SessionServerSupport.started(SessionServerSupport.sources(), "--sennard.test.workflow-gate=on");
@@ -67,10 +68,71 @@ class WorkflowCompletionHookServerTest {
         String continued = continuation(session, stop(session, false));
         assertEquals(pendingWorkflows(1), continued);
         assertFalse(continued.contains(runId), continued);
-        // A later end cannot silently turn an unfinished operation into a completed one.
-        assertEquals(continued, continuation(session, stop(session, true)));
+        // The first Stop leaves the unfinished operation running.
         JsonNode status = call(session, "get_workflow_status", Map.of("runId", runId, "detail", "compact"));
         assertEquals("RUNNING", status.path("state").asString(), status.toString());
+    }
+
+    @ParameterizedTest
+    @MethodSource("hosts")
+    void anOperationLeftRunningIsBlockedWhenItsStopRechecksRunOut(TurnSaveCheckServerTest.Host host) throws Exception {
+        Session session = session(host);
+        String runId = operation(session).path("runId").asString();
+
+        JsonNode ended = exhaustStopRechecks(session, runId);
+        String reason = DomainServerSupport.englishMessage(server, "hooks.phaseCheck.exhausted", Map.of("runs", runId));
+        if (host.agy()) {
+            assertEquals(server.bean(JsonMapper.class).createObjectNode(), ended);
+            String notice = DomainServerSupport.englishMessage(server, "hooks.workflowGate.deferredStop", Map.of("reason", reason));
+            JsonNode nextInput = prompt(session, "Handle the next request");
+            assertEquals(notice, nextInput.path("injectSteps").path(0).path("ephemeralMessage").asString().stripTrailing(), nextInput.toString());
+            JsonNode laterInput = prompt(session, "Handle a later request");
+            assertFalse(laterInput.toString().contains("Sennard stopped processing the previous input"), laterInput.toString());
+        } else {
+            assertTrue(ended.path("continue").isBoolean(), ended.toString());
+            assertFalse(ended.path("continue").asBoolean(), ended.toString());
+            assertEquals(reason, ended.path("stopReason").asString(), ended.toString());
+        }
+    }
+
+    static Stream<TurnSaveCheckServerTest.Host> hostsReportingContinuedStop() {
+        return hosts().filter(host -> !host.agy());
+    }
+
+    @ParameterizedTest
+    @MethodSource("hostsReportingContinuedStop")
+    void anAlreadyActiveStopDoesNotSpendAnotherRecheck(TurnSaveCheckServerTest.Host host) throws Exception {
+        Session session = session(host);
+        String runId = operation(session).path("runId").asString();
+
+        assertEquals(pendingWorkflows(1), continuation(session, stop(session, false)));
+        JsonNode before = status(session, runId, "compact");
+        assertEquals("RUNNING", before.path("state").asString(), before.toString());
+        assertEquals(server.bean(JsonMapper.class).createObjectNode(), stop(session, true));
+        assertEquals(before, status(session, runId, "compact"));
+        assertEquals(pendingWorkflows(1), continuation(session, stop(session, false)));
+        assertEquals(finalRecheck(runId), continuation(session, stop(session, false)));
+        assertRunning(session, runId);
+    }
+
+    @ParameterizedTest
+    @MethodSource("hosts")
+    void aRunOfAnotherRequestOrAnotherSessionIsUnaffectedByThisStop(TurnSaveCheckServerTest.Host host) throws Exception {
+        Session mine = session(host);
+        Session other = session(host);
+        String theirs = operation(other).path("runId").asString();
+        String earlier = operation(mine).path("runId").asString();
+        JsonNode theirStatus = status(other, theirs, "compact");
+        JsonNode earlierStatus = status(mine, earlier, "compact");
+        assertEquals("RUNNING", theirStatus.path("state").asString(), theirStatus.toString());
+        assertEquals("RUNNING", earlierStatus.path("state").asString(), earlierStatus.toString());
+
+        prompt(mine);
+        String current = operation(mine).path("runId").asString();
+        exhaustStopRechecks(mine, current);
+
+        assertEquals(theirStatus, status(other, theirs, "compact"), "another session's run is untouched");
+        assertEquals(earlierStatus, status(mine, earlier, "compact"), "the current request did not take the earlier run");
     }
 
     @ParameterizedTest
@@ -156,10 +218,14 @@ class WorkflowCompletionHookServerTest {
     }
 
     private static void prompt(Session session) throws Exception {
+        prompt(session, "Handle this request");
+    }
+
+    private static JsonNode prompt(Session session, String input) throws Exception {
         if (session.host().label().equals("agy")) {
             DomainServerSupport.observeAgyRoot(server, session.id());
         }
-        post(session, session.host().promptEvent(), session.host().prompt("Handle this request"));
+        JsonNode answer = post(session, session.host().promptEvent(), session.host().prompt(input));
         // These fixtures satisfy independent recap/summary/save gates so only lifecycle behavior is observed.
         String promptId = (String) SessionServerSupport.row(server,
                 "SELECT user_prompt_id FROM sennard.user_prompt WHERE host = ? AND session_id = ? ORDER BY received_at DESC FETCH FIRST 1 ROWS ONLY",
@@ -168,6 +234,42 @@ class WorkflowCompletionHookServerTest {
                 promptId, "lifecycle fixture; no model invoked", Timestamps.toTimestamp(server.bean(Clock.class).instant()));
         DomainServerSupport.writeSessionSummary(server, session.host().label(), session.id(), "lifecycle fixture " + session.id());
         call(session, "mark_turn_unchanged", DomainServerSupport.arguments("operationKey", "lifecycle-mark-" + UUID.randomUUID()));
+        return answer;
+    }
+
+    private static JsonNode exhaustStopRechecks(Session session, String runId) throws IOException {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            assertEquals(pendingWorkflows(1), continuation(session, stop(session, false)));
+            assertRunning(session, runId);
+        }
+        assertEquals(finalRecheck(runId), continuation(session, stop(session, false)));
+        assertRunning(session, runId);
+
+        JsonNode ended = stop(session, false);
+        assertEquals("", continuation(session, ended));
+        JsonNode compact = status(session, runId, "compact");
+        assertEquals("BLOCKED", compact.path("state").asString(), compact.toString());
+        assertEquals(1, compact.path("blockerCount").asInt(), compact.toString());
+        JsonNode full = status(session, runId, "full");
+        assertEquals("BLOCKED", full.path("state").asString(), full.toString());
+        JsonNode blockers = full.path("blockers");
+        assertEquals(1, blockers.size(), full.toString());
+        assertEquals("STOP_RECHECK_LIMIT_EXHAUSTED", blockers.path(0).asString(), full.toString());
+        return ended;
+    }
+
+    private static String finalRecheck(String runId) {
+        String warning = DomainServerSupport.englishMessage(server, "hooks.phaseCheck.lastRecheck", Map.of("runs", runId));
+        return pendingWorkflows(1) + "\n" + warning;
+    }
+
+    private static void assertRunning(Session session, String runId) throws IOException {
+        JsonNode compact = status(session, runId, "compact");
+        assertEquals("RUNNING", compact.path("state").asString(), compact.toString());
+    }
+
+    private static JsonNode status(Session session, String runId, String detail) throws IOException {
+        return call(session, "get_workflow_status", Map.of("runId", runId, "detail", detail));
     }
 
     private static JsonNode operation(Session session) throws IOException {

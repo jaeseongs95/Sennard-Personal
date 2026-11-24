@@ -34,7 +34,7 @@ import io.github.jaeseongs95.sennard.server.approval.RootAction;
 import io.github.jaeseongs95.sennard.server.config.SennardProperties;
 import io.github.jaeseongs95.sennard.server.contract.ApiResult;
 import io.github.jaeseongs95.sennard.server.contract.SennardToolResults;
-import io.github.jaeseongs95.sennard.server.hook.HostWorkFacts;
+import io.github.jaeseongs95.sennard.server.hook.HostWorkFactsRegistry;
 import io.github.jaeseongs95.sennard.server.message.Messages;
 import io.github.jaeseongs95.sennard.server.mcp.McpSessionResolver;
 import io.github.jaeseongs95.sennard.server.mcp.SelfSession;
@@ -85,14 +85,14 @@ public class WorkflowTools {
     private final WorkflowReceipts operations;
     private final SennardToolResults results;
     private final String skillsDirectory;
-    private final List<HostWorkFacts> hostFacts;
+    private final HostWorkFactsRegistry hostFacts;
 
     public WorkflowTools(WorkflowService service, SkillRegistry registry, WorkflowFileReader reader, SkillUsageService skillUsage, List<SessionExecutionReader> executionReaders, McpSessionResolver sessions, Messages messages, JsonMapper mapper,
             AdminPageAddress address, ClassificationAdvice classification, DocumentDigests digests, ToolInputs inputs, ChangePlanService plans, WorkflowReceipts operations, KindStartInputs kinds,
-            SennardToolResults results, SennardProperties properties, List<HostWorkFacts> hostFacts) {
+            SennardToolResults results, SennardProperties properties, HostWorkFactsRegistry hostFacts) {
         this.results = results;
         this.skillsDirectory = properties.skillsDirectory();
-        this.hostFacts = List.copyOf(hostFacts);
+        this.hostFacts = hostFacts;
         this.kinds = kinds;
         this.operations = operations;
         this.reader = reader;
@@ -133,7 +133,8 @@ public class WorkflowTools {
             annotations = @McpTool.McpAnnotations(readOnlyHint = false, idempotentHint = false, destructiveHint = false, openWorldHint = false))
     public CallToolResult claimWorkflowAttempt(CallToolRequest request, McpMeta meta, McpTransportContext context) {
         return runWrite("claim_workflow_attempt", request, meta, context, null, null, AttemptLease.class, UnaryOperator.identity(),
-                (args, call, operation) -> switch (service.claimWorkflowAttempt(args, call, registry.read(), operation)) {
+                // The locations of the roots a root that gave its files up takes them back from are resolved here, before the transaction of the use case, which reads no file.
+                (args, call, operation) -> switch (service.claimWorkflowAttempt(args, call, registry.read(), reader.read(service.planActiveRootReads()), operation)) {
                     case WorkflowService.ClaimOutcome.Leased leased -> leased.lease();
                     // The transaction has committed what the refusal recorded; the failure is answered now.
                     case WorkflowService.ClaimOutcome.Refused refused -> throw refused.failure();
@@ -144,7 +145,7 @@ public class WorkflowTools {
             annotations = @McpTool.McpAnnotations(readOnlyHint = false, idempotentHint = false, destructiveHint = false, openWorldHint = false))
     public CallToolResult startGuardedWorkflow(CallToolRequest request, McpMeta meta, McpTransportContext context) {
         return runWrite("start_guarded_workflow", request, meta, context, "responseMode", this::workflowSummary, WorkflowReceipt.class, UnaryOperator.identity(),
-                (args, call, operation) -> service.startGuardedWorkflow(args, call, registry.installedSkillIds(registry.read()), operation));
+                (args, call, operation) -> service.startGuardedWorkflow(args, call, registry.installedSkillIds(registry.read()), reader.read(service.planActiveRootReads()), operation));
     }
 
     @McpTool(name = "get_convergence_status", description = "Reads a convergence root.", annotations = @McpTool.McpAnnotations(readOnlyHint = true, idempotentHint = true, destructiveHint = false, openWorldHint = false))
@@ -245,8 +246,8 @@ public class WorkflowTools {
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, idempotentHint = true, destructiveHint = false, openWorldHint = false))
     public CallToolResult listSessionWorkflows(CallToolRequest request, McpMeta meta, McpTransportContext context) {
         return run("list_session_workflows", request, meta, context, null, null, (args, call) -> {
-            inputs.read("list_session_workflows", args, RunRequest.SessionList.class);
-            return service.listSessionWorkflows(call);
+            RunRequest.SessionList list = inputs.read("list_session_workflows", args, RunRequest.SessionList.class);
+            return service.listSessionWorkflows(call, list.openRootAfter());
         });
     }
 
@@ -517,8 +518,7 @@ public class WorkflowTools {
                 return List.of();
             }
             List<String> lines = new ArrayList<>();
-            hostFacts.stream().filter(facts -> facts.host().sessionHost().equals(call.host())).findFirst()
-                    .flatMap(HostWorkFacts::skillInvocationMessage).ifPresent(key -> lines.add(messages.render(msg(key), call.locale())));
+            hostFacts.forSessionHost(call.host()).skillInvocationMessage().ifPresent(key -> lines.add(messages.render(msg(key), call.locale())));
             lines.add(messages.render(msg("instructions.intake.pointer", "path", intake.get().toString()), call.locale()));
             lines.add(messages.render(msg("instructions.intake.skills", "targets", targets), call.locale()));
             return lines;
@@ -559,7 +559,8 @@ public class WorkflowTools {
                     "rootId", selectedRoot.map(ConvergenceRoot::rootId).orElse(""),
                     "rootState", selectedRoot.map(value -> value.state().name()).orElse("")), locale));
         }
-        boolean ready = !run.isOpen() && run.plan().stages().stream().allMatch(stage -> run.resultOf(stage.stageId()).map(result -> result.state() == RunState.PASSED).orElse(false));
+        boolean ready = !run.isOpen() && service.storedKind(run.runId()).closing() == WorkflowKind.Closing.FINALIZE
+                && run.plan().stages().stream().allMatch(stage -> run.resultOf(stage.stageId()).map(result -> result.state() == RunState.PASSED).orElse(false));
         return ready ? List.of(messages.render(msg("workflow.lifecycle.finalize", "runId", run.runId(), "revision", String.valueOf(run.revision())), locale)) : List.of();
     }
 

@@ -333,23 +333,42 @@ public class WorkflowService {
     }
 
     /**
-     * What a start of a new root resolves from the file system ({@link #planOpenRootReads}); a start that continues a root opens none, so it reads nothing.
+     * What a start of a new root resolves from the file system ({@link #planOpenRootReads}); a start that continues a root opens none, but the root may have to take its write surface
+     * back from the others ({@link #planActiveRootReads}).
      */
     @Transactional(readOnly = true)
     public ReadPlan planStartReads(JsonNode raw, WorkflowCall call) {
         MinimalStartRequest request = minimalStartRequest(raw);
+        if (request.rootId() != null) {
+            return planActiveRootReads();
+        }
         Optional<String> workspace = startWorkspace(request, call);
-        if (request.rootId() != null || workspace.isEmpty()) {
+        if (workspace.isEmpty()) {
             return ReadPlan.NONE;
         }
         Fresh fresh = minimalTask(request, workspace.get(), 0);
         return new ReadPlan(-1, rootIdentityRequests(fresh.task(), fresh.frame()));
     }
 
+    /**
+     * What a claim, a guarded start or the continuing of a root resolves from the file system: where the write surfaces of the active roots whose identity is not stored for the same inputs
+     * physically are. The root that continues takes its surface back by them, in the same transaction, without reading a file.
+     */
+    @Transactional(readOnly = true)
+    public ReadPlan planActiveRootReads() {
+        return new ReadPlan(-1, activeRootRequests());
+    }
+
     private List<ReadRequest> rootIdentityRequests(TaskEnvelope task, ConvergenceFrame frame) {
         List<ReadRequest> requests = new ArrayList<>();
         requests.add(new ReadRequest.HostId());
         requests.add(new ReadRequest.RootIdentity(frame.workspace().locator(), ConvergenceLogic.writeSurface(task, frame), false));
+        requests.addAll(activeRootRequests());
+        return requests;
+    }
+
+    private List<ReadRequest> activeRootRequests() {
+        List<ReadRequest> requests = new ArrayList<>();
         for (ActiveRootRow row : store.readActiveRoots()) {
             ConvergenceRoot active = mapper.readValue(row.rootJson(), ConvergenceRoot.class);
             ConvergenceLogic.Stored stored = row.identityJson() == null ? null : ConvergenceLogic.storedIdentity(mapper, row.identityJson(), row.surfaceDigest());
@@ -373,38 +392,172 @@ public class WorkflowService {
         String host = reads.hostId();
         ConvergenceLogic.Conflict conflict;
         try {
-            conflict = store.insertConvergenceRoot(rootRow(root), root.parentRootId(), actives -> planInsertion(root, actives, host, reads));
+            conflict = store.insertConvergenceRoot(rootRow(root), root.parentRootId(), actives -> planInsertion(root, actives, host, reads, call));
         } catch (StoreException lost) {
-            if (lost.code() != StoreCode.ROOT_CONFLICT) {
-                throw lost;
-            }
-            // A root of the same write surface was opened at the same moment and its commit holds the unique key. The transaction is past reading, so this answer names no root; the
-            // next start finds the winner in the check of the active roots and answers with its details. This call ends here: it is not run again.
-            throw new WorkflowFailure(WorkflowCode.ROOT_CONFLICT, msg("workflow.service.rootSurfaceHeld"), details("reason", "ROOT_SURFACE_HELD"), lost);
+            throw surfaceHeld(lost);
         }
         if (conflict != null) {
-            return new Inserted.Blocked(rootConflict(ConvergenceLogic.conflictDetails(conflict), path, call, rootId -> continuity.ownsRoot(call, rootId)));
+            return new Inserted.Blocked(rootConflict(ConvergenceLogic.conflictDetails(conflict), new Hold(call, reads, path)));
         }
         return new Inserted.Opened(root);
     }
 
-    private RootInsertionPlan<ConvergenceLogic.Conflict> planInsertion(ConvergenceRoot root, List<ActiveRootRow> rows, String host, FileReads reads) {
+    /**
+     * The failure of a take of a write surface that ended in the store's ROOT_CONFLICT; anything else the store threw is returned as it is. The store answers every lost race of the take
+     * with that code, the same set of failures that it answers a lost race of a lease with LEASE_CONFLICT ({@link #leaseRaceLost}): another root took the surface at the same moment (a
+     * root opened with the same key, or the owner of an idle root started it before the give-up), the database was busy, or the take was the victim of a deadlock. The transaction is past
+     * reading, so this answer names no root; the next call finds the root that holds the files in the check of the active roots and answers with its details. This call ends here: it is
+     * not run again.
+     */
+    private static RuntimeException surfaceHeld(StoreException lost) {
+        if (lost.code() != StoreCode.ROOT_CONFLICT) {
+            return lost;
+        }
+        return new WorkflowFailure(WorkflowCode.ROOT_CONFLICT, msg("workflow.service.rootSurfaceHeld"), details("reason", "ROOT_SURFACE_HELD"), lost);
+    }
+
+    /** The active roots as a caller meets them: the ones that hold files against it, the idle ones it may take files from, and the identities derived on the way (saved by the store). */
+    private record Judged(List<ConvergenceLogic.Identified> blocking, List<ConvergenceLogic.Identified> idle, List<IdentityRow> fresh, ConvergenceLogic.Identified candidate) {
+    }
+
+    /**
+     * What a start or a claim is judged against: the active roots, except those nobody is running that another session holds. A root with no run in progress (none running or paused),
+     * held by a session other than the caller's, does not keep the caller from the files it covers; its owner session stays bound to it (the root is still active for the owner, who
+     * continues it or releases it with {@code release_convergence_root}), and a replaced parent is never left out. A root that waits for a review or for the user is never left out: it
+     * holds its files until its gate is resolved. {@code candidateRootId} is the root that asks (when it exists already): it is neither blocking nor idle, it is returned as {@code candidate}.
+     */
+    private Judged judge(List<ActiveRootRow> rows, String candidateRootId, String parentRootId, FileReads reads, WorkflowCall call) {
         // Where the locations are is what the entry resolved before this transaction; a root that is active now and was not (or had another identity) then is refused as stale.
         ConvergenceLogic.IdentityResolver resolver = reads::identity;
-        List<ConvergenceLogic.Identified> actives = new ArrayList<>();
+        List<ConvergenceLogic.Identified> blocking = new ArrayList<>();
+        List<ConvergenceLogic.Identified> idle = new ArrayList<>();
         List<IdentityRow> fresh = new ArrayList<>();
+        ConvergenceLogic.Identified candidate = null;
         for (ActiveRootRow row : rows) {
             ConvergenceRoot activeRoot = mapper.readValue(row.rootJson(), ConvergenceRoot.class);
             ConvergenceLogic.Stored stored = row.identityJson() == null ? null : ConvergenceLogic.storedIdentity(mapper, row.identityJson(), row.surfaceDigest());
             ConvergenceLogic.Identified identified = ConvergenceLogic.activeRootIdentity(digests, activeRoot, stored, resolver);
-            actives.add(identified);
             if (identified.fresh()) {
                 fresh.add(new IdentityRow(row.rootId(), ConvergenceLogic.identityJson(mapper, identified.identity()), identified.surfaceDigest()));
             }
+            if (row.rootId().equals(candidateRootId)) {
+                candidate = identified;
+            } else if (isIdleElsewhere(activeRoot, parentRootId, call)) {
+                idle.add(identified);
+            } else {
+                blocking.add(identified);
+            }
         }
-        ConvergenceLogic.Plan plan = ConvergenceLogic.planRootInsertion(digests, root, actives, host, resolver);
-        return new RootInsertionPlan<>(plan.conflict(), fresh,
-                new IdentityRow(root.rootId(), ConvergenceLogic.identityJson(mapper, plan.identity()), plan.surfaceDigest()), plan.surfaceKey());
+        return new Judged(blocking, idle, fresh, candidate);
+    }
+
+    private RootInsertionPlan<ConvergenceLogic.Conflict> planInsertion(ConvergenceRoot root, List<ActiveRootRow> rows, String host, FileReads reads, WorkflowCall call) {
+        Judged judged = judge(rows, null, root.parentRootId(), reads, call);
+        ConvergenceLogic.Plan plan = ConvergenceLogic.planRootInsertion(digests, root, judged.blocking(), host, reads::identity);
+        return new RootInsertionPlan<>(plan.conflict(), judged.fresh(),
+                new IdentityRow(root.rootId(), ConvergenceLogic.identityJson(mapper, plan.identity()), plan.surfaceDigest()), plan.surfaceKey(), yielding(root, plan.identity(), plan.surfaceKey(), judged));
+    }
+
+    /** The idle roots that give their rows up to the candidate: the ones its files overlap. The give-up is conditional on the revision the root was read at. */
+    private List<WorkflowStore.Yield> yielding(ConvergenceRoot candidate, WorkspaceIdentity.Identity identity, String surfaceKey, Judged judged) {
+        return ConvergenceLogic.takenFrom(digests, candidate, identity, surfaceKey, judged.idle()).stream().map(taken -> new WorkflowStore.Yield(taken.root().rootId(), taken.root().revision())).toList();
+    }
+
+    /**
+     * Whether the root is one the caller may take the files from: no run in progress (none running or paused), not waiting for a review or for the user, not the caller's session's. A root
+     * that is gated holds its files until its gate is resolved, so a start is refused as long as it waits. A call with no session reading blocks as before.
+     */
+    private boolean isIdleElsewhere(ConvergenceRoot active, String parentRootId, WorkflowCall call) {
+        return call != null && !active.rootId().equals(parentRootId) && !active.state().isGated() && !continuity.ownsRoot(call, active.rootId()) && !store.hasLiveRun(active.rootId());
+    }
+
+    /** The hold a start of a root asks for: whose call it is, what the entry read before the transaction, and which tool path the refusal is worded for. */
+    private record Hold(WorkflowCall call, FileReads reads, RootConflictTerms.Entry path) {
+    }
+
+    /**
+     * An attempt of a root (a claim, or the start of a run) works on the files of the root's write surface only while the root holds its row of that surface. A root that nobody
+     * runs and that another session started on the same files gave the row up to that session's root: its owner may take it back only when no other root holds those files now
+     * (ROOT_CONFLICT otherwise, naming the root that does), and it takes it from the idle ones that overlap, as a new root would. The take is in the transaction of the call, so a refusal
+     * that is thrown leaves nothing, and the unique key of the surface is the last guard when two take it at the same moment. A refusal that is returned as a value commits what it recorded
+     * (a rejected retry, a root moved to review), so a claim takes only where it issues its lease or gates the root, after those refusals: {@link #assertSurfaceFree} answers the conflict before.
+     * The order in which the rows are taken is the store's ({@code WorkflowStore#holdSurface}), the same for every caller; this method orders nothing.
+     *
+     * @return false when the root was no longer at the revision this call read: nothing was taken, and the caller refuses with the answer of its own write of the root that lost the same race
+     */
+    private boolean holdSurface(ConvergenceRoot root, Hold hold) {
+        if (holdsOrNeedsNoSurface(root)) {
+            return true;
+        }
+        WorkflowStore.SurfaceTake<ConvergenceLogic.Conflict> take;
+        try {
+            take = store.holdSurface(root.rootId(), root.revision(), rows -> planHold(root, rows, hold), clock.instant().toString());
+        } catch (StoreException lost) {
+            throw surfaceHeld(lost);
+        }
+        if (take.conflict() != null) {
+            throw rootConflict(ConvergenceLogic.conflictDetails(take.conflict()), hold);
+        }
+        return take.rootAtRevision();
+    }
+
+    /**
+     * Whether the continue of the caller's own open root would hold its files now: no root holds them against it (the same read as the take, nothing written). This only decides what the
+     * refusal offers: when the read cannot be made because the root moved on in the meantime (it is no longer among the active roots), the continue is not offered and the refusal is
+     * answered as it stands, with the root that blocks, like a refusal whose ownership cannot be read ({@link #rootConflict}).
+     */
+    private boolean continuingHoldsFiles(String rootId, Hold hold) {
+        try {
+            return surfaceConflict(requireSnapshot(rootId).root(), hold) == null;
+        } catch (WorkflowFailure moved) {
+            if (moved.code() != WorkflowCode.STALE_REVISION) {
+                throw moved;
+            }
+            LOG.debug("Root {} moved while the refusal checked whether continuing it would hold its files; the continue is not offered", rootId, moved);
+            return false;
+        }
+    }
+
+    /** A root that is not open has no take to make (a gated root is not given up), and one that holds its row asks for nothing. */
+    private boolean holdsOrNeedsNoSurface(ConvergenceRoot root) {
+        return root.state() != RootState.OPEN || store.holdsSurface(root.rootId());
+    }
+
+    /**
+     * The conflict that refuses the take of the root's write surface now, found by a read that writes nothing; null when the root needs no take or takes the files freely. It is the plan of
+     * {@link #holdSurface} without its write, so a claim that ends in a refusal that is recorded (a rejected retry) is answered ROOT_CONFLICT as before and takes nothing from the idle roots.
+     */
+    private ConvergenceLogic.Conflict surfaceConflict(ConvergenceRoot root, Hold hold) {
+        return holdsOrNeedsNoSurface(root) ? null : planHold(root, store.readActiveRoots(), hold).conflict();
+    }
+
+    private void assertSurfaceFree(ConvergenceRoot root, Hold hold) {
+        ConvergenceLogic.Conflict conflict = surfaceConflict(root, hold);
+        if (conflict != null) {
+            throw rootConflict(ConvergenceLogic.conflictDetails(conflict), hold);
+        }
+    }
+
+    /**
+     * Moves an open root to its review (NEEDS_REVIEW) as a claim is refused. A root that waits for a review holds its files until the gate is resolved (the other sessions' starts are refused
+     * for it, see {@link #judge}), so it holds its row of the surface first, and the take is refused with ROOT_CONFLICT while another root holds the files: a gated root that held no row
+     * would let the root that holds it run on the files the gate keeps.
+     */
+    private void gateRootForReview(ConvergenceRoot root, Hold hold) {
+        if (!holdSurface(root, hold)) {
+            throw rootMovedWhileApplying(root);
+        }
+        moveRootToReview(root);
+    }
+
+    private RootInsertionPlan<ConvergenceLogic.Conflict> planHold(ConvergenceRoot root, List<ActiveRootRow> rows, Hold hold) {
+        Judged judged = judge(rows, root.rootId(), root.parentRootId(), hold.reads(), hold.call());
+        if (judged.candidate() == null) {
+            throw staleRoot(root.revision(), null);
+        }
+        WorkspaceIdentity.Identity identity = judged.candidate().identity();
+        String surfaceKey = ConvergenceLogic.surfaceKey(digests, identity);
+        return new RootInsertionPlan<>(ConvergenceLogic.findRootConflict(root, identity, judged.blocking()), judged.fresh(), null, surfaceKey, yielding(root, identity, surfaceKey, judged));
     }
 
     /** Releases a root: the owner session directly, another session only with no owner online and the user's decision. */
@@ -697,13 +850,18 @@ public class WorkflowService {
         return new WorkflowFailure(WorkflowCode.STALE_REVISION, msg("workflow.service.expectedRevisionMatchConvergenceRoot"), details("expectedRevision", expected, "actualRevision", actual));
     }
 
-    /** ROOT_CONFLICT with what the caller can do next, on both start paths. Ownership that cannot be read leaves only the actions that need none. */
-    private WorkflowFailure rootConflict(Map<String, Object> conflict, RootConflictTerms.Entry path, WorkflowCall call, java.util.function.Predicate<String> ownsRoot) {
+    /**
+     * ROOT_CONFLICT with what the caller can do next, on both start paths. Ownership that cannot be read leaves only the actions that need none. {@code hold} is the call that was refused:
+     * its session, the reads of the entry and the tool path; the answer to continue the caller's own root is given only when that continue would take the files now.
+     */
+    private WorkflowFailure rootConflict(Map<String, Object> conflict, Hold hold) {
+        RootConflictTerms.Entry path = hold.path();
+        WorkflowCall call = hold.call();
         String rootId = String.valueOf(conflict.getOrDefault("rootId", ""));
         RootState state = conflict.get("blockerState") instanceof RootState known ? known : null;
         boolean owned;
         try {
-            owned = ownsRoot != null && !rootId.isEmpty() && ownsRoot.test(rootId);
+            owned = !rootId.isEmpty() && continuity.ownsRoot(call, rootId);
         } catch (DataAccessException unreadable) {
             LOG.warn("The ownership of root {} could not be read", rootId, unreadable);
             owned = false;
@@ -734,8 +892,10 @@ public class WorkflowService {
                 view = RootOwnerPresence.View.notRead("PRESENCE_UNAVAILABLE", clock);
             }
         }
+        // Continuing the caller's own root is offered only when that continue would hold the files now: the root holds its row, or the take of its files is free (the root that took them ended
+        // or is idle). One that gave them up to a root that holds them still would be refused the same way (ROOT_CONFLICT) on the continue.
         RootConflictTerms.Standing action = gated ? RootConflictTerms.Standing.RESOLVE : !owned || state != RootState.OPEN ? RootConflictTerms.Standing.DISJOINT
-                : runId != null ? RootConflictTerms.Standing.RUNNING : RootConflictTerms.Standing.CONTINUE;
+                : runId != null ? RootConflictTerms.Standing.RUNNING : continuingHoldsFiles(rootId, hold) ? RootConflictTerms.Standing.CONTINUE : RootConflictTerms.Standing.DISJOINT;
         RootConflictTerms.ReleasePath release = owned ? RootConflictTerms.ReleasePath.OWN : view.unavailable() != null ? RootConflictTerms.ReleasePath.NONE
                 : view.state() == PresenceState.ONLINE ? RootConflictTerms.ReleasePath.ONLINE : RootConflictTerms.ReleasePath.APPROVAL;
         Map<String, Object> releaseArguments = details("rootId", rootId, "expectedRevision", conflict.get("rootRevision"));
@@ -794,14 +954,15 @@ public class WorkflowService {
      * they wrote and the entry answers the failure. A refusal that wrote nothing is thrown and rolls everything back. Only a lease has a receipt.
      *
      * @param providers the skill registry, read by the entry before this transaction
+     * @param reads where the active roots' locations physically are, resolved by the entry before this transaction ({@link #planActiveRootReads}); a root that gave its write surface up takes it back from them
      */
     @Transactional
-    public ClaimOutcome claimWorkflowAttempt(JsonNode raw, WorkflowCall call, List<SkillProvider> providers, OperationKey operation) {
+    public ClaimOutcome claimWorkflowAttempt(JsonNode raw, WorkflowCall call, List<SkillProvider> providers, FileReads reads, OperationKey operation) {
         Optional<AttemptLease> stored = receipts.replay(operation, AttemptLease.class);
         if (stored.isPresent()) {
             return new ClaimOutcome.Leased(stored.get());
         }
-        ClaimOutcome outcome = claim(proposalFrom(raw), call, true, providers);
+        ClaimOutcome outcome = claim(proposalFrom(raw), call, true, providers, new Hold(call, reads, RootConflictTerms.Entry.OPEN));
         if (outcome instanceof ClaimOutcome.Leased leased) {
             receipts.record(operation, leased.lease());
         }
@@ -809,7 +970,7 @@ public class WorkflowService {
     }
 
     /** Claims the lease for a proposal whose task envelope and frame are in place. The providers are what the entry read before the transaction; the prior failure's evidence is read from the attachment rows here. */
-    private ClaimOutcome claim(AttemptProposal proposal, WorkflowCall call, boolean checkAccess, List<SkillProvider> providers) {
+    private ClaimOutcome claim(AttemptProposal proposal, WorkflowCall call, boolean checkAccess, List<SkillProvider> providers, Hold hold) {
         String actorId = call.actorId();
         WorkflowPlan plan = proposal.plan();
         byte[] key = signingKey();
@@ -847,6 +1008,15 @@ public class WorkflowService {
         // An issued but unstarted lease does not block: the store supersedes it when this claim commits.
         SnapshotDocs snapshot = requireSnapshot(rootId);
         ConvergenceRoot root = snapshot.root();
+        // A root that another session owns is not this session's to claim an attempt of, whatever the claim would change: refused before anything is read of the files or written (a lease
+        // that supersedes the owner's, the revision, the files of an idle root, a move to review). The owner is the one the start of a run binds (WorkflowContinuity); a root nobody owns is
+        // claimed as before.
+        if (checkAccess && continuity.ownedByOtherSession(call, rootId)) {
+            throw new WorkflowFailure(WorkflowCode.INVALID_INPUT, msg("workflow.service.claimRootNotOwned", "rootId", rootId), details("field", "rootId", "reason", "ROOT_NOT_OWNED", "rootId", rootId));
+        }
+        // A root that gave its files up to another session's root cannot be leased while another root holds those files: that is answered first, from a read that writes nothing. The take of
+        // the files itself waits for the point where the claim is not refused any more (see the gate and the lease below), so a refused claim leaves the other idle roots their rows.
+        assertSurfaceFree(root, hold);
         long revision = root.revision();
         if (proposal.expectedRevision() != revision) {
             throw staleRoot(proposal.expectedRevision(), revision);
@@ -855,11 +1025,8 @@ public class WorkflowService {
         ConvergenceDigests proposed = task.equals(root.taskEnvelope()) && proposal.frame().equals(root.frame()) ? root.digests() : digests.convergence(taskDigest, proposal.frame());
         boolean frameChanged = proposed.changesMeaningOf(root.digests()) || artifactRolesChanged(root.frame(), proposal.frame());
         if (frameChanged) {
-            if (checkAccess && continuity.ownedByOtherSession(call, rootId)) {
-                throw new WorkflowFailure(WorkflowCode.INVALID_INPUT, msg("workflow.service.claimFrameChangeRootNotOwned", "rootId", rootId), details("field", "rootId", "reason", "ROOT_NOT_OWNED", "rootId", rootId));
-            }
             if (root.state() == RootState.OPEN) {
-                moveRootToReview(root);
+                gateRootForReview(root, hold);
             }
             Map<String, Object> expected = details("taskDigest", root.taskDigest(), "workspaceDigest", root.workspaceDigest(), "controlDigest", root.controlDigest(), "operationalDigest", root.operationalDigest());
             return new ClaimOutcome.Refused(new WorkflowFailure(WorkflowCode.FRAME_REVIEW_REQUIRED, msg("workflow.service.taskControlWorkspaceOperationalArtifact"), details("rootId", rootId, "expected", expected, "proposed", proposed)));
@@ -875,7 +1042,7 @@ public class WorkflowService {
             throw new WorkflowFailure(WorkflowCode.LEASE_CONFLICT, msg("workflow.service.previousFullAttemptStillActive"), details("rootId", rootId, "epoch", epoch));
         }
         if (attempts.size() >= root.frame().operationalSettings().maxAttemptsPerEpoch()) {
-            moveRootToReview(root);
+            gateRootForReview(root, hold);
             return new ClaimOutcome.Refused(new WorkflowFailure(WorkflowCode.ATTEMPT_BUDGET_EXHAUSTED, msg("workflow.service.attemptBudgetStartedConvergence", "attempts", root.frame().operationalSettings().maxAttemptsPerEpoch()),
                     details("rootId", rootId, "epoch", epoch, "attemptsUsed", attempts.size())));
         }
@@ -913,6 +1080,10 @@ public class WorkflowService {
                         msg("workflow.service.retryChangesNothing"), details("rootId", rootId, "route", "diagnose"));
             }
         }
+        // Every refusal that writes is behind: a lease is issued from here, and only a lease works on the files, so only here the root takes its row of the surface back.
+        if (!holdSurface(root, hold)) {
+            throw rootMovedWhileLeasing(rootId);
+        }
         Instant issuedAt = clock.instant();
         ConvergenceRoot updatedRoot = root.bumped(issuedAt);
         // One writing of the proposal serves its digest and its stored text.
@@ -924,10 +1095,29 @@ public class WorkflowService {
         validator.attemptLease(lease);
         LeaseRow row = new LeaseRow(lease.leaseId(), rootId, lease.rootRevision(), epoch, lease.ordinal(), LeaseState.ISSUED, mapper.writeValueAsString(lease), sealedProposal.json(),
                 lease.issuedAt().toString(), lease.expiresAt().toString());
-        if (!store.insertAttemptLease(rootRow(updatedRoot), revision, row)) {
-            throw new WorkflowFailure(WorkflowCode.LEASE_CONFLICT, msg("workflow.service.convergenceRootChangedWhileLease"), details("rootId", rootId));
+        boolean issued;
+        try {
+            issued = store.insertAttemptLease(rootRow(updatedRoot), revision, row);
+        } catch (StoreException lost) {
+            throw leaseRaceLost(lost, msg("workflow.service.convergenceRootChangedWhileLease"), details("rootId", rootId));
+        }
+        if (!issued) {
+            throw rootMovedWhileLeasing(rootId);
         }
         return new ClaimOutcome.Leased(lease);
+    }
+
+    private static WorkflowFailure rootMovedWhileLeasing(String rootId) {
+        return new WorkflowFailure(WorkflowCode.LEASE_CONFLICT, msg("workflow.service.convergenceRootChangedWhileLease"), details("rootId", rootId));
+    }
+
+    /**
+     * The failure of a write of a lease that the store ended as a lost race (its LEASE_CONFLICT: a lease was just issued, the database was busy, or this call was the victim of a deadlock),
+     * as the caller is told of a lost race: LEASE_CONFLICT, the transaction rolled back whole. The store answers a lost race of the take of a write surface with ROOT_CONFLICT for the same
+     * set of failures ({@link #surfaceHeld}). Anything else the store threw is returned as it is.
+     */
+    private static RuntimeException leaseRaceLost(StoreException lost, MessageRef message, Map<String, Object> details) {
+        return lost.code() == StoreCode.LEASE_CONFLICT ? new WorkflowFailure(WorkflowCode.LEASE_CONFLICT, message, details, lost) : lost;
     }
 
     private ConvergenceRoot.RetryRejection retryRejection(long epoch, RetryRejectionReason reason, String actorId, String fingerprint, String targetDigest, List<String> evidence) {
@@ -954,8 +1144,12 @@ public class WorkflowService {
     private void moveRootToReview(ConvergenceRoot root) {
         ConvergenceRoot updated = root.bumped(clock.instant()).withState(RootState.NEEDS_REVIEW);
         if (!store.updateConvergenceRoot(rootRow(updated), root.revision(), root.currentEpoch(), null)) {
-            throw new WorkflowFailure(WorkflowCode.STALE_REVISION, msg("workflow.service.convergenceRootChangedWhileApplying"), details("rootId", root.rootId()));
+            throw rootMovedWhileApplying(root);
         }
+    }
+
+    private static WorkflowFailure rootMovedWhileApplying(ConvergenceRoot root) {
+        return new WorkflowFailure(WorkflowCode.STALE_REVISION, msg("workflow.service.convergenceRootChangedWhileApplying"), details("rootId", root.rootId()));
     }
 
     private static WorkflowFailure releasedRootError(ConvergenceRoot root, ConvergenceRoot.Release release) {
@@ -1017,14 +1211,17 @@ public class WorkflowService {
 
     // ---- start_guarded_workflow and start_workflow
 
-    /** @param installed the skills a start may name ({@link SkillRegistry#installedSkillIds}), read by the entry before this transaction */
+    /**
+     * @param installed the skills a start may name ({@link SkillRegistry#installedSkillIds}), read by the entry before this transaction
+     * @param reads where the active roots' locations physically are, resolved by the entry before this transaction ({@link #planActiveRootReads})
+     */
     @Transactional
-    public WorkflowReceipt startGuardedWorkflow(JsonNode raw, WorkflowCall call, Set<String> installed, OperationKey operation) {
-        return receipts.once(operation, WorkflowReceipt.class, () -> startGuarded(raw, call, installed));
+    public WorkflowReceipt startGuardedWorkflow(JsonNode raw, WorkflowCall call, Set<String> installed, FileReads reads, OperationKey operation) {
+        return receipts.once(operation, WorkflowReceipt.class, () -> startGuarded(raw, call, installed, reads));
     }
 
-    private WorkflowReceipt startGuarded(JsonNode raw, WorkflowCall call, Set<String> installed) {
-        WorkflowReceipt receipt = guardedStart(raw, installed);
+    private WorkflowReceipt startGuarded(JsonNode raw, WorkflowCall call, Set<String> installed, FileReads reads) {
+        WorkflowReceipt receipt = guardedStart(raw, installed, new Hold(call, reads, RootConflictTerms.Entry.OPEN));
         GuardedRun binding = guardedBinding(receipt.runId());
         if (binding == null) {
             throw new WorkflowFailure(WorkflowCode.LEASE_CONFLICT, msg("workflow.service.startedWorkflowGuardedRootBinding"));
@@ -1039,14 +1236,14 @@ public class WorkflowService {
     }
 
     /** A guarded start from the caller's input. */
-    private WorkflowReceipt guardedStart(JsonNode raw, Set<String> installed) {
+    private WorkflowReceipt guardedStart(JsonNode raw, Set<String> installed, Hold hold) {
         // Checked before the contract so that every malformed list answers SKILLS_REQUIRED with what to submit.
         List<SkillDeclaration> skills = declaredSkills(skillsOf(raw), installed);
         assertNoPlaceholders(skills);
         GuardedInput input = guardedRequest(raw);
         // The longer path opens a change: the kind it is counted under, as the observation of its start is (WorkflowContinuity.prepareWorkflowStart).
         store.requireBlockedPlanGuardForUpdate();
-        return startRun(input.request(), skills, input.issued(), null, WorkflowKind.CHANGE, true);
+        return startRun(input.request(), skills, input.issued(), null, WorkflowKind.CHANGE, hold, true);
     }
 
     /**
@@ -1055,8 +1252,9 @@ public class WorkflowService {
      *
      * @param issued the attempt, when finding the plan in the request already had to read it
      * @param kind the kind the run is opened as; it and the skills the start declared are stored with the run in this transaction, which is what the statistics count (V22)
+     * @param hold the root must hold its write surface when its run starts ({@link #holdSurface}); a lease issued before another root took the files is no leave to write them
      */
-    private WorkflowReceipt startRun(GuardedStartRequest request, List<SkillDeclaration> skills, IssuedAttempt issued, ClassificationAdvice.StartAdvice advice, WorkflowKind kind, boolean checkBlockedPlan) {
+    private WorkflowReceipt startRun(GuardedStartRequest request, List<SkillDeclaration> skills, IssuedAttempt issued, ClassificationAdvice.StartAdvice advice, WorkflowKind kind, Hold hold, boolean checkBlockedPlan) {
         WorkflowPlan plan = request.plan();
         planner.assertIntegrity(plan, signingKey());
         assurance.assertStrictPlan(plan, "guardedStart");
@@ -1069,6 +1267,9 @@ public class WorkflowService {
             throw new WorkflowFailure(WorkflowCode.LEASE_CONFLICT, msg("workflow.service.attemptLeaseMissingConsumedSuperseded"), details("leaseId", leaseId));
         }
         AttemptLease lease = attempt.lease();
+        if (!holdSurface(attempt.root(), hold)) {
+            throw leaseNotConsumed(leaseId);
+        }
         long expected = request.expectedRootRevision();
         if (expected != attempt.root().revision() || expected != lease.rootRevision()) {
             throw new WorkflowFailure(WorkflowCode.STALE_REVISION, msg("workflow.service.guardedStartTargetCurrentConvergence"), details("expectedRevision", expected, "actualRevision", attempt.root().revision()));
@@ -1080,10 +1281,20 @@ public class WorkflowService {
             assertPlanUsable(planComparison(attempt.root(), kind, plan, Set.of()));
         }
         WorkflowReceipt receipt = newRunningReceipt(plan, skillDeclaration(skills, request.classificationOperationKey(), advice));
-        if (store.insertGuardedRun(runRow(receipt), leaseId, expected, clock.instant().toString(), kind.name(), skills.stream().map(SkillDeclaration::bareId).toList()) == null) {
-            throw new WorkflowFailure(WorkflowCode.LEASE_CONFLICT, msg("workflow.service.attemptLeaseCouldConsumedAtomically"), details("leaseId", leaseId));
+        GuardedBinding started;
+        try {
+            started = store.insertGuardedRun(runRow(receipt), leaseId, expected, clock.instant().toString(), kind.name(), skills.stream().map(SkillDeclaration::bareId).toList());
+        } catch (StoreException lost) {
+            throw leaseRaceLost(lost, msg("workflow.service.attemptLeaseCouldConsumedAtomically"), details("leaseId", leaseId));
+        }
+        if (started == null) {
+            throw leaseNotConsumed(leaseId);
         }
         return receipt;
+    }
+
+    private static WorkflowFailure leaseNotConsumed(String leaseId) {
+        return new WorkflowFailure(WorkflowCode.LEASE_CONFLICT, msg("workflow.service.attemptLeaseCouldConsumedAtomically"), details("leaseId", leaseId));
     }
 
     /** A guarded start's request, and the issued attempt when finding the plan in it had to read that already. */
@@ -1272,6 +1483,9 @@ public class WorkflowService {
         store.requireBlockedPlanGuardForUpdate();
         int priorFileCount = continuity.priorFileCount(call);
         continuity.settle(call);
+        if (kind == WorkflowKind.INQUIRY) {
+            continuity.requireInquirySlot(call);
+        }
         Fresh fresh = rootId == null ? minimalTask(request, workspace.orElseThrow(), priorFileCount) : null;
         Continued continued = rootId == null ? null : continuedRoot(rootId, request);
         TaskEnvelope task = continued != null ? continued.root().taskEnvelope() : fresh.task();
@@ -1307,11 +1521,13 @@ public class WorkflowService {
         AttemptProposal proposal = new AttemptProposal(ContractValidator.CONTRACT_VERSION, root.rootId(), root.revision(), null, null, plan,
                 continued != null ? continued.outputTargets() : request.writeTargets(), continued != null ? continued.priorFailure() : null);
         // A start is one transaction: a claim that is refused here rolls the whole start back.
-        AttemptLease lease = switch (claim(withRootDocuments(proposal, root), call, false, providers)) {
+        // A root this start continues may have given its files up to another session's root: the claim takes them back or is refused with ROOT_CONFLICT.
+        Hold hold = new Hold(call, reads, RootConflictTerms.Entry.START);
+        AttemptLease lease = switch (claim(withRootDocuments(proposal, root), call, false, providers, hold)) {
             case ClaimOutcome.Leased leased -> leased.lease();
             case ClaimOutcome.Refused refused -> throw refused.failure();
         };
-        WorkflowReceipt receipt = startRun(new GuardedStartRequest(ContractValidator.CONTRACT_VERSION, lease.leaseId(), lease.rootRevision(), plan, skills, request.classificationOperationKey()), skills, null, advice, kind, false);
+        WorkflowReceipt receipt = startRun(new GuardedStartRequest(ContractValidator.CONTRACT_VERSION, lease.leaseId(), lease.rootRevision(), plan, skills, request.classificationOperationKey()), skills, null, advice, kind, hold, false);
         continuity.prepareWorkflowStart(call, root.rootId(), isChild(call), kind);
         // Only database rows here (no file is read): the journal row makes the run's phase planning, and the baseline the entry walked before this transaction is written with it, so a start
         // whose baseline cannot be written leaves no run. A start without a change plan has none to take and stays in planning.
@@ -1943,8 +2159,11 @@ public class WorkflowService {
     public record SessionWorkflows(String schemaVersion, List<SessionRun> runs, List<SessionRoot> openRoots) { }
 
     @Transactional(readOnly = true)
-    public SessionWorkflows listSessionWorkflows(WorkflowCall call) {
-        var rows = continuity.store().listSessionWorkflows(continuity.correlate(call.sessionId()), call.host(), call.sessionId());
+    public SessionWorkflows listSessionWorkflows(WorkflowCall call, String openRootAfter) {
+        String correlation = continuity.correlate(call.sessionId());
+        var rows = openRootAfter == null
+                ? continuity.store().listSessionWorkflows(correlation, call.host(), call.sessionId())
+                : continuity.store().listSessionRecoveryPage(correlation, call.host(), call.sessionId(), openRootAfter);
         List<SessionRun> runs = new ArrayList<>();
         List<SessionRoot> openRoots = new ArrayList<>();
         for (var row : rows) {
@@ -2121,16 +2340,24 @@ public class WorkflowService {
         return receipts.once(operation, WorkflowReceipt.class, () -> {
             WorkflowReceipt receipt = requireRun(runId);
             GuardedRun binding = guardedBinding(runId);
-            if (binding == null) {
-                throw new WorkflowFailure(WorkflowCode.RUN_NOT_FOUND, msg("workflow.service.runFoundWorkflowStorage"), details("runId", runId));
-            }
-            WorkflowContinuity.TransitionTurn turn = continuity.transitionTurn(call, binding.root().rootId(), isChild(call))
-                    .orElseThrow(() -> new WorkflowFailure(WorkflowCode.INVALID_INPUT, msg("workflow.service.resumeNotOwned", "runId", runId),
-                            details("field", "runId", "reason", "INSTANCE_NOT_OWNED", "runId", runId)));
+            WorkflowContinuity.TransitionTurn turn = ownedTurn(runId, binding, call);
             WorkflowReceipt paused = lifecycleChange(receipt, expectedRevision, binding, RunState.PAUSED, new WorkflowReceipt.Pause(reason, resumeCondition, clock.instant()));
             continuity.recordTransition(turn, WorkflowEvents.Transition.PAUSE, paused.runId(), paused.revision());
             return paused;
         });
+    }
+
+    /**
+     * The served turn of a caller that may take the run's instance: the session that opened it, or for a subagent the one that opened it itself. A hold or an abort of a run the caller
+     * may not take is refused, so that no session ends or holds another's work.
+     */
+    private WorkflowContinuity.TransitionTurn ownedTurn(String runId, GuardedRun binding, WorkflowCall call) {
+        if (binding == null) {
+            throw new WorkflowFailure(WorkflowCode.RUN_NOT_FOUND, msg("workflow.service.runFoundWorkflowStorage"), details("runId", runId));
+        }
+        return continuity.transitionTurn(call, binding.root().rootId(), isChild(call))
+                .orElseThrow(() -> new WorkflowFailure(WorkflowCode.INVALID_INPUT, msg("workflow.service.resumeNotOwned", "runId", runId),
+                        details("field", "runId", "reason", "INSTANCE_NOT_OWNED", "runId", runId)));
     }
 
     /** Run and root revisions fence the hold against cancellation and concurrent root gates in the same transaction. */
@@ -2177,9 +2404,18 @@ public class WorkflowService {
         return Optional.of(runId);
     }
 
+    /**
+     * Ends the attempt of a run the caller may take. Only the attempt ends: it counts toward the root's attempt limit, and the root is left as the attempt leaves it (open for a retry, in
+     * review at the limit). A root is given up with {@code release_convergence_root}, never by an abort.
+     */
     @Transactional
     public WorkflowReceipt abortWorkflow(String runId, long expectedRevision, WorkflowCall call, OperationKey operation) {
-        return receipts.once(operation, WorkflowReceipt.class, () -> observeTransition(runId, call, WorkflowEvents.Transition.ABORT, () -> abortRun(runId, expectedRevision)));
+        return receipts.once(operation, WorkflowReceipt.class, () -> {
+            WorkflowContinuity.TransitionTurn turn = ownedTurn(runId, guardedBinding(runId), call);
+            WorkflowReceipt aborted = abortRun(runId, expectedRevision);
+            continuity.recordTransition(turn, WorkflowEvents.Transition.ABORT, aborted.runId(), aborted.revision());
+            return aborted;
+        });
     }
 
     private static final String STOP_RECHECK_LIMIT_EXHAUSTED = "STOP_RECHECK_LIMIT_EXHAUSTED";
@@ -2253,7 +2489,7 @@ public class WorkflowService {
         return journal.phase(runId).isPresent() ? journal.plan(runId).files() : Set.of();
     }
 
-    private WorkflowKind storedKind(String runId) {
+    WorkflowKind storedKind(String runId) {
         String kind = store.runKind(runId);
         return kind == null ? WorkflowKind.CHANGE : WorkflowKind.valueOf(kind);
     }

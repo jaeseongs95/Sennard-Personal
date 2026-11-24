@@ -286,7 +286,7 @@ abstract class AbstractMessagingServiceTest {
     }
 
     @Test
-    void aSessionAndItsActorsEachClaimTheirOwnPeerMessages() throws Exception {
+    void legacyChildAddressesAreExcludedFromDeliveryInBothDirections() throws Exception {
         at(T0);
         String ref = session("codex");
         PeerAddress root = PeerAddress.session(ref);
@@ -301,25 +301,40 @@ abstract class AbstractMessagingServiceTest {
         assertTrue(recalled.recalled());
         assertEquals("worker-one", service().status(root, toFirst).orElseThrow().targetActorId());
         assertEquals(MessageState.QUEUED, service().status(first, toRoot).orElseThrow().state());
-        assertEquals(1L, pending(ref), "the existing root inbox contains the reply");
+        assertEquals(0L, pending(ref), "legacy child content is excluded before counting root delivery candidates");
 
-        assertEquals(List.of(toRoot), claim(ref, null, null).stream().map(ClaimedMessage::messageId).toList());
-        assertEquals(List.of(toSecond), service().claim(second, null).stream().map(ClaimedMessage::messageId).toList());
-        List<ClaimedMessage> firstInbox = service().claim(first, null);
-        assertEquals(List.of(toFirst), firstInbox.stream().map(ClaimedMessage::messageId).toList());
-        ClaimedMessage delivery = firstInbox.getFirst();
-        assertEquals("first job", delivery.body());
-        assertEquals("", delivery.senderActorId());
-        assertEquals("worker-one", delivery.recipientActorId());
-        List<ClaimReceipt> receipts = List.of(receiptOf(delivery));
-        assertEquals(1, service().acknowledge(first, List.of(toFirst), receipts, Operations.fresh("acknowledge_session_messages", ref), ignored -> { }));
-        assertEquals(0, service().acknowledge(first, List.of(toFirst), receipts, Operations.fresh("acknowledge_session_messages", ref), ignored -> { }));
-        assertEquals(MessageState.ACKNOWLEDGED, service().status(root, toFirst).orElseThrow().state());
+        assertTrue(claim(ref, null, null).isEmpty());
+        assertEquals(MessageState.QUEUED, service().status(root, toFirst).orElseThrow().state());
+        assertEquals(MessageState.QUEUED, service().status(root, toSecond).orElseThrow().state());
+        assertTrue(service().recall(root, toFirst, Operations.fresh("recall_session_message", ref), RecallResult.class, Function.identity()).recalled());
         assertCountersMatchRows();
     }
 
     @Test
-    void actorsHaveSeparateOperationReceiptsAndAnAddressHasOneLiveClaim() throws Exception {
+    void aLegacyPhysicalChildCannotDeliverReceiveOrAcknowledgeAfterItIsRecognized() throws Exception {
+        at(T0);
+        String child = session("codex");
+        String root = session("codex");
+        String other = session("claude-code");
+        String old = sent(child, "codex", root, "already claimed before classification", null);
+        ClaimReceipt receipt = receiptOf(claim(root, null, null).getFirst());
+        String fromChild = sent(child, "codex", root, "queued from a physical child", null);
+        String toChild = sent(root, "codex", child, "queued to a physical child", null);
+        String fromMain = sent(other, "claude-code", root, "queued from the other main", null);
+        owner("UPDATE sennard.session_ref SET kind = 'CHILD', parent_ref = '" + root + "' WHERE session_ref = '" + child + "'");
+
+        assertEquals(1L, pending(root));
+        assertEquals(0L, pending(child));
+        assertEquals(List.of(fromMain), claim(root, new ClaimLimits(1, null), null).stream().map(ClaimedMessage::messageId).toList());
+        assertTrue(claim(child, null, null).isEmpty());
+        assertEquals(0, service().acknowledge(root, List.of(old), List.of(receipt), Operations.fresh("acknowledge_session_messages", root), ignored -> { }));
+        assertTrue(service().recall(child, fromChild, Operations.fresh("recall_session_message", child), RecallResult.class, Function.identity()).recalled());
+        assertTrue(service().recall(root, toChild, Operations.fresh("recall_session_message", root), RecallResult.class, Function.identity()).recalled());
+        assertCountersMatchRows();
+    }
+
+    @Test
+    void legacyActorOperationReceiptsStaySeparateAndRootClaimsRemainExclusive() throws Exception {
         at(T0);
         String ref = session("codex");
         PeerAddress root = PeerAddress.session(ref);
@@ -334,9 +349,11 @@ abstract class AbstractMessagingServiceTest {
         OperationKey send = Operations.fresh("send_session_message", ref);
         Sent sent = service().send(first, "codex", firstDraft.messageId(), send, Sent.class, Function.identity()).value();
         assertEquals(sent, service().send(first, "codex", firstDraft.messageId(), send, Sent.class, Function.identity()).value());
-        List<ClaimedMessage> claimed = parallel(WRITERS, index -> service().claim(root, null)).stream().flatMap(List::stream).toList();
-        assertEquals(List.of(firstDraft.messageId()), claimed.stream().map(ClaimedMessage::messageId).toList());
-        assertEquals("worker-one", claimed.getFirst().senderActorId());
+        String otherRoot = session("codex");
+        String rootMessage = sent(PeerAddress.session(otherRoot), root, "main session message");
+        List<ClaimedMessage> claimed = parallel(WRITERS, index -> claim(ref, null, null)).stream().flatMap(List::stream).toList();
+        assertEquals(List.of(rootMessage), claimed.stream().map(ClaimedMessage::messageId).toList());
+        assertEquals("", claimed.getFirst().senderActorId());
         assertCountersMatchRows();
     }
 
@@ -1108,13 +1125,13 @@ abstract class AbstractMessagingServiceTest {
         // Two transactions on two connections of the database, in two threads. The first takes the row and holds its transaction open; the second runs the same claim.
         Future<Integer> firstClaim = pool.submit(() -> first.execute(status -> {
             firstBackend.set(LockWaits.backendOfThisTransaction(context.dataSource()));
-            int changed = queue.claim(id, target, "", 0, T0, T0.plusSeconds(120), T0, "1:first");
+            int changed = queue.claim(id, target, 0, T0, T0.plusSeconds(120), T0, "1:first");
             firstHoldsTheRow.countDown();
             awaitInsideTransaction(firstMayCommit);
             return changed;
         }));
         await(firstHoldsTheRow);
-        Future<Integer> secondClaim = pool.submit(() -> second.execute(status -> queue.claim(id, target, "", 0, T0, T0.plusSeconds(120), T0, "1:second")));
+        Future<Integer> secondClaim = pool.submit(() -> second.execute(status -> queue.claim(id, target, 0, T0, T0.plusSeconds(120), T0, "1:second")));
         // The second claimer waits for the first one's row lock: the database itself says a statement waits for a lock the first transaction holds, and the second has not answered.
         awaitAStatementWaitingForALock(firstBackend.get());
         assertFalse(secondClaim.isDone(), "the second claimer waits for the first one's commit");

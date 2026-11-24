@@ -9,22 +9,24 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
-import org.springframework.jdbc.datasource.init.ScriptException;
 
 import io.github.jaeseongs95.sennard.domain.Timestamps;
 import io.github.jaeseongs95.sennard.service.database.SqlBuilder;
@@ -59,6 +61,14 @@ public final class HistoryMigrator {
     /** What a history row says. The column holds the constant's name and, where the database takes it (MigrationTarget), a CHECK lists the two. */
     enum Outcome { SUCCEEDED, FAILED }
 
+    /** One exact statement to execute with the attempt timestamp as its sole JDBC parameter. */
+    public record TimestampBinding(String originalStatement, String parameterizedStatement) {}
+
+    @FunctionalInterface
+    public interface TimestampBindings {
+        Optional<TimestampBinding> forScript(MigrationScript script);
+    }
+
     private record HistoryRow(long version, int attempt, String script, String digest, Outcome outcome) {
         /**
          * One history row as the database holds it. The outcome column has no CHECK on every database, so a name that is none of {@link Outcome} means the history cannot be read: the
@@ -90,6 +100,12 @@ public final class HistoryMigrator {
      * @throws SQLException the database answered with a failure the runner has no code for
      */
     public int run(Connection connection, MigrationTarget target, List<MigrationScript> scripts) throws SQLException {
+        return run(connection, target, scripts, script -> Optional.empty());
+    }
+
+    /** Applies pending scripts, allowing the adapter to bind the attempt timestamp to a statement in a pending script. */
+    public int run(Connection connection, MigrationTarget target, List<MigrationScript> scripts,
+            TimestampBindings timestampBindings) throws SQLException {
         connection.setAutoCommit(false);
         Database product = SqlBuilder.ofProductName(connection.getMetaData().getDatabaseProductName());
         ScriptDialect dialect = ScriptDialect.of(product);
@@ -101,7 +117,8 @@ public final class HistoryMigrator {
         String longText = SqlBuilder.generateLongText(product);
         int applied = 0;
         for (MigrationScript script : pending) {
-            if (apply(connection, history, target, script, nextAttempt(rows, script.version()), longText, dialect)) {
+            if (apply(connection, history, target, script, nextAttempt(rows, script.version()),
+                    script.text(longText, dialect), timestampBindings)) {
                 applied++;
             }
         }
@@ -219,30 +236,56 @@ public final class HistoryMigrator {
      * Applies one script in its own transaction; false when another runner applied the number first. The attempt is claimed first, as FAILED, and turned to SUCCEEDED by the last
      * statement of the transaction.
      */
-    private boolean apply(Connection connection, JdbcClient history, MigrationTarget target, MigrationScript script, int attempt, String longText, ScriptDialect dialect)
-            throws SQLException {
+    private boolean apply(Connection connection, JdbcClient history, MigrationTarget target, MigrationScript script, int attempt,
+            String sql, TimestampBindings timestampBindings) throws SQLException {
+        Optional<TimestampBinding> timestampBinding = timestampBindings.forScript(script);
+        int start = timestampBinding.map(binding -> uniqueStatementStart(sql, binding, script, target)).orElse(-1);
+        LocalDateTime appliedAt = Timestamps.toTimestamp(clock.instant());
         try {
-            claim(history, target, script, attempt);
-            ResourceDatabasePopulator populator = new ResourceDatabasePopulator(false, false, StandardCharsets.UTF_8.name(),
-                    new ByteArrayResource(script.text(longText, dialect).getBytes(StandardCharsets.UTF_8), script.file()));
-            populator.populate(connection);
-            history.sql("UPDATE " + target.qualified() + " SET outcome = ? WHERE version = ? AND attempt = ?").params(Outcome.SUCCEEDED.name(), script.version(), attempt).update();
-            connection.commit();
-            return true;
+            claim(history, target, script, attempt, appliedAt);
         } catch (DuplicateKeyException taken) {
             connection.rollback();
             return appliedByAnother(connection, history, target, script, taken);
-        } catch (ScriptException failure) {
+        }
+        try {
+            if (timestampBinding.isPresent()) {
+                TimestampBinding binding = timestampBinding.orElseThrow();
+                int end = start + binding.originalStatement().length();
+                populate(connection, script.file(), sql.substring(0, start));
+                history.sql(binding.parameterizedStatement()).param(appliedAt).update();
+                populate(connection, script.file(), sql.substring(end));
+            } else {
+                populate(connection, script.file(), sql);
+            }
+        } catch (DataAccessException failure) {
             connection.rollback();
             recordFailure(connection, history, target, script, attempt, failure);
             throw new MigrationException(MigrationCode.FAILED, "The migration " + script.file() + " did not apply (" + target.location() + ").", failure);
         }
+        history.sql("UPDATE " + target.qualified() + " SET outcome = ? WHERE version = ? AND attempt = ?").params(Outcome.SUCCEEDED.name(), script.version(), attempt).update();
+        connection.commit();
+        return true;
+    }
+
+    private static int uniqueStatementStart(String sql, TimestampBinding binding, MigrationScript script, MigrationTarget target) {
+        String statement = binding.originalStatement();
+        int start = sql.indexOf(statement);
+        if (start < 0 || sql.indexOf(statement, start + statement.length()) >= 0) {
+            throw new MigrationException(MigrationCode.CHANGED, "The statement to bind in " + script.file() + " (" + target.location() + ") does not match.");
+        }
+        return start;
+    }
+
+    private static void populate(Connection connection, String file, String sql) {
+        ResourceDatabasePopulator populator = new ResourceDatabasePopulator(false, false, StandardCharsets.UTF_8.name(),
+                new ByteArrayResource(sql.getBytes(StandardCharsets.UTF_8), file));
+        populator.populate(connection);
     }
 
     /** The first statement of an attempt: its row, as FAILED. The key is what a second runner of the same number waits on. */
-    private void claim(JdbcClient history, MigrationTarget target, MigrationScript script, int attempt) {
+    private static void claim(JdbcClient history, MigrationTarget target, MigrationScript script, int attempt, LocalDateTime appliedAt) {
         history.sql("INSERT INTO " + target.qualified() + " (version, attempt, script, digest, applied_at, outcome) VALUES (?, ?, ?, ?, ?, ?)")
-                .params(script.version(), attempt, script.file(), script.digest(), Timestamps.toTimestamp(clock.instant()), Outcome.FAILED.name()).update();
+                .params(script.version(), attempt, script.file(), script.digest(), appliedAt, Outcome.FAILED.name()).update();
     }
 
     /**
@@ -267,9 +310,10 @@ public final class HistoryMigrator {
      * The attempt of a script that failed stays in the history, in a transaction of its own (the script's was rolled back). The row is there already when the database committed
      * the claim with the script's first DDL statement (it says FAILED), or when another runner took the attempt; either way no row is added.
      */
-    private void recordFailure(Connection connection, JdbcClient history, MigrationTarget target, MigrationScript script, int attempt, ScriptException cause) throws SQLException {
+    private void recordFailure(Connection connection, JdbcClient history, MigrationTarget target, MigrationScript script, int attempt, DataAccessException cause)
+            throws SQLException {
         try {
-            claim(history, target, script, attempt);
+            claim(history, target, script, attempt, Timestamps.toTimestamp(clock.instant()));
             connection.commit();
         } catch (DuplicateKeyException present) {
             connection.rollback();

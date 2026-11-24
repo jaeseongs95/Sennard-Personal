@@ -325,7 +325,9 @@ public class WorkflowToolSchemas {
         add(tools, "record_stage_result", record);
 
         add(tools, "get_workflow_status", idTool("runId"));
-        add(tools, "list_session_workflows", closedObject());
+        ObjectNode sessionList = closedObject();
+        properties(sessionList).set("openRootAfter", object().put("type", "string").put("maxLength", 255));
+        add(tools, "list_session_workflows", sessionList);
         add(tools, "finalize_workflow", revisionTool());
         add(tools, "abort_workflow", revisionTool());
 

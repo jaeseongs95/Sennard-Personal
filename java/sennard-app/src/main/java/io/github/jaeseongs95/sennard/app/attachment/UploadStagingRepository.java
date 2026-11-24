@@ -14,7 +14,7 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 /**
- * The uploads in progress, one row per file of a bundle. The {@code Repository} marker: only what is declared here is offered. Every change is one conditional statement, and what
+ * A row per file of a bundle, kept after completion to replay the original begin. The {@code Repository} marker: only what is declared here is offered. Every change is one conditional statement, and what
  * decides a race is the number of rows it changed, never a lock taken by hand: the repository joins the transaction of the service method that calls it and opens none.
  */
 public interface UploadStagingRepository extends Repository<UploadStaging, String> {
@@ -83,13 +83,8 @@ public interface UploadStagingRepository extends Repository<UploadStaging, Strin
     @Query("DELETE FROM sennard.upload_staging WHERE id = :id AND state = 'STAGING' AND expires_at <= :now")
     int deleteExpired(@Param("id") String id, @Param("now") Instant now);
 
-    /** The cleaner's delete of an upload whose attachment is made; the file is the attachment's and is not deleted. */
-    @Modifying
-    @Query("DELETE FROM sennard.upload_staging WHERE id = :id AND state = 'COMPLETED'")
-    int deleteCompleted(@Param("id") String id);
-
-    @Query("SELECT COUNT(*) FROM sennard.upload_staging WHERE storage_key = :storageKey")
-    long countByKey(@Param("storageKey") String storageKey);
+    @Query("SELECT COUNT(*) FROM sennard.upload_staging WHERE storage_key = :storageKey AND state = 'STAGING'")
+    long countStagingByKey(@Param("storageKey") String storageKey);
 
     /** The key ids the uploads in progress are written with: the start check needs every one of their key files. */
     @Query("SELECT DISTINCT key_id FROM sennard.upload_staging WHERE state = 'STAGING' ORDER BY key_id")

@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -66,6 +67,11 @@ import io.github.jaeseongs95.sennard.domain.error.InvalidInputException;
  * h  optimistic lock       two transactions read one row, both save -> the second gets OptimisticLockingFailureException (repository level)
  * i  errors and wording    ErrorMessagesTest (sennard-app): every code has its catalog line in English and Korean, the categories match, the names do not collide
  * s  schema facts          no row-level security on the board table, key (host, session_id), version NOT NULL, the times are TIMESTAMP without a zone
+ * t1 title lifecycle       untitled row -> first assignment A -> rename B; reads use the existing host and ID, and a reopened context reads B.
+ *                          Summary, role, cwd, last prompt and seen time are preserved by title writes.
+ * t2 title identity        three sessions share one title; renaming one leaves the two other (host, session ID) pairs untouched.
+ * t3 title ordering        later title wins over late older data; no observation keeps the title; explicit newer removal clears it
+ *                          and an older title cannot restore it.
  * </pre>
  *
  * The cases (a) to (f), (h) and (s) are written here and run by both subclasses; each subclass states how its context is connected. The class runs on the
@@ -129,6 +135,102 @@ abstract class AbstractBoardServiceTest {
 
     private static Instant stamp(Instant instant) {
         return instant.truncatedTo(java.time.temporal.ChronoUnit.MILLIS); // what the service stores and returns
+    }
+
+    @Test
+    void anExistingSessionKeepsItsLatestTitleAcrossBoardContexts() {
+        String host = "codex";
+        String id = "title-lifecycle";
+        at(T0);
+        board().recordInput(host, id, "/work/title", true);
+        setSummaryKeyed(host, id, "Reviewing a change", "developer");
+        assertNull(entry(host, id).userTitle());
+
+        board().observeTitle(host, id, "Draft A", T0.plusSeconds(1));
+        assertEquals("Draft A", entry(host, id).userTitle());
+        board().observeTitle(host, id, "Draft B", T0.plusSeconds(2));
+        assertEquals("Draft B", entry(host, id).userTitle());
+        try (var reopened = open(T1)) {
+            BoardEntry reread = reopened.bean(BoardService.class).readEntry(host, id).orElseThrow();
+            assertEquals("Draft B", reread.userTitle());
+            assertEquals("/work/title", reread.cwd());
+            assertEquals("Reviewing a change", reread.summary());
+            assertEquals("developer", reread.role());
+            assertEquals(T0, reread.summaryAt());
+            assertEquals(T0, reread.lastPromptAt());
+            BoardSession row = reopened.bean(BoardSessionRepository.class).findByKeyHostAndKeySessionId(host, id).orElseThrow();
+            assertEquals(T0, row.seenAt(), "title observations leave the session's last-seen time intact");
+        }
+    }
+
+    @Test
+    void twoHostsAndTwoIdsCanUseTheSameTitleWithoutSharingUpdates() {
+        at(T0);
+        board().recordInput("codex", "title-same-id", null, false);
+        board().recordInput("codex", "title-other-id", null, false);
+        board().recordInput("claude", "title-same-id", null, false);
+        board().observeTitle("codex", "title-same-id", "Same title", T0);
+        board().observeTitle("codex", "title-other-id", "Same title", T0);
+        board().observeTitle("claude", "title-same-id", "Same title", T0);
+
+        board().observeTitle("codex", "title-same-id", "Renamed", T1);
+        assertEquals("Renamed", entry("codex", "title-same-id").userTitle());
+        assertEquals("Same title", entry("codex", "title-other-id").userTitle());
+        assertEquals("Same title", entry("claude", "title-same-id").userTitle());
+    }
+
+    @Test
+    void aLateObservationAndAnInputWithoutATitleCannotOverwriteTheLatestTitle() {
+        String host = "codex";
+        String id = "title-order";
+        at(T0);
+        board().recordInput(host, id, null, false);
+        board().observeTitle(host, id, "New title", T1);
+        board().observeTitle(host, id, "Old title", T0.plusSeconds(1));
+        board().observeTitle(host, id, null, T0.plusSeconds(2));
+        assertEquals("New title", entry(host, id).userTitle());
+
+        at(T1.plusSeconds(1));
+        board().recordInput(host, id, null, false);
+        setSummaryKeyed(host, id, "Still working", null);
+        assertEquals("New title", entry(host, id).userTitle());
+
+        board().observeTitle(host, id, null, T1.plusSeconds(2));
+        assertNull(entry(host, id).userTitle(), "an explicit newer removal clears the title");
+        board().observeTitle(host, id, "Late title", T1.plusSeconds(1));
+        assertNull(entry(host, id).userTitle(), "an older observation cannot undo an explicit removal");
+    }
+
+    @Test
+    void concurrentCopiesOfATitleWriteOnceAndInvalidateAStaleAggregate() throws Exception {
+        String host = "codex";
+        String id = "title-race";
+        board().observeTitle(host, id, "Orphan title", T0);
+        assertNull(entry(host, id));
+        at(T0);
+        board().recordInput(host, id, null, false);
+        BoardSessionRepository sessions = context.bean(BoardSessionRepository.class);
+        BoardSession stale = sessions.findByKeyHostAndKeySessionId(host, id).orElseThrow();
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var start = new CountDownLatch(1);
+            Callable<Void> write = () -> {
+                assertTrue(start.await(5, TimeUnit.SECONDS));
+                board().observeTitle(host, id, "Saved title", T1.plusMillis(1).plusNanos(1));
+                return null;
+            };
+            var first = pool.submit(write);
+            var duplicate = pool.submit(write);
+            start.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            duplicate.get(10, TimeUnit.SECONDS);
+        }
+        board().observeTitle(host, id, "Equal database instant", T1.plusMillis(1).plusNanos(999_999));
+        assertThrows(OptimisticLockingFailureException.class, () -> sessions.save(stale.summarized("Stale summary", T0, null)));
+        BoardSession current = sessions.findByKeyHostAndKeySessionId(host, id).orElseThrow();
+        assertEquals(1L, current.version());
+        assertEquals("Saved title", current.userTitle());
+        assertEquals(T1.plusMillis(1), current.userTitleObservedAt());
+        assertEquals(T0, current.seenAt());
     }
 
     // ------------------------------------------------------------------------------------------------------------------ a
@@ -368,9 +470,9 @@ abstract class AbstractBoardServiceTest {
             }
             // the standard's TIMESTAMP without a zone is PostgreSQL's 'timestamp without time zone'
             try (ResultSet rows = s.executeQuery("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'sennard' AND table_name = 'board_sessions' "
-                    + "AND column_name IN ('summary_at', 'last_prompt_at', 'seen_at') AND data_type = 'timestamp without time zone'")) {
+                    + "AND column_name IN ('summary_at', 'last_prompt_at', 'seen_at', 'user_title_observed_at') AND data_type = 'timestamp without time zone'")) {
                 assertTrue(rows.next());
-                assertEquals(3, rows.getInt(1), "the times are TIMESTAMP without a zone: the conversion is Java's");
+                assertEquals(4, rows.getInt(1), "the times are TIMESTAMP without a zone: the conversion is Java's");
             }
         }
     }

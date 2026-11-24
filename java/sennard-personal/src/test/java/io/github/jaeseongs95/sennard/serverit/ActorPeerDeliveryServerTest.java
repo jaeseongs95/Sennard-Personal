@@ -5,6 +5,7 @@
 package io.github.jaeseongs95.sennard.serverit;
 
 import static io.github.jaeseongs95.sennard.serverit.DomainServerSupport.arguments;
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -23,6 +25,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import io.github.jaeseongs95.sennard.app.messaging.MessagingService;
+import io.github.jaeseongs95.sennard.domain.messaging.PeerAddress;
+import io.github.jaeseongs95.sennard.domain.messaging.Sent;
 import io.github.jaeseongs95.sennard.service.identity.SessionRegistry;
 import io.modelcontextprotocol.client.McpSyncClient;
 import tools.jackson.databind.JsonNode;
@@ -43,204 +48,157 @@ class ActorPeerDeliveryServerTest {
         server.close();
     }
 
+    @Test
+    void observedAntigravityConversationsRetainTheirImmediateParents() throws Exception {
+        String root = SessionServerSupport.uniqueSession();
+        String child = SessionServerSupport.uniqueSession();
+        String grandchild = SessionServerSupport.uniqueSession();
+        var registry = server.bean(SessionRegistry.class);
+        hook("agy", "SessionStart", root, body -> {});
+        DomainServerSupport.observeAgyRoot(server, root);
+        hook("agy", "SessionStart", child, body -> {});
+        DomainServerSupport.observeAgy(server, child, root, root);
+        DomainServerSupport.observeAgy(server, grandchild, root, child);
+
+        var membership = registry.treeMembership("antigravity", grandchild).orElseThrow();
+        assertEquals(2, membership.depth());
+        assertEquals(registry.findRef("antigravity", child).orElseThrow(), membership.parentRef());
+        assertEquals(root, membership.rootSessionId());
+        var judgement = registry.notifyToolByRef(membership.rootRef()).orElseThrow().judgment();
+        hook("agy", "Stop", child, body -> {});
+        assertTrue(registry.isLiveGeneration(membership.rootRef(), judgement.generation()));
+    }
+
     @ParameterizedTest
     @CsvSource({"codex,codex,PostToolUse", "claude,claude-code,PostToolUse", "agy,antigravity,PreInvocation"})
-    void observedChildrenHaveSeparatePeerMailboxes(String host, String storedHost, String boundary) throws Exception {
+    void peerEndpointsAreMainSessions(String host, String storedHost, String boundary) throws Exception {
         String root = SessionServerSupport.uniqueSession();
         String child = SessionServerSupport.uniqueSession();
         String sibling = SessionServerSupport.uniqueSession();
-        String sender = SessionServerSupport.uniqueSession();
+        String other = SessionServerSupport.uniqueSession();
         hook(host, "SessionStart", root, body -> {});
-        hook("codex", "SessionStart", sender, body -> {});
-
-        String inbound = "inbound-" + UUID.randomUUID();
-        String id = data(call("codex", sender, null, "prepare_session_message",
-                arguments("targetHost", storedHost, "targetSessionId", root, "targetActorId", child, "body", inbound))).path("messageId").asString();
-        JsonNode sent = data(call("codex", sender, null, "send_session_message", arguments("messageId", id)));
-        assertEquals("no-live-relay", sent.path("autoWake").path("state").asString());
+        hook("codex", "SessionStart", other, body -> {});
         if (host.equals("agy")) {
-            assertFalse(atBoundary(host, boundary, root, child).contains(BEGIN), "a provisional conversation cannot claim");
             DomainServerSupport.observeAgyRoot(server, root);
             DomainServerSupport.observeAgy(server, child, root, root);
             DomainServerSupport.observeAgy(server, sibling, root, root);
-            String unrelatedRoot = SessionServerSupport.uniqueSession();
-            hook(host, "SessionStart", unrelatedRoot, body -> {});
-            DomainServerSupport.observeAgyRoot(server, unrelatedRoot);
-            JsonNode misbound = call(host, unrelatedRoot, child, "prepare_session_message",
-                    arguments("targetHost", "codex", "targetSessionId", sender, "body", "cross-root draft"));
-            assertFalse(misbound.path("ok").asBoolean(), "the same child cannot act from another root");
-            assertFalse(atBoundary(host, "PostToolUse", root, child).contains(BEGIN), "no delivery slot");
         }
-        if (host.equals("codex")) {
-            assertFalse(atBoundary(host, "PostModelRequest", root, child).contains(BEGIN), "no delivery slot");
-        }
-        assertFalse(atBoundary(host, boundary, root, null).contains(BEGIN));
-        assertFalse(atBoundary(host, boundary, root, sibling).contains(BEGIN));
+        Map<String, Object> explicitChild = arguments("targetHost", storedHost, "targetSessionId", root, "targetActorId", child, "body", "child target");
+        Map<String, Object> toOther = arguments("targetHost", "codex", "targetSessionId", other, "body", "root-only message");
+        String rootId = data(call(host, root, null, "prepare_session_message", toOther)).path("messageId").asString();
+        var ids = arguments("messageIds", List.of(rootId));
 
-        JsonNode inboundEnvelope = message(atBoundary(host, boundary, root, child));
-        assertEquals(inbound, inboundEnvelope.path("message").asString());
-        assertEquals(root, inboundEnvelope.path("recipient").path("sessionId").asString());
-        assertEquals(child, inboundEnvelope.path("recipient").path("actorId").asString());
-        assertEquals(child, status("codex", sender, null, id).path("target").path("actorId").asString());
-        JsonNode receipt = inboundEnvelope.path("receipt");
-        Map<String, Object> ack = arguments("messageIds", List.of(id), "receipts",
-                List.of(Map.of("messageId", id, "claimReceipt", receipt.path("claimReceipt").asString())));
-        assertEquals(0, data(call(host, root, null, "acknowledge_session_messages", ack)).path("acknowledged").asInt());
-        assertEquals(0, data(call(host, root, sibling, "acknowledge_session_messages", ack)).path("acknowledged").asInt());
-        assertEquals(1, data(call(host, root, child, "acknowledge_session_messages", ack)).path("acknowledged").asInt());
+        assertAll(
+                () -> assertRefused(call("codex", other, null, "prepare_session_message", explicitChild)),
+                () -> assertRefused(call(host, root, child, "prepare_session_message", toOther)),
+                () -> assertRefused(call(host, root, child, "send_session_message", arguments("messageId", rootId))),
+                () -> assertRefused(call(host, root, child, "get_session_message_status", arguments("messageId", rootId))),
+                () -> assertRefused(call(host, root, child, "recall_session_message", arguments("messageId", rootId))),
+                () -> assertRefused(call(host, root, sibling, "acknowledge_session_messages", ids)),
+                () -> assertFalse(atBoundary(host, boundary, root, child).contains(BEGIN)));
 
-        String outbound = "outbound-" + UUID.randomUUID();
-        String replyId = data(call(host, root, child, "prepare_session_message",
-                arguments("targetHost", "codex", "targetSessionId", sender, "body", outbound))).path("messageId").asString();
-        assertTrue(status(host, root, null, replyId).isNull());
-        assertTrue(status(host, root, sibling, replyId).isNull());
-        assertFalse(data(call(host, root, null, "recall_session_message", arguments("messageId", replyId))).path("recalled").asBoolean());
-        assertFalse(call(host, root, sibling, "send_session_message", arguments("messageId", replyId)).path("ok").asBoolean());
-        data(call(host, root, child, "send_session_message", arguments("messageId", replyId)));
-        JsonNode reply = message(atBoundary("codex", "PostToolUse", sender, null));
-        assertEquals(outbound, reply.path("message").asString());
-        assertEquals(root, reply.path("sender").path("sessionId").asString());
-        assertEquals(child, reply.path("sender").path("actorId").asString());
-
-        assertSource(receipt.path("sourceReceiptId").asString(), "recipientActorId", child);
-        assertSource(reply.path("receipt").path("sourceReceiptId").asString(), "senderActorId", child);
-        assertEquals(0, SessionServerSupport.count(server, "SELECT count(*) FROM sennard.user_prompt WHERE session_id IN (?, ?, ?, ?)", root, child, sibling, sender));
-    }
-
-    private static JsonNode status(String host, String root, String actor, String id) throws IOException {
-        return data(call(host, root, actor, "get_session_message_status", arguments("messageId", id))).path("status");
+        data(call(host, root, null, "send_session_message", arguments("messageId", rootId)));
+        assertTrue(atBoundary("codex", "PostToolUse", other, null).contains("root-only message"));
+        assertEquals(0, SessionServerSupport.count(server, "SELECT count(*) FROM sennard.user_prompt WHERE session_id IN (?, ?, ?)", root, child, sibling));
     }
 
     @ParameterizedTest
-    @CsvSource({"codex,codex", "claude,claude-code"})
-    void managedConversationUsesOnlyItsBoundPeerActor(String host, String storedHost) throws Exception {
+    @CsvSource({"codex,codex,PostToolUse", "claude,claude-code,PostToolUse", "agy,antigravity,PreInvocation"})
+    void previouslyAddressedChildMessagesCannotBeSentOrClaimed(String host, String storedHost, String boundary) throws Exception {
         String root = SessionServerSupport.uniqueSession();
         String child = SessionServerSupport.uniqueSession();
-        String sibling = SessionServerSupport.uniqueSession();
+        String other = SessionServerSupport.uniqueSession();
         hook(host, "SessionStart", root, body -> {});
+        hook("codex", "SessionStart", other, body -> {});
+        if (host.equals("agy")) {
+            DomainServerSupport.observeAgyRoot(server, root);
+            DomainServerSupport.observeAgy(server, child, root, root);
+        }
+        var registry = server.bean(SessionRegistry.class);
+        String rootRef = registry.findRef(storedHost, root).orElseThrow();
+        String otherRef = registry.findRef("codex", other).orElseThrow();
+        var childAddress = new PeerAddress(rootRef, child);
+        var otherAddress = PeerAddress.session(otherRef);
+        var queue = server.bean(MessagingService.class);
+        String unsent = legacyDraft(queue, otherAddress, childAddress, "old draft for child");
+        String toChild = legacyDraft(queue, otherAddress, childAddress, "old message for child");
+        String fromChild = legacyDraft(queue, childAddress, otherAddress, "old message from child");
+        legacySend(queue, otherAddress, "codex", toChild);
+        legacySend(queue, childAddress, storedHost, fromChild);
+        String legitimate = data(call("codex", other, null, "prepare_session_message",
+                arguments("targetHost", storedHost, "targetSessionId", root, "body", "deliver only to root"))).path("messageId").asString();
+        data(call("codex", other, null, "send_session_message", arguments("messageId", legitimate)));
+
+        assertAll(
+                () -> assertRefused(call("codex", other, null, "send_session_message", arguments("messageId", unsent))),
+                () -> assertFalse(atBoundary(host, boundary, root, child).contains(BEGIN)),
+                () -> {
+                    String rootOutput = atBoundary(host, boundary, root, null);
+                    assertTrue(rootOutput.contains("deliver only to root"), rootOutput);
+                    assertFalse(rootOutput.contains("old message"));
+                },
+                () -> assertFalse(atBoundary("codex", "PostToolUse", other, null).contains(BEGIN)));
+        var status = data(call("codex", other, null, "get_session_message_status", arguments("messageId", toChild))).path("status");
+        assertEquals("QUEUED", status.path("state").asString());
+        assertTrue(data(call("codex", other, null, "recall_session_message", arguments("messageId", toChild))).path("recalled").asBoolean());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"codex,codex,PostToolUse", "claude,claude-code,PostToolUse", "agy,antigravity,PreInvocation"})
+    void managedConversationCannotBeAddressedAsPeerByPhysicalId(String host, String storedHost, String boundary) throws Exception {
+        String root = SessionServerSupport.uniqueSession();
+        String child = SessionServerSupport.uniqueSession();
+        String other = SessionServerSupport.uniqueSession();
+        hook(host, "SessionStart", root, body -> {});
+        hook("codex", "SessionStart", other, body -> {});
+        if (host.equals("agy")) {
+            DomainServerSupport.observeAgyRoot(server, root);
+        }
         var registry = server.bean(SessionRegistry.class);
         String rootRef = registry.findRef(storedHost, root).orElseThrow();
         long generation = ((Number) SessionServerSupport.row(server, "SELECT generation FROM sennard.active_generation WHERE session_ref = ?", rootRef)
                 .get("generation")).longValue();
         assertTrue(registry.bindManagedChild(storedHost, root, rootRef, generation, child));
-        assertTrue(registry.bindManagedChild(storedHost, root, rootRef, generation, sibling));
         String childRef = registry.findRef(storedHost, child).orElseThrow();
-
         hook(host, "SessionStart", child, body -> {});
-        hook(host, "UserPromptSubmit", child, body -> body.put("prompt", "managed turn input"));
+        assertFalse(atBoundary(host, boundary, child, null).contains(BEGIN));
         assertEquals(0, SessionServerSupport.count(server, "SELECT count(*) FROM sennard.active_generation WHERE session_ref = ?", childRef));
         assertEquals(0, SessionServerSupport.count(server, "SELECT count(*) FROM sennard.user_prompt WHERE session_id = ?", child));
-
-        String id = data(call(host, root, null, "prepare_session_message",
-                arguments("targetHost", storedHost, "targetSessionId", root, "targetActorId", child, "body", "work for this child"))).path("messageId").asString();
-        data(call(host, root, null, "send_session_message", arguments("messageId", id)));
-        assertFalse(atBoundary(host, "PostToolUse", root, null).contains(BEGIN));
-        assertFalse(atBoundary(host, "PostToolUse", sibling, null).contains(BEGIN));
         RawHttp.Response wrongPhysicalThread = DomainServerSupport.hook(server.port, "windows", host, "PostToolUse", null, root,
                 body -> body.put("agent_id", child));
-        assertEquals(409, wrongPhysicalThread.status(), DomainServerSupport.text(wrongPhysicalThread));
-        JsonNode delivered = message(atBoundary(host, "PostToolUse", child, null));
-        assertEquals(root, delivered.path("recipient").path("sessionId").asString());
-        assertEquals(child, delivered.path("recipient").path("actorId").asString());
-        assertEquals("work for this child", delivered.path("message").asString());
-        assertSource(delivered.path("receipt").path("sourceReceiptId").asString(), "recipientActorId", child);
-        Map<String, Object> ack = arguments("messageIds", List.of(id), "receipts",
-                List.of(Map.of("messageId", id, "claimReceipt", delivered.path("receipt").path("claimReceipt").asString())));
-        assertEquals(0, data(call(host, root, null, "acknowledge_session_messages", ack)).path("acknowledged").asInt());
-        assertEquals(0, data(call(host, sibling, null, "acknowledge_session_messages", ack)).path("acknowledged").asInt());
-        assertFalse(call(host, root, child, "acknowledge_session_messages", ack).path("ok").asBoolean(), "managed identity requires the physical thread");
-        assertEquals(1, data(call(host, child, null, "acknowledge_session_messages", ack)).path("acknowledged").asInt());
-
-        String replyId = data(call(host, child, null, "prepare_session_message",
-                arguments("targetHost", storedHost, "targetSessionId", root, "body", "reply from this child"))).path("messageId").asString();
-        data(call(host, child, null, "send_session_message", arguments("messageId", replyId)));
-        JsonNode reply = message(atBoundary(host, "PostToolUse", root, null));
-        assertEquals("reply from this child", reply.path("message").asString());
-        assertEquals(root, reply.path("sender").path("sessionId").asString());
-        assertEquals(child, reply.path("sender").path("actorId").asString());
-        assertSource(reply.path("receipt").path("sourceReceiptId").asString(), "senderActorId", child);
-        Map<String, Object> replyAck = arguments("messageIds", List.of(replyId), "receipts",
-                List.of(Map.of("messageId", replyId, "claimReceipt", reply.path("receipt").path("claimReceipt").asString())));
-        assertEquals(0, data(call(host, child, null, "acknowledge_session_messages", replyAck)).path("acknowledged").asInt());
-        assertEquals(1, data(call(host, root, null, "acknowledge_session_messages", replyAck)).path("acknowledged").asInt());
-
-        String statusTool = "get_session_message_status";
-        String staleCall = "toolu_" + UUID.randomUUID();
-        Map<String, Object> statusInput = arguments("messageId", replyId);
-        if ("claude".equals(host)) {
-            String toolUse = "toolu_" + UUID.randomUUID();
-            admitClaude(child, null, statusTool, toolUse);
-            try (var client = DomainServerSupport.client(server.port, host)) {
-                var meta = SessionServerSupport.meta("windows", host, child, toolUse);
-                data(DomainServerSupport.callAsSent(client, statusTool, statusInput, meta));
-                assertFalse(DomainServerSupport.callAsSent(client, statusTool, statusInput, meta).path("ok").asBoolean());
-            }
-            admitClaude(child, null, statusTool, staleCall);
+        if (!host.equals("agy")) {
+            assertEquals(409, wrongPhysicalThread.status(), DomainServerSupport.text(wrongPhysicalThread));
         }
+        var request = arguments("targetHost", storedHost, "targetSessionId", child, "body", "wrong physical address");
+        var result = call("codex", other, null, "prepare_session_message", request);
+        assertRefused(result);
 
-        hook(host, "SessionEnd", root, body -> {});
-        if ("claude".equals(host)) {
-            try (var client = DomainServerSupport.client(server.port, host)) {
-                var meta = SessionServerSupport.meta("windows", host, child, staleCall);
-                assertFalse(DomainServerSupport.callAsSent(client, statusTool, statusInput, meta).path("ok").asBoolean());
-            }
+        if (host.equals("agy")) {
+            registry.endByHook(storedHost, root, System.currentTimeMillis(), "test");
+        } else {
+            hook(host, "SessionEnd", root, body -> {});
         }
         assertFalse(registry.isLiveGeneration(rootRef, generation));
-        assertFalse(call(host, child, null, "acknowledge_session_messages", ack).path("ok").asBoolean());
         RawHttp.Response stale = DomainServerSupport.hook(server.port, "windows", host, "PostToolUse", null, child, body -> {});
         assertEquals(409, stale.status(), DomainServerSupport.text(stale));
         assertEquals(0, SessionServerSupport.count(server, "SELECT count(*) FROM sennard.active_generation WHERE session_ref IN (?, ?)", rootRef, childRef));
     }
 
-    @Test
-    void antigravityManagedChildUsesPhysicalConversationEvenBeforeItsFirstMcpCall() throws Exception {
-        String root = SessionServerSupport.uniqueSession();
-        String child = SessionServerSupport.uniqueSession();
-        String sibling = SessionServerSupport.uniqueSession();
-        hook("agy", "SessionStart", root, body -> {});
-        DomainServerSupport.observeAgyRoot(server, root);
-        var registry = server.bean(SessionRegistry.class);
-        String rootRef = registry.findRef("antigravity", root).orElseThrow();
-        long generation = ((Number) SessionServerSupport.row(server, "SELECT generation FROM sennard.active_generation WHERE session_ref = ?", rootRef)
-                .get("generation")).longValue();
-        assertTrue(registry.bindManagedChild("antigravity", root, rootRef, generation, child));
-        assertTrue(registry.bindManagedChild("antigravity", root, rootRef, generation, sibling));
-
-        hook("agy", "SessionStart", child, body -> {});
-        String id = data(call("agy", root, null, "prepare_session_message",
-                arguments("targetHost", "antigravity", "targetSessionId", root, "targetActorId", child, "body", "work for this child"))).path("messageId").asString();
-        data(call("agy", root, null, "send_session_message", arguments("messageId", id)));
-        assertFalse(atBoundary("agy", "PreInvocation", root, null).contains(BEGIN));
-        assertFalse(atBoundary("agy", "PreInvocation", sibling, null).contains(BEGIN));
-        JsonNode delivered = message(atBoundary("agy", "PreInvocation", child, null));
-        assertEquals(child, delivered.path("recipient").path("actorId").asString());
-        Map<String, Object> ack = arguments("messageIds", List.of(id), "receipts",
-                List.of(Map.of("messageId", id, "claimReceipt", delivered.path("receipt").path("claimReceipt").asString())));
-        assertEquals(0, data(call("agy", root, null, "acknowledge_session_messages", ack)).path("acknowledged").asInt());
-        assertFalse(call("agy", root, child, "acknowledge_session_messages", ack).path("ok").asBoolean());
-        assertEquals(1, data(call("agy", child, null, "acknowledge_session_messages", ack)).path("acknowledged").asInt());
-
-        hook("agy", "PreInvocation", child, body -> body.put("invocationNum", 0).put("lastUserInput", "automated child input"));
-        assertEquals(0, SessionServerSupport.count(server, "SELECT count(*) FROM sennard.user_prompt WHERE session_id IN (?, ?)", child, sibling));
+    private static String legacyDraft(MessagingService queue, PeerAddress sender, PeerAddress target, String body) {
+        return queue.prepare(sender, target, body, null, OperationKeys.operation("prepare_session_message", sender.sessionRef())).messageId();
     }
 
-    private static void assertSource(String id, String actorField, String actor) {
-        var row = SessionServerSupport.row(server, "SELECT receipt_json FROM sennard.input_source_receipts WHERE receipt_id = ?", id);
-        JsonNode receipt = DomainServerSupport.MAPPER.readTree((String) row.get("receipt_json"));
-        assertEquals("peer", receipt.path("originKind").asString());
-        assertEquals("none", receipt.path("authorityEffect").asString());
-        assertEquals(actor, receipt.path(actorField).asString());
+    private static void legacySend(MessagingService queue, PeerAddress sender, String host, String id) {
+        queue.send(sender, host, id, OperationKeys.operation("send_session_message", sender.sessionRef()), Sent.class, Function.identity());
+    }
+
+    private static void assertRefused(JsonNode answer) {
+        assertFalse(answer.path("ok").asBoolean(), answer.toString());
     }
 
     private static JsonNode data(JsonNode answer) {
         assertTrue(answer.path("ok").asBoolean(), answer.toString());
         return answer.path("data");
-    }
-
-    private static JsonNode message(String text) {
-        assertTrue(text.contains(BEGIN), text);
-        int start = text.indexOf('{', text.indexOf(BEGIN));
-        return DomainServerSupport.MAPPER.readTree(text.substring(start, text.indexOf('\n', start)));
     }
 
     private static String atBoundary(String host, String event, String root, String actor) throws IOException {

@@ -274,8 +274,9 @@ class SessionLifecycleServerTest {
         assertEquals(Provenance.HOST_OBSERVED, self.provenance());
         assertEquals(Role.ROOT, self.actor().role());
         assertNotNull(self.callId());
-        assertEquals(new Execution.Observed("gpt-6.1-sol", "low", "10000002-1111-4111-8111-000000000002", "codex:mcp-meta").model(),
-                assertInstanceOf(Execution.Observed.class, self.execution()).model());
+        Execution.Observed observed = assertInstanceOf(Execution.Observed.class, self.execution());
+        assertEquals("gpt-6.1-sol", observed.model());
+        assertEquals(Execution.Observed.Evidence.HOST_REPORT, observed.evidence(), "a host that reports the model with the call is neither the call's record nor a request's");
     }
 
     @ParameterizedTest
@@ -433,10 +434,20 @@ class SessionLifecycleServerTest {
     @Test
     void aKnownHostsObservedSessionIsNeverReplacedByAReferenceTheModelTyped() throws Exception {
         String session = SessionServerSupport.uniqueSession();
+        String otherSession = SessionServerSupport.uniqueSession();
         assertEquals(200, hook("windows", "codex", "SessionStart", null, session, "none").status());
-        SessionBinding opened = resolver().bind("t", Map.of(), new McpMeta(SessionServerSupport.meta("windows", "codex", session, "none")), labelled("codex"),
-                "as1_00000000000000000000000000");
-        assertEquals(rowOf("codex", session).get("session_ref"), assertInstanceOf(SessionBinding.Bound.class, opened).session().sessionRef());
+        assertEquals(200, hook("windows", "codex", "SessionStart", null, otherSession, "none").status());
+        String observedRef = (String) rowOf("codex", session).get("session_ref");
+        String otherRef = (String) rowOf("codex", otherSession).get("session_ref");
+        McpMeta meta = new McpMeta(SessionServerSupport.meta("windows", "codex", session, "none"));
+        McpTransportContext transport = labelled("codex");
+
+        BindingException mismatch = assertThrows(BindingException.class, () -> resolver().bind("t", Map.of(), meta, transport, otherRef));
+        assertEquals(BindingCode.BINDING_INVALID, mismatch.code());
+        assertEquals("SESSION_REF_MISMATCH", mismatch.details().get("reasonCode"));
+
+        SessionBinding opened = resolver().bind("t", Map.of(), meta, transport, observedRef);
+        assertEquals(observedRef, assertInstanceOf(SessionBinding.Bound.class, opened).session().sessionRef());
     }
 
     @Test
