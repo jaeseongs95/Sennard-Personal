@@ -40,5 +40,8 @@ jobs:
         run: >-
           ./gradlew --no-daemon --console=plain sonar
           -Dsonar.projectKey=sennard-source
+          -Dsonar.verbose=false
+          -Dsonar.log.level=INFO
+          -Dorg.gradle.logging.level=lifecycle
           -Dsonar.qualitygate.wait=true
           -Dsonar.qualitygate.timeout=300
