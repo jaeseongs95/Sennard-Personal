@@ -3,6 +3,7 @@ plugins {
     id("io.github.jaeseongs95.sennard.build-logic")
     // Its version is in java/settings.gradle.kts (pluginManagement). It adds spotlessCheck to `check` and spotlessApply, which writes the header into the files that lack it.
     id("com.diffplug.spotless")
+    id("org.sonarqube") version "7.5.0.8588"
 }
 
 // The license header of every source file (AGS3-D-0266, ADDITIONAL-TERMS.md): only the licenseHeader step, no formatter, so no code is reshaped.
@@ -101,6 +102,13 @@ allprojects {
 
 subprojects {
     apply(plugin = "java")
+    apply(plugin = "jacoco")
+
+    tasks.withType<org.gradle.testing.jacoco.tasks.JacocoReport>().configureEach {
+        reports {
+            xml.required.set(true)
+        }
+    }
 
     repositories {
         mavenCentral()
